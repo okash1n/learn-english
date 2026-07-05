@@ -31,10 +31,22 @@ let doneCount = 0;
 async function generateOne(s: { no: number; en: string }): Promise<void> {
   for (let attempt = 1; attempt <= 2; attempt++) {
     try {
-      await synthesize(s.en, {});
-      return;
+      const result = await synthesize(s.en, {});
+      // Check if actually using OpenAI (not the say fallback which is not cached)
+      if (result.engine === "openai") {
+        return;
+      }
+      // say fallback is not cached, treat as failure for retry
+      if (attempt === 1) {
+        await new Promise(r => setTimeout(r, 2000));
+      }
     } catch (err) {
-      if (attempt === 2) failed.push({ no: s.no, error: String(err) });
+      if (attempt === 1) {
+        await new Promise(r => setTimeout(r, 2000));
+      }
+    }
+    if (attempt === 2) {
+      failed.push({ no: s.no, error: "No OpenAI cache (fallback to say)" });
     }
   }
 }
