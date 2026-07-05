@@ -37,7 +37,8 @@ function PracticeCalendar({ days }: { days: string[] }) {
     if (!el) return;
     const compute = () => {
       const w = el.clientWidth;
-      setWeekCount(Math.max(8, Math.min(52, Math.floor((w - 30) / 23))));
+      // 曜日ラベル列+マージン+今日セルのoutline分を差し引く（はみ出し防止で保守的に）
+      setWeekCount(Math.max(8, Math.min(52, Math.floor((w - 48) / 23))));
     };
     compute();
     const ro = new ResizeObserver(compute);
@@ -78,8 +79,8 @@ function PracticeCalendar({ days }: { days: string[] }) {
           })();
           return (
             <div key={i} className="cal-week">
-              {/* 週頭（月曜）の日付。全列だと詰まるので隔週で表示 */}
-              <span className="cal-week-label">{i % 2 === 0 ? mondayLabel : ""}</span>
+              {/* 週頭（月曜）の日付は一番右=今週の列にだけ表示 */}
+              <span className="cal-week-label">{i === weeks.length - 1 ? mondayLabel : ""}</span>
               {col.map((c) => (
                 <div
                   key={c.ymd}

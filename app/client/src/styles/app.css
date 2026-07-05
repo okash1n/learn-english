@@ -141,7 +141,7 @@ ul, ol { margin: 0 0 var(--sp-3); padding-left: var(--sp-5); }
 .cal-weekdays { display: flex; flex-direction: column; gap: 5px; margin-right: var(--sp-1); }
 .cal-weekdays span { height: 18px; line-height: 18px; font-size: 10px; color: var(--text-muted); }
 .cal-week { display: flex; flex-direction: column; gap: 5px; }
-.cal-week-label { height: 14px; line-height: 14px; font-size: 10px; color: var(--text-muted); white-space: nowrap; }
+.cal-week-label { height: 14px; line-height: 14px; font-size: 10px; color: var(--text-muted); white-space: nowrap; width: max-content; margin-left: auto; }
 .day { width: 18px; height: 18px; border-radius: 5px; background: var(--border); }
 .day.is-done { background: var(--accent); }
 .day.is-today { outline: 2px solid var(--accent); outline-offset: 1px; }
