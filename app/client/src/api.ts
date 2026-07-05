@@ -89,11 +89,12 @@ export function sessionEndKeepalive(sessionId: string): void {
 }
 
 export type ContentItem = { id: string; kind: "topic" | "scenario"; title: string; titleJa: string; hints: string[] };
-export type MenuBlock = { id: string; kind: string; title: string; minutes: number; params: { topic?: ContentItem; scenario?: ContentItem } };
+export type MenuBlock = { id: string; kind: string; title: string; minutes: number; params: { topic?: ContentItem; scenario?: ContentItem; roundsSec?: number[] } };
 export type Menu = { minutes: number; date: string; blocks: MenuBlock[] };
 export type AeItem = { quote: string; issue: string; better: string; why_ja: string };
 export type AeFeedback = { items: AeItem[]; praise: string };
 export type Reflection = { goodPhrases: string[]; fixes: Array<{ original: string; better: string }>; noteForTomorrow_ja: string };
+export type PrepPack = { chunks: Array<{ en: string; ja: string }>; outline: string[] };
 
 export async function fetchMenu(minutes: 60 | 30): Promise<Menu> {
   const res = await fetch(`/api/menu/today?minutes=${minutes}`);
@@ -128,6 +129,16 @@ export async function fetchReflection(): Promise<Reflection> {
     body: JSON.stringify({}),
   });
   if (!res.ok) throw new Error(`reflection failed: ${await extractErrorMessage(res)}`);
+  return res.json();
+}
+
+export async function fetchPrepPack(topicId: string): Promise<PrepPack> {
+  const res = await fetch("/api/coach/prep", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ topicId }),
+  });
+  if (!res.ok) throw new Error(`prep failed: ${await extractErrorMessage(res)}`);
   return res.json();
 }
 

@@ -1,53 +1,75 @@
 import { useEffect, useRef, useState } from "react";
-import { fetchAeFeedback, sendSessionEvent, sttUpload, type AeFeedback, type ContentItem } from "../api";
-import { Recorder, stopPlayback } from "../audio";
+import {
+  fetchAeFeedback, fetchModelTalk, fetchPrepPack, sendSessionEvent, sttUpload, ttsFetch,
+  type AeFeedback, type ContentItem, type PrepPack,
+} from "../api";
+import { playBlob, Recorder, stopPlayback } from "../audio";
 import { formatMmSs, useCountdown } from "../useCountdown";
 
-const ROUNDS = [
-  { seconds: 240, label: "Round 1（4分）", listener: "Listener: a colleague who doesn't know this topic yet." },
-  { seconds: 180, label: "Round 2（3分）", listener: "New listener: your manager. Tell the same story, faster." },
-  { seconds: 120, label: "Round 3（2分）", listener: "New listener: someone at a conference. Same story, 2 minutes." },
+/** メニュー params に roundsSec が無い場合（当日分の古いキャッシュ等）のフォールバック */
+const DEFAULT_ROUNDS_SEC = [120, 90, 60];
+const PREP_SECONDS = 180;
+
+const LISTENERS = [
+  "Listener: a colleague who doesn't know this topic yet.",
+  "New listener: your manager. Tell the same story, faster.",
+  "New listener: someone at a conference. Same story, shorter.",
 ] as const;
 
-type Phase = { kind: "round"; index: number } | { kind: "ae" } | { kind: "done" };
-type RecState = "idle" | "recording" | "transcribing";
+/** 90 → "1.5分"、120 → "2分" のような表示 */
+function minLabel(seconds: number): string {
+  const m = seconds / 60;
+  return `${Number.isInteger(m) ? m : m.toFixed(1)}分`;
+}
 
-/** 4/3/2 流暢性ブロック: 同じ話を4分→(AE)→3分→2分。時間圧タイマー＋ラウンド間の遅延明示フィードバック */
-export function FourThreeTwoScreen(props: { topic: ContentItem; sessionId: string }) {
-  const [phase, setPhase] = useState<Phase>({ kind: "round", index: 0 });
+type Phase = { kind: "prep" } | { kind: "round"; index: number } | { kind: "ae" } | { kind: "done" };
+type RecState = "idle" | "recording" | "transcribing";
+type PrepState = "loading" | "ready" | "error";
+
+/**
+ * スキャフォールド付き 4/3/2 流暢性ブロック。
+ * 準備フェーズ（チャンク＋アウトライン＋モデル聴取）→ 同じ話を 2分→(AE)→1.5分→1分。
+ * ラウンド秒数は menu params (roundsSec) が正で、流暢性の伸びに応じてサーバ側で較正する。
+ */
+export function FourThreeTwoScreen(props: { topic: ContentItem; sessionId: string; roundsSec?: number[] }) {
+  const roundsSec =
+    props.roundsSec && props.roundsSec.length === 3 && props.roundsSec.every((s) => s > 0)
+      ? props.roundsSec
+      : DEFAULT_ROUNDS_SEC;
+
+  const [phase, setPhase] = useState<Phase>({ kind: "prep" });
   const [recState, setRecState] = useState<RecState>("idle");
   const [transcripts, setTranscripts] = useState<string[]>(["", "", ""]);
   // setState は非同期に反映されるため、finishRound が直後に読む用の同期ミラーを持つ
-  // （これが無いと Round 1 直後の AE フィードバックが最後の発話を取りこぼす）
   const transcriptsRef = useRef<string[]>(["", "", ""]);
   const [ae, setAe] = useState<AeFeedback | null>(null);
   const [aeLoading, setAeLoading] = useState(false);
-  // Round 1 の発話が空/空白のみで AE フィードバックの取得自体をスキップした場合に立てる
   const [aeSkippedNoRecording, setAeSkippedNoRecording] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
+  // 準備フェーズ
+  const [prepState, setPrepState] = useState<PrepState>("loading");
+  const [prep, setPrep] = useState<PrepPack | null>(null);
+  const [modelPlaying, setModelPlaying] = useState(false);
+  const prepFetchedRef = useRef(false); // StrictMode の二重マウントで prep を二重フェッチしない
+  const prepTimer = useCountdown(PREP_SECONDS);
   const recorderRef = useRef(new Recorder());
-  const timer = useCountdown(ROUNDS[0].seconds);
-  // 現在のラウンドで round_start を送信済みかどうか。finishRound が対応する round_end を
-  // 送るのは round_start を送っている場合のみにし、未対応イベントを防ぐ
+  const timer = useCountdown(roundsSec[0]);
   const roundStartedRef = useRef(false);
-  // STT/AEフィードバックの非同期処理がアンマウント後も setState し続けないようにするフラグ。
-  // await の後・setState の前で毎回チェックする
   const aliveRef = useRef(true);
-  // アンマウント時の aborted round_end で使う、現在ラウンド番号の同期ミラー
-  // （クリーンアップの deps:[] クロージャは初回描画時の roundIndex のまま古くなるため、ref で最新値を追う）
   const roundIndexRef = useRef(0);
-  // 同じ理由で、round_end の elapsedSec 算出に使う残り時間（timer.remaining）の同期ミラー
   const remainingRef = useRef(timer.remaining);
 
   const roundIndex = phase.kind === "round" ? phase.index : 0;
   useEffect(() => { roundIndexRef.current = roundIndex; }, [roundIndex]);
   useEffect(() => { remainingRef.current = timer.remaining; }, [timer.remaining]);
 
-  // 録音中に画面を離脱してもマイクが解放されるよう、アンマウント時に停止する。
-  // ラウンドが開始済み（round_start 送信済み）のまま離脱した場合は SessionRunner の
-  // aborted block_end と対称に、aborted な round_end を1回だけ送る
   useEffect(() => {
     aliveRef.current = true;
+    if (!prepFetchedRef.current) {
+      prepFetchedRef.current = true;
+      loadPrep();
+      prepTimer.start();
+    }
     return () => {
       aliveRef.current = false;
       recorderRef.current.cancel();
@@ -60,11 +82,43 @@ export function FourThreeTwoScreen(props: { topic: ContentItem; sessionId: strin
           round: idx + 1,
           aborted: true,
           transcript: transcriptsRef.current[idx],
-          elapsedSec: ROUNDS[idx].seconds - remainingRef.current,
+          elapsedSec: roundsSec[idx] - remainingRef.current,
         });
       }
     };
   }, []);
+
+  async function loadPrep() {
+    setPrepState("loading");
+    setErrorMsg("");
+    try {
+      const pack = await fetchPrepPack(props.topic.id);
+      if (!aliveRef.current) return;
+      setPrep(pack);
+      setPrepState("ready");
+    } catch (err) {
+      if (!aliveRef.current) return;
+      setErrorMsg(err instanceof Error ? err.message : String(err));
+      setPrepState("error");
+    }
+  }
+
+  async function playModelTalk() {
+    setModelPlaying(true);
+    setErrorMsg("");
+    try {
+      const text = await fetchModelTalk(props.topic.id);
+      if (!aliveRef.current) return;
+      const blob = await ttsFetch(text);
+      if (!aliveRef.current) return;
+      await playBlob(blob);
+    } catch (err) {
+      if (!aliveRef.current) return;
+      setErrorMsg(err instanceof Error ? err.message : String(err));
+    } finally {
+      if (aliveRef.current) setModelPlaying(false);
+    }
+  }
 
   async function toggleRecording() {
     setErrorMsg("");
@@ -111,14 +165,13 @@ export function FourThreeTwoScreen(props: { topic: ContentItem; sessionId: strin
         block: "four-three-two",
         round: roundIndex + 1,
         transcript: transcriptsRef.current[roundIndex],
-        elapsedSec: ROUNDS[roundIndex].seconds - timer.remaining,
+        elapsedSec: roundsSec[roundIndex] - timer.remaining,
       });
     }
     if (roundIndex === 0) {
       setPhase({ kind: "ae" });
       const transcript = transcriptsRef.current[0];
       if (!transcript.trim()) {
-        // 録音なし/無音のまま終えた場合はAEフィードバックのAPIを呼ばず、専用メッセージだけ出す
         setAeSkippedNoRecording(true);
         setAe(null);
       } else {
@@ -135,7 +188,7 @@ export function FourThreeTwoScreen(props: { topic: ContentItem; sessionId: strin
           if (aliveRef.current) setAeLoading(false);
         }
       }
-    } else if (roundIndex < ROUNDS.length - 1) {
+    } else if (roundIndex < roundsSec.length - 1) {
       startRound(roundIndex + 1);
     } else {
       setPhase({ kind: "done" });
@@ -144,8 +197,70 @@ export function FourThreeTwoScreen(props: { topic: ContentItem; sessionId: strin
 
   function startRound(index: number) {
     setPhase({ kind: "round", index });
-    timer.reset(ROUNDS[index].seconds);
+    timer.reset(roundsSec[index]);
     roundStartedRef.current = false;
+  }
+
+  if (phase.kind === "prep") {
+    return (
+      <div>
+        <h3>準備 — {props.topic.title}</h3>
+        {props.topic.titleJa && <p style={{ color: "#666" }}>{props.topic.titleJa}</p>}
+        <p style={{ color: "#666" }}>
+          これから同じ話を {roundsSec.map(minLabel).join("→")} で3回話します。まず使えそうな表現と骨組みを確認してください（目安 {minLabel(PREP_SECONDS)}）。
+        </p>
+        <p style={{ fontVariantNumeric: "tabular-nums" }}>⏱ 準備 {formatMmSs(prepTimer.remaining)}{prepTimer.expired && " — そろそろ始めましょう"}</p>
+        <ul>
+          {props.topic.hints.map((h, i) => (
+            <li key={i}>{h}</li>
+          ))}
+        </ul>
+        {prepState === "loading" && <p>コーチが表現チャンクを用意しています…</p>}
+        {prepState === "error" && (
+          <p style={{ color: "crimson" }}>
+            {errorMsg} <button onClick={loadPrep}>再試行</button>
+          </p>
+        )}
+        {prepState === "ready" && prep && (
+          <div>
+            {prep.chunks.length > 0 && (
+              <div>
+                <h4>使える表現</h4>
+                <ul>
+                  {prep.chunks
+                    .filter((c) => typeof c.en === "string" && c.en)
+                    .map((c, i) => (
+                      <li key={i}>
+                        <strong>{c.en}</strong>
+                        {c.ja && <span style={{ color: "#666" }}> — {c.ja}</span>}
+                      </li>
+                    ))}
+                </ul>
+              </div>
+            )}
+            {prep.outline.length > 0 && (
+              <div>
+                <h4>話の骨組み</h4>
+                <ol>
+                  {prep.outline.map((o, i) => (
+                    <li key={i}>{o}</li>
+                  ))}
+                </ol>
+              </div>
+            )}
+          </div>
+        )}
+        <p>
+          <button onClick={playModelTalk} disabled={modelPlaying} style={{ padding: "0.6rem 1.2rem" }}>
+            {modelPlaying ? "🔊 再生中…" : "🎧 モデルトークを聞く（任意）"}
+          </button>{" "}
+          <button onClick={() => startRound(0)} style={{ padding: "0.6rem 1.2rem" }}>
+            Round 1 を始める（{minLabel(roundsSec[0])}）→
+          </button>
+        </p>
+        {prepState !== "error" && errorMsg && <p style={{ color: "crimson" }}>{errorMsg}</p>}
+      </div>
+    );
   }
 
   if (phase.kind === "ae") {
@@ -173,7 +288,7 @@ export function FourThreeTwoScreen(props: { topic: ContentItem; sessionId: strin
         )}
         {errorMsg && <p style={{ color: "crimson" }}>{errorMsg}</p>}
         <button onClick={() => startRound(1)} disabled={aeLoading} style={{ padding: "0.6rem 1.2rem" }}>
-          Round 2 を始める（3分）
+          Round 2 を始める（{minLabel(roundsSec[1])}）
         </button>
       </div>
     );
@@ -183,11 +298,12 @@ export function FourThreeTwoScreen(props: { topic: ContentItem; sessionId: strin
     return <p>4/3/2 完了！同じ話を3回、少しずつ速く話せました。</p>;
   }
 
-  const round = ROUNDS[roundIndex];
   return (
     <div>
-      <h3>{round.label} — {props.topic.title}</h3>
-      <p style={{ color: "#666" }}>{round.listener}</p>
+      <h3>
+        Round {roundIndex + 1}（{minLabel(roundsSec[roundIndex])}） — {props.topic.title}
+      </h3>
+      <p style={{ color: "#666" }}>{LISTENERS[roundIndex]}</p>
       <ul>
         {props.topic.hints.map((h, i) => (
           <li key={i}>{h}</li>
