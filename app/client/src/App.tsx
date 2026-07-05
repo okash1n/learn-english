@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { converse, getHealth, sessionEnd, sessionStart, sttUpload, ttsFetch, type Health } from "./api";
+import { converse, getHealth, sessionEnd, sessionEndKeepalive, sessionStart, sttUpload, ttsFetch, type Health } from "./api";
 import { playBlob, Recorder } from "./audio";
 
 type Turn = { role: "you" | "ai"; text: string };
@@ -19,7 +19,14 @@ export function App() {
       .then((h) => { setHealth(h); setServerDown(false); })
       .catch(() => { setHealth(null); setServerDown(true); });
     sessionStart();
-    return () => { if (sessionIdRef.current) sessionEnd(sessionIdRef.current); };
+    const onPageHide = () => {
+      if (sessionIdRef.current) sessionEndKeepalive(sessionIdRef.current);
+    };
+    window.addEventListener("pagehide", onPageHide);
+    return () => {
+      window.removeEventListener("pagehide", onPageHide);
+      if (sessionIdRef.current) sessionEnd(sessionIdRef.current);
+    };
   }, []);
 
   async function onMainButton() {

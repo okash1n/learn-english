@@ -62,3 +62,16 @@ export async function sessionEnd(sessionId: string): Promise<void> {
     body: JSON.stringify({ sessionId }),
   });
 }
+
+/**
+ * タブを閉じる/リロード時にも session_end を届けるための keepalive 送信。
+ * pagehide からの呼び出し想定なので await しない（fire-and-forget）。
+ */
+export function sessionEndKeepalive(sessionId: string): void {
+  void fetch("/api/session/end", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ sessionId }),
+    keepalive: true,
+  });
+}
