@@ -20,6 +20,7 @@ export function Button({ variant = "secondary", size = "md", loading, disabled, 
       disabled={disabled || loading}
       aria-label={ariaLabel}
       title={title}
+      aria-busy={loading || undefined}
     >
       {loading && <span className="spinner" aria-hidden />}
       {children}

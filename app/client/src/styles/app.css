@@ -11,12 +11,12 @@ body {
 h1, h2, h3, h4 { font-weight: 650; margin: 0 0 var(--sp-3); }
 p { margin: 0 0 var(--sp-3); }
 ul, ol { margin: 0 0 var(--sp-3); padding-left: var(--sp-5); }
-:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--radius-sm); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 /* アプリシェル */
 .app { max-width: 680px; margin: 0 auto; padding: var(--sp-5) var(--sp-4) var(--sp-7); }
 .app-header { display: flex; align-items: center; gap: var(--sp-3); margin-bottom: var(--sp-5); }
-.app-brand { font-size: var(--fs-lg); font-weight: 700; letter-spacing: -0.01em; }
+.app-brand { font-size: var(--fs-lg); font-weight: 700; letter-spacing: -0.01em; margin: 0; }
 .app-header-spacer { flex: 1; }
 
 /* テキストユーティリティ */
@@ -54,6 +54,7 @@ ul, ol { margin: 0 0 var(--sp-3); padding-left: var(--sp-5); }
 .card + .card { margin-top: var(--sp-4); }
 .card-header { font-size: var(--fs-md); font-weight: 650; margin-bottom: var(--sp-3); }
 .card-header h3 { font: inherit; margin: 0; }
+.card-header .text-sm { font-weight: 400; }
 
 /* Screen（画面ヘッダ） */
 .screen-header { display: flex; align-items: baseline; gap: var(--sp-3); margin-bottom: var(--sp-4); }

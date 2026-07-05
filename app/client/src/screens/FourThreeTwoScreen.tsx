@@ -261,10 +261,12 @@ export function FourThreeTwoScreen(props: { topic: ContentItem; sessionId: strin
             {errorMsg}
           </Banner>
         )}
-        {prepState === "ready" && prep && (
+        {prepState === "ready" && prep && (() => {
+          const filteredChunks = prep.chunks.filter((c) => typeof c.en === "string" && c.en);
+          return (
           <div className="stack">
-            {prep.chunks.filter((c) => typeof c.en === "string" && c.en).length > 0 && (
-              <ChunkList chunks={prep.chunks.filter((c) => typeof c.en === "string" && c.en)} playingIdx={playingIdx} onPlay={playChunk} />
+            {filteredChunks.length > 0 && (
+              <ChunkList chunks={filteredChunks} playingIdx={playingIdx} onPlay={playChunk} />
             )}
             {prep.outline.length > 0 && (
               <Card header="話の骨組み">
@@ -276,7 +278,8 @@ export function FourThreeTwoScreen(props: { topic: ContentItem; sessionId: strin
               </Card>
             )}
           </div>
-        )}
+          );
+        })()}
         <div className="start-row">
           <Button onClick={playModelTalk} disabled={modelState === "script" || modelState === "audio" || modelState === "playing"}>
             {modelState === "script" && "✍ 原稿を作成中…"}

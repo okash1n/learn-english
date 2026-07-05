@@ -90,7 +90,7 @@ export function FreeTalkScreen(props: { scenarioId?: string; onSessionId?: (id: 
       <section className="chat">
         {turns.map((t, i) => (
           <div key={i} className={`chat-row ${t.role === "you" ? "you" : "ai"}`}>
-            <div className={`bubble ${t.role === "you" ? "bubble-you" : "bubble-ai"}`}>{t.text}</div>
+            <div className={`bubble ${t.role === "you" ? "bubble-you" : "bubble-ai"}`} aria-label={t.role === "you" ? "あなた" : "AI"}>{t.text}</div>
           </div>
         ))}
       </section>

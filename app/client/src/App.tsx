@@ -45,7 +45,7 @@ export function App() {
   return (
     <main className="app">
       <div className="app-header">
-        <span className="app-brand">learn-english</span>
+        <h1 className="app-brand">learn-english</h1>
         <span className="app-header-spacer" />
         {mode.kind !== "start" && (
           <Button variant="ghost" onClick={() => setMode({ kind: "start" })}>← メニューに戻る</Button>
