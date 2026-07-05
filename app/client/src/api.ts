@@ -133,23 +133,28 @@ export async function fetchReflection(): Promise<Reflection> {
 }
 
 /**
- * トピックID→PrepPack のセッション内キャッシュ。音読ウォームアップと4/3/2準備フェーズが
+ * トピックID→PrepPack のセッション内キャッシュ（進行中Promise共有）。音読ウォームアップと4/3/2準備フェーズが
  * 同じトピックのパックを要求するため、Claude呼び出しをセッションあたり1回に抑える。
+ * 失敗時は削除して再試行可能。
  */
-const prepPackCache = new Map<string, PrepPack>();
+const prepPackCache = new Map<string, Promise<PrepPack>>();
 
 export async function fetchPrepPack(topicId: string): Promise<PrepPack> {
-  const cached = prepPackCache.get(topicId);
-  if (cached) return cached;
-  const res = await fetch("/api/coach/prep", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ topicId }),
-  });
-  if (!res.ok) throw new Error(`prep failed: ${await extractErrorMessage(res)}`);
-  const pack = (await res.json()) as PrepPack;
-  prepPackCache.set(topicId, pack);
-  return pack;
+  let p = prepPackCache.get(topicId);
+  if (!p) {
+    p = (async () => {
+      const res = await fetch("/api/coach/prep", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ topicId }),
+      });
+      if (!res.ok) throw new Error(`prep failed: ${await extractErrorMessage(res)}`);
+      return (await res.json()) as PrepPack;
+    })();
+    p.catch(() => prepPackCache.delete(topicId));
+    prepPackCache.set(topicId, p);
+  }
+  return p;
 }
 
 export function sendSessionEvent(
