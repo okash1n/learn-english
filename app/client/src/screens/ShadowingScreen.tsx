@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { fetchModelTalk, ttsFetch, type ContentItem } from "../api";
-import { playBlob } from "../audio";
+import { playBlob, stopPlayback } from "../audio";
 
 type State = "init" | "loading" | "ready" | "playing" | "error";
 
@@ -10,6 +10,9 @@ export function ShadowingScreen(props: { topic: ContentItem }) {
   const [text, setText] = useState("");
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
   const [errorMsg, setErrorMsg] = useState("");
+
+  // 再生中に画面を離脱しても音声が解放されるよう、アンマウント時に停止する
+  useEffect(() => () => { stopPlayback(); }, []);
 
   async function prepare() {
     setState("loading");

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { fetchMenu, sendSessionEvent, type Menu, type MenuBlock } from "../api";
 import { formatMmSs, useCountdown } from "../useCountdown";
 import { ChunkPlaceholderScreen } from "./ChunkPlaceholderScreen";
@@ -13,21 +13,52 @@ export function SessionRunner(props: { minutes: 60 | 30; onExit: () => void }) {
   const [index, setIndex] = useState(0);
   const [errorMsg, setErrorMsg] = useState("");
   const timer = useCountdown(0);
+  // StrictMode の開発時二重実行でメニュー取得/最初の block_start が重複しないようにする冪等ガード
+  const initedRef = useRef(false);
+  // block_start を送信済みで block_end 未送信のブロック（開いているブロック）を追跡する。
+  // アンマウント時に開いたままなら block_end(aborted:true) を送って未対応イベントを防ぐ
+  const openBlockRef = useRef<{ id: string; kind: string } | null>(null);
 
-  useEffect(() => {
+  function loadMenu() {
+    setErrorMsg("");
     fetchMenu(props.minutes)
       .then((m) => {
         setMenu(m);
         const first = m.blocks[0];
         timer.reset(first.minutes * 60);
         timer.start();
+        openBlockRef.current = { id: first.id, kind: first.kind };
         sendSessionEvent("block_start", { blockId: first.id, kind: first.kind });
       })
       .catch((err) => setErrorMsg(err instanceof Error ? err.message : String(err)));
+  }
+
+  useEffect(() => {
+    if (initedRef.current) return;
+    initedRef.current = true;
+    loadMenu();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.minutes]);
 
-  if (errorMsg) return <p style={{ color: "crimson" }}>{errorMsg}</p>;
+  // アンマウント時（例: 「← メニューに戻る」での途中離脱）に開いたブロックがあれば block_end を1回だけ送る
+  useEffect(() => {
+    return () => {
+      const open = openBlockRef.current;
+      if (open) {
+        openBlockRef.current = null;
+        sendSessionEvent("block_end", { blockId: open.id, kind: open.kind, aborted: true });
+      }
+    };
+  }, []);
+
+  if (errorMsg) {
+    return (
+      <div>
+        <p style={{ color: "crimson" }}>{errorMsg}</p>
+        <button onClick={loadMenu} style={{ padding: "0.6rem 1.2rem", cursor: "pointer" }}>再試行</button>
+      </div>
+    );
+  }
   if (!menu) return <p>今日のメニューを組んでいます…</p>;
 
   const block = menu.blocks[index];
@@ -35,6 +66,7 @@ export function SessionRunner(props: { minutes: 60 | 30; onExit: () => void }) {
 
   function nextBlock() {
     sendSessionEvent("block_end", { blockId: block.id, kind: block.kind });
+    openBlockRef.current = null;
     if (isLast) {
       props.onExit();
       return;
@@ -43,6 +75,7 @@ export function SessionRunner(props: { minutes: 60 | 30; onExit: () => void }) {
     setIndex(index + 1);
     timer.reset(next.minutes * 60);
     timer.start();
+    openBlockRef.current = { id: next.id, kind: next.kind };
     sendSessionEvent("block_start", { blockId: next.id, kind: next.kind });
   }
 
@@ -68,7 +101,7 @@ function BlockBody({ block }: { block: MenuBlock }) {
       return <ChunkPlaceholderScreen />;
     case "four-three-two":
       return block.params.topic ? (
-        <FourThreeTwoScreen topic={block.params.topic} onDone={() => undefined} />
+        <FourThreeTwoScreen topic={block.params.topic} />
       ) : (
         <p>トピックがありません</p>
       );

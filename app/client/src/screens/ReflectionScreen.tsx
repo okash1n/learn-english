@@ -5,13 +5,25 @@ export function ReflectionScreen() {
   const [reflection, setReflection] = useState<Reflection | null>(null);
   const [errorMsg, setErrorMsg] = useState("");
 
-  useEffect(() => {
+  function loadReflection() {
+    setErrorMsg("");
     fetchReflection()
       .then(setReflection)
       .catch((err) => setErrorMsg(err instanceof Error ? err.message : String(err)));
+  }
+
+  useEffect(() => {
+    loadReflection();
   }, []);
 
-  if (errorMsg) return <p style={{ color: "crimson" }}>{errorMsg}</p>;
+  if (errorMsg) {
+    return (
+      <div>
+        <p style={{ color: "crimson" }}>{errorMsg}</p>
+        <button onClick={loadReflection} style={{ padding: "0.6rem 1.2rem", cursor: "pointer" }}>再試行</button>
+      </div>
+    );
+  }
   if (!reflection) return <p>コーチが今日のセッションを振り返っています…</p>;
 
   return (

@@ -1,6 +1,6 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { converse, sttUpload, ttsFetch } from "../api";
-import { playBlob, Recorder } from "../audio";
+import { playBlob, Recorder, stopPlayback } from "../audio";
 
 type Turn = { role: "you" | "ai"; text: string };
 type Status = "idle" | "recording" | "transcribing" | "thinking" | "speaking" | "error";
@@ -21,6 +21,9 @@ export function FreeTalkScreen(props: { scenarioId?: string; onSessionId?: (id: 
   const [errorMsg, setErrorMsg] = useState("");
   const sessionIdRef = useRef<string | undefined>(undefined);
   const recorderRef = useRef(new Recorder());
+
+  // 録音中/再生中に画面を離脱してもマイク・音声が解放されるよう、アンマウント時に停止する
+  useEffect(() => () => { recorderRef.current.cancel(); stopPlayback(); }, []);
 
   async function onMainButton() {
     setErrorMsg("");

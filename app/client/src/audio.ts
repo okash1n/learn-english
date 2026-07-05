@@ -24,11 +24,31 @@ export class Recorder {
       mr.stop();
     });
   }
+
+  /**
+   * 画面離脱時などにマイクを即座に解放するための中断処理。録音中でなければ何もしない。
+   * blob を resolve/reject せずに MediaRecorder とストリームトラックを止めるだけなので、
+   * いつ呼んでも安全（冪等）。stop() のPromiseに結びついたハンドラは呼ばれないよう外す。
+   */
+  cancel(): void {
+    const mr = this.mediaRecorder;
+    if (!mr || mr.state === "inactive") return;
+    mr.onstop = null;
+    mr.ondataavailable = null;
+    const stream = mr.stream;
+    mr.stop();
+    stream.getTracks().forEach((t) => t.stop());
+  }
 }
+
+let currentAudio: HTMLAudioElement | null = null;
+let currentUrl: string | null = null;
 
 export async function playBlob(blob: Blob): Promise<void> {
   const url = URL.createObjectURL(blob);
   const audio = new Audio(url);
+  currentAudio = audio;
+  currentUrl = url;
   await new Promise<void>((resolve, reject) => {
     audio.onended = () => resolve();
     // デコード失敗等で onended が発火しない場合に "speaking" のまま固まらないよう、
@@ -37,4 +57,22 @@ export async function playBlob(blob: Blob): Promise<void> {
     audio.play().catch((err) => { URL.revokeObjectURL(url); reject(err instanceof Error ? err : new Error(String(err))); });
   });
   URL.revokeObjectURL(url);
+  if (currentAudio === audio) {
+    currentAudio = null;
+    currentUrl = null;
+  }
+}
+
+/**
+ * 画面離脱時などに再生中の音声を即座に止めるための中断処理。再生中でなければ何もしない（冪等）。
+ */
+export function stopPlayback(): void {
+  if (currentAudio) {
+    currentAudio.onended = null;
+    currentAudio.onerror = null;
+    currentAudio.pause();
+  }
+  if (currentUrl) URL.revokeObjectURL(currentUrl);
+  currentAudio = null;
+  currentUrl = null;
 }

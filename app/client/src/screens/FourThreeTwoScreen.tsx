@@ -1,6 +1,6 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { fetchAeFeedback, sendSessionEvent, sttUpload, type AeFeedback, type ContentItem } from "../api";
-import { Recorder } from "../audio";
+import { Recorder, stopPlayback } from "../audio";
 import { formatMmSs, useCountdown } from "../useCountdown";
 
 const ROUNDS = [
@@ -13,7 +13,7 @@ type Phase = { kind: "round"; index: number } | { kind: "ae" } | { kind: "done" 
 type RecState = "idle" | "recording" | "transcribing";
 
 /** 4/3/2 流暢性ブロック: 同じ話を4分→(AE)→3分→2分。時間圧タイマー＋ラウンド間の遅延明示フィードバック */
-export function FourThreeTwoScreen(props: { topic: ContentItem; onDone: () => void }) {
+export function FourThreeTwoScreen(props: { topic: ContentItem }) {
   const [phase, setPhase] = useState<Phase>({ kind: "round", index: 0 });
   const [recState, setRecState] = useState<RecState>("idle");
   const [transcripts, setTranscripts] = useState<string[]>(["", "", ""]);
@@ -25,6 +25,12 @@ export function FourThreeTwoScreen(props: { topic: ContentItem; onDone: () => vo
   const [errorMsg, setErrorMsg] = useState("");
   const recorderRef = useRef(new Recorder());
   const timer = useCountdown(ROUNDS[0].seconds);
+  // 現在のラウンドで round_start を送信済みかどうか。finishRound が対応する round_end を
+  // 送るのは round_start を送っている場合のみにし、未対応イベントを防ぐ
+  const roundStartedRef = useRef(false);
+
+  // 録音中に画面を離脱してもマイクが解放されるよう、アンマウント時に停止する
+  useEffect(() => () => { recorderRef.current.cancel(); stopPlayback(); }, []);
 
   const roundIndex = phase.kind === "round" ? phase.index : 0;
 
@@ -36,6 +42,7 @@ export function FourThreeTwoScreen(props: { topic: ContentItem; onDone: () => vo
         setRecState("recording");
         if (!timer.running && !timer.expired) {
           timer.start();
+          roundStartedRef.current = true;
           sendSessionEvent("round_start", { block: "four-three-two", round: roundIndex + 1 });
         }
       } catch (err) {
@@ -62,7 +69,10 @@ export function FourThreeTwoScreen(props: { topic: ContentItem; onDone: () => vo
   async function finishRound() {
     if (recState === "recording") await toggleRecording();
     timer.pause();
-    sendSessionEvent("round_end", { block: "four-three-two", round: roundIndex + 1 });
+    if (roundStartedRef.current) {
+      roundStartedRef.current = false;
+      sendSessionEvent("round_end", { block: "four-three-two", round: roundIndex + 1 });
+    }
     if (roundIndex === 0) {
       setPhase({ kind: "ae" });
       setAeLoading(true);
@@ -77,13 +87,13 @@ export function FourThreeTwoScreen(props: { topic: ContentItem; onDone: () => vo
       startRound(roundIndex + 1);
     } else {
       setPhase({ kind: "done" });
-      props.onDone();
     }
   }
 
   function startRound(index: number) {
     setPhase({ kind: "round", index });
     timer.reset(ROUNDS[index].seconds);
+    roundStartedRef.current = false;
   }
 
   if (phase.kind === "ae") {
