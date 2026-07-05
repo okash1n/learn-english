@@ -4,6 +4,8 @@ import { FreeTalkScreen } from "./screens/FreeTalkScreen";
 import { LibraryScreen } from "./screens/LibraryScreen";
 import { SessionRunner, type MenuSource } from "./screens/SessionRunner";
 import { StartScreen, type StartSelection } from "./screens/StartScreen";
+import { Banner } from "./ui/Banner";
+import { Button } from "./ui/Button";
 
 type Mode = { kind: "start" } | { kind: "free" } | { kind: "session"; source: MenuSource } | { kind: "library" };
 
@@ -41,30 +43,22 @@ export function App() {
   }
 
   return (
-    <main style={{ maxWidth: 640, margin: "2rem auto", fontFamily: "system-ui", padding: "0 1rem" }}>
-      <h1 style={{ fontSize: "1.2rem" }}>
-        learn-english
+    <main className="app">
+      <div className="app-header">
+        <span className="app-brand">learn-english</span>
+        <span className="app-header-spacer" />
         {mode.kind !== "start" && (
-          <button
-            onClick={() => setMode({ kind: "start" })}
-            style={{ marginLeft: "1rem", fontSize: "0.8rem", cursor: "pointer" }}
-          >
-            ← メニューに戻る
-          </button>
+          <Button variant="ghost" onClick={() => setMode({ kind: "start" })}>← メニューに戻る</Button>
         )}
-      </h1>
+      </div>
       {serverDown && (
-        <p style={{ color: "crimson" }}>
-          APIサーバに接続できません — `cd app && bun run dev` で起動してください
-        </p>
+        <Banner kind="error">APIサーバに接続できません — `cd app && bun run dev` で起動してください</Banner>
       )}
       {!serverDown && health && !health.ok && (
-        <p style={{ color: "crimson" }}>
-          依存が不足しています: {JSON.stringify(health)} — `scripts/setup.sh` を実行してください
-        </p>
+        <Banner kind="error">依存が不足しています: {JSON.stringify(health)} — `scripts/setup.sh` を実行してください</Banner>
       )}
       {!serverDown && health && health.ok && !health.ttsKey && (
-        <p style={{ color: "darkorange" }}>OPENAI_API_KEY 未設定のため TTS は say フォールバックです</p>
+        <Banner kind="warn">OPENAI_API_KEY 未設定のため TTS は say フォールバックです</Banner>
       )}
       {mode.kind === "start" && <StartScreen onSelect={onSelect} />}
       {mode.kind === "session" && (

@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { fetchMenu, fetchQuickMenu, sendSessionEvent, type Menu, type MenuBlock, type QuickDrillKind } from "../api";
-import { formatMmSs, useCountdown } from "../useCountdown";
+import { useCountdown } from "../useCountdown";
+import { Banner } from "../ui/Banner";
+import { Button } from "../ui/Button";
+import { ProgressDots, Screen } from "../ui/Screen";
+import { TimerChip } from "../ui/TimerChip";
 import { ChunkPlaceholderScreen } from "./ChunkPlaceholderScreen";
 import { FourThreeTwoScreen } from "./FourThreeTwoScreen";
 import { ReflectionScreen } from "./ReflectionScreen";
@@ -58,12 +62,11 @@ export function SessionRunner(props: { source: MenuSource; sessionId: string; on
   if (errorMsg) {
     return (
       <div>
-        <p style={{ color: "crimson" }}>{errorMsg}</p>
-        <button onClick={loadMenu} style={{ padding: "0.6rem 1.2rem", cursor: "pointer" }}>再試行</button>
+        <Banner kind="error" action={<Button onClick={loadMenu}>再試行</Button>}>{errorMsg}</Banner>
       </div>
     );
   }
-  if (!menu) return <p>今日のメニューを組んでいます…</p>;
+  if (!menu) return <p className="text-muted">今日のメニューを組んでいます…</p>;
 
   const block = menu.blocks[index];
   const isLast = index === menu.blocks.length - 1;
@@ -84,18 +87,24 @@ export function SessionRunner(props: { source: MenuSource; sessionId: string; on
   }
 
   return (
-    <div>
-      <p style={{ color: "#666" }}>
-        ブロック {index + 1}/{menu.blocks.length} ・ ⏱ {formatMmSs(timer.remaining)}
-        {timer.expired && " — 時間切れ（キリのいいところで次へ）"}
-      </p>
-      <h2 style={{ fontSize: "1.1rem" }}>{block.title}</h2>
-      <BlockBody block={block} sessionId={props.sessionId} />
-      <hr style={{ margin: "1.5rem 0" }} />
-      <button onClick={nextBlock} style={{ padding: "0.8rem 1.4rem", fontSize: "1rem", cursor: "pointer" }}>
-        {isLast ? "✅ セッションを終える" : "次のブロックへ →"}
-      </button>
-    </div>
+    <Screen
+      title={block.title}
+      meta={
+        <>
+          <ProgressDots current={index} total={menu.blocks.length} />
+          <TimerChip remaining={timer.remaining} expired={timer.expired} note="キリのいいところで次へ" />
+        </>
+      }
+    >
+      <div key={block.id} className="fade-in">
+        <BlockBody block={block} sessionId={props.sessionId} />
+      </div>
+      <div className="round-actions">
+        <Button variant="primary" size="lg" onClick={nextBlock}>
+          {isLast ? "✅ セッションを終える" : "次のブロックへ →"}
+        </Button>
+      </div>
+    </Screen>
   );
 }
 

@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { fetchPracticeDays, fetchSettings, saveSettings, type QuickDrillKind } from "../api";
+import { Banner } from "../ui/Banner";
+import { Button } from "../ui/Button";
 
 export type StartSelection =
   | { type: "quick"; drill: QuickDrillKind }
@@ -7,11 +9,11 @@ export type StartSelection =
   | { type: "free" }
   | { type: "library" };
 
-const QUICK_BUTTONS: Array<{ drill: QuickDrillKind; label: string }> = [
-  { drill: "warmup", label: "🔊 音読ウォームアップ（6分）" },
-  { drill: "ftt-mini", label: "🗣 4/3/2ミニ（8分・2ラウンド）" },
-  { drill: "roleplay", label: "💼 実務ロールプレイ（10分）" },
-  { drill: "shadowing", label: "🎧 シャドーイング（5分）" },
+const QUICK_BUTTONS: Array<{ drill: QuickDrillKind; title: string; minutes: string }> = [
+  { drill: "warmup", title: "🔊 音読ウォームアップ", minutes: "6分" },
+  { drill: "ftt-mini", title: "🗣 4/3/2ミニ", minutes: "8分・2ラウンド" },
+  { drill: "roleplay", title: "💼 実務ロールプレイ", minutes: "10分" },
+  { drill: "shadowing", title: "🎧 シャドーイング", minutes: "5分" },
 ];
 
 /** ローカル日付の YYYY-MM-DD（カレンダー表示用） */
@@ -33,18 +35,10 @@ function PracticeCalendar({ days }: { days: string[] }) {
   }
   return (
     <div>
-      <h3 style={{ fontSize: "0.9rem", color: "#666" }}>練習日（直近8週）</h3>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(14, 14px)", gap: 3 }}>
+      <h3 className="text-sm text-muted">練習日（直近8週）</h3>
+      <div className="dot-grid">
         {cells.map((c) => (
-          <div
-            key={c.ymd}
-            title={c.ymd}
-            style={{
-              width: 12, height: 12, borderRadius: 3,
-              background: c.done ? "#2e7d32" : "#e0e0e0",
-              outline: c.isToday ? "2px solid #666" : "none",
-            }}
-          />
+          <div key={c.ymd} title={c.ymd} className={`day${c.done ? " is-done" : ""}${c.isToday ? " is-today" : ""}`} />
         ))}
       </div>
     </div>
@@ -86,53 +80,58 @@ export function StartScreen(props: { onSelect: (sel: StartSelection) => void }) 
     }
   }
 
-  const btn = { display: "block", width: "100%", fontSize: "1.05rem", padding: "0.9rem", marginBottom: "0.6rem", cursor: "pointer", textAlign: "left" } as const;
-
   return (
-    <div>
-      <h3 style={{ fontSize: "1rem" }}>クイックドリル（5〜10分）</h3>
-      {QUICK_BUTTONS.map((q) => (
-        <button key={q.drill} style={btn} onClick={() => props.onSelect({ type: "quick", drill: q.drill })}>
-          {q.label}
-        </button>
-      ))}
-      <h3 style={{ fontSize: "1rem", marginTop: "1.2rem" }}>強化セッション（週1〜2回おすすめ）</h3>
-      <button style={btn} onClick={() => props.onSelect({ type: "daily", minutes: 60 })}>📋 通しセッション（60分）</button>
-      <button style={btn} onClick={() => props.onSelect({ type: "daily", minutes: 30 })}>📋 通しセッション（30分・短縮版）</button>
-      <button style={btn} onClick={() => props.onSelect({ type: "free" })}>💬 自由会話のみ</button>
-      <button style={btn} onClick={() => props.onSelect({ type: "library" })}>📚 ライブラリ（モデルトークの復習）</button>
-
-      <div style={{ marginTop: "1.5rem" }}>
-        <PracticeCalendar days={days} />
+    <div className="stack">
+      <div>
+        <h3>クイックドリル（5〜10分）</h3>
+        <div className="drill-grid">
+          {QUICK_BUTTONS.map((q) => (
+            <button key={q.drill} className="drill-card" onClick={() => props.onSelect({ type: "quick", drill: q.drill })}>
+              <span className="drill-title">{q.title}</span>
+              <span className="drill-min">{q.minutes}</span>
+            </button>
+          ))}
+        </div>
+        <h3>強化セッション <span className="text-sm text-muted">週1〜2回おすすめ</span></h3>
+        <div className="start-row">
+          <Button onClick={() => props.onSelect({ type: "daily", minutes: 60 })}>📋 通しセッション（60分）</Button>
+          <Button onClick={() => props.onSelect({ type: "daily", minutes: 30 })}>📋 30分・短縮版</Button>
+        </div>
+        <div className="start-row">
+          <Button variant="ghost" onClick={() => props.onSelect({ type: "free" })}>💬 自由会話のみ</Button>
+          <Button variant="ghost" onClick={() => props.onSelect({ type: "library" })}>📚 ライブラリ</Button>
+        </div>
       </div>
 
-      <div style={{ marginTop: "1rem", color: "#444" }}>
+      <PracticeCalendar days={days} />
+
+      <div>
         {!editingAnchor && anchor && (
-          <p>
-            📌 {anchor}{" "}
-            <button style={{ fontSize: "0.8rem", cursor: "pointer" }} onClick={() => setEditingAnchor(true)}>編集</button>
+          <p className="anchor-row">
+            📌 {anchor}
+            <Button variant="ghost" onClick={() => setEditingAnchor(true)}>編集</Button>
           </p>
         )}
         {!editingAnchor && !anchor && (
-          <p style={{ color: "#888" }}>
-            続けるコツ: 既にある日課に紐づけると忘れません（例: 朝コーヒーを淹れたら1ドリル）{" "}
-            <button style={{ fontSize: "0.8rem", cursor: "pointer" }} onClick={() => setEditingAnchor(true)}>設定する</button>
+          <p className="anchor-row">
+            続けるコツ: 既にある日課に紐づけると忘れません（例: 朝コーヒーを淹れたら1ドリル）
+            <Button variant="ghost" onClick={() => setEditingAnchor(true)}>設定する</Button>
           </p>
         )}
         {editingAnchor && (
-          <p>
+          <div className="anchor-row">
             <input
+              className="anchor-input"
               value={anchorDraft}
               onChange={(e) => setAnchorDraft(e.target.value)}
               placeholder="朝コーヒーを淹れたら1ドリル"
               maxLength={200}
-              style={{ width: "60%", padding: "0.4rem" }}
-            />{" "}
-            <button style={{ cursor: "pointer" }} onClick={onSaveAnchor}>保存</button>{" "}
-            <button style={{ cursor: "pointer" }} onClick={() => { setEditingAnchor(false); setAnchorDraft(anchor); setSaveMsg(""); }}>やめる</button>
-          </p>
+            />
+            <Button variant="primary" onClick={onSaveAnchor}>保存</Button>
+            <Button variant="ghost" onClick={() => { setEditingAnchor(false); setAnchorDraft(anchor); setSaveMsg(""); }}>やめる</Button>
+          </div>
         )}
-        {saveMsg && <p style={{ color: "crimson" }}>{saveMsg}</p>}
+        {saveMsg && <Banner kind="error">{saveMsg}</Banner>}
       </div>
     </div>
   );

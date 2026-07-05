@@ -1,5 +1,8 @@
 import { useEffect, useState } from "react";
 import { fetchReflection, type Reflection } from "../api";
+import { Banner } from "../ui/Banner";
+import { Button } from "../ui/Button";
+import { Card } from "../ui/Card";
 
 export function ReflectionScreen() {
   const [reflection, setReflection] = useState<Reflection | null>(null);
@@ -19,33 +22,31 @@ export function ReflectionScreen() {
   if (errorMsg) {
     return (
       <div>
-        <p style={{ color: "crimson" }}>{errorMsg}</p>
-        <button onClick={loadReflection} style={{ padding: "0.6rem 1.2rem", cursor: "pointer" }}>再試行</button>
+        <Banner kind="error" action={<Button onClick={loadReflection}>再試行</Button>}>{errorMsg}</Banner>
       </div>
     );
   }
-  if (!reflection) return <p>コーチが今日のセッションを振り返っています…</p>;
+  if (!reflection) return <p className="text-muted">コーチが今日のセッションを振り返っています…</p>;
 
   return (
-    <div>
+    <div className="stack">
       {reflection.goodPhrases.length > 0 && (
-        <div>
-          <h3>👏 良かった表現</h3>
+        <Card header="👏 良かった表現">
           <ul>{reflection.goodPhrases.map((p, i) => <li key={i}>{p}</li>)}</ul>
-        </div>
+        </Card>
       )}
       {reflection.fixes.length > 0 && (
-        <div>
-          <h3>✏️ 直したい表現</h3>
+        <Card header="✏️ 直したい表現">
           <ul>
             {reflection.fixes.map((f, i) => (
               <li key={i}><s>{f.original}</s> → <strong>{f.better}</strong></li>
             ))}
           </ul>
-        </div>
+        </Card>
       )}
-      <h3>📝 明日へ</h3>
-      <p>{reflection.noteForTomorrow_ja}</p>
+      <Card header="📝 明日へ">
+        <p>{reflection.noteForTomorrow_ja}</p>
+      </Card>
     </div>
   );
 }

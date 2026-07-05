@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { fetchModelTalkLibrary, playTtsCached, type ModelTalkEntry } from "../api";
 import { stopPlayback } from "../audio";
+import { Banner } from "../ui/Banner";
+import { Button } from "../ui/Button";
+import { Card } from "../ui/Card";
 
 type State = "loading" | "ready" | "error";
 
@@ -57,38 +60,41 @@ export function LibraryScreen() {
   return (
     <div>
       <h3>📚 モデルトークライブラリ</h3>
-      {state === "loading" && <p>読み込み中…</p>}
+      {state === "loading" && <p className="text-muted">読み込み中…</p>}
       {state === "error" && (
-        <p style={{ color: "crimson" }}>
-          {errorMsg} <button onClick={load}>再試行</button>
-        </p>
+        <Banner kind="error" action={<Button onClick={load}>再試行</Button>}>{errorMsg}</Banner>
       )}
       {state === "ready" && entries.length === 0 && (
-        <p style={{ color: "#666" }}>
+        <p className="text-muted">
           まだありません。4/3/2 の準備やシャドーイングでモデルトークを生成すると、ここに残ります。
         </p>
       )}
       {state === "ready" &&
         entries.map((e) => (
-          <div key={e.id} style={{ borderTop: "1px solid #ddd", padding: "0.8rem 0" }}>
-            <p style={{ margin: 0 }}>
-              <button
-                onClick={() => play(e)}
-                disabled={playingId !== null}
-                style={{ marginRight: "0.5rem", cursor: "pointer" }}
-              >
-                {playingId === e.id ? "🔊 再生中…" : "▶"}
-              </button>
-              <strong>{e.topicTitle || e.topicId}</strong>{" "}
-              <span style={{ color: "#888", fontSize: "0.85rem" }}>{e.createdAt.slice(0, 10)}</span>
-            </p>
+          <Card
+            key={e.id}
+            header={
+              <>
+                <Button
+                  variant="ghost"
+                  onClick={() => play(e)}
+                  disabled={playingId !== null}
+                  ariaLabel={`「${e.topicTitle || e.topicId}」を再生`}
+                >
+                  {playingId === e.id ? "🔊 再生中…" : "▶"}
+                </Button>{" "}
+                {e.topicTitle || e.topicId}{" "}
+                <span className="text-sm text-muted">{e.createdAt.slice(0, 10)}</span>
+              </>
+            }
+          >
             <details>
-              <summary style={{ cursor: "pointer", color: "#666" }}>本文</summary>
-              <p style={{ whiteSpace: "pre-wrap", lineHeight: 1.8 }}>{e.text}</p>
+              <summary className="text-muted">本文</summary>
+              <p className="reading-text">{e.text}</p>
             </details>
-          </div>
+          </Card>
         ))}
-      {state === "ready" && errorMsg && <p style={{ color: "crimson" }}>{errorMsg}</p>}
+      {state === "ready" && errorMsg && <Banner kind="error">{errorMsg}</Banner>}
     </div>
   );
 }
