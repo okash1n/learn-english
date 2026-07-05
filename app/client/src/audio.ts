@@ -3,6 +3,9 @@ export class Recorder {
   private chunks: BlobPart[] = [];
 
   async start(): Promise<void> {
+    if (this.mediaRecorder && this.mediaRecorder.state !== "inactive") {
+      this.mediaRecorder.stream.getTracks().forEach((t) => t.stop());
+    }
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     this.chunks = [];
     this.mediaRecorder = new MediaRecorder(stream, { mimeType: "audio/webm" });

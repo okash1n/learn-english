@@ -21,9 +21,14 @@ export function App() {
 
   async function onMainButton() {
     setErrorMsg("");
-    if (status === "idle") {
-      await recorderRef.current.start();
-      setStatus("recording");
+    if (status === "idle" || status === "error") {
+      try {
+        await recorderRef.current.start();
+        setStatus("recording");
+      } catch (err) {
+        setErrorMsg(`マイクにアクセスできません: ${err instanceof Error ? err.message : String(err)}`);
+        setStatus("error");
+      }
       return;
     }
     if (status !== "recording") return;
