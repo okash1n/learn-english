@@ -19,6 +19,11 @@ const FAKE_QUICK_MENU = {
 };
 const FAKE_AE = { items: [{ quote: "q", issue: "i", better: "b", why_ja: "w" }], praise: "p" };
 const FAKE_REFLECTION = { goodPhrases: ["g"], fixes: [], noteForTomorrow_ja: "n" };
+const FAKE_SENTENCE = {
+  no: 1, category_no: 1, category: "現在形", domain: "daily" as const,
+  en: "I usually start work at nine.", ja: "たいてい9時に仕事を始めます。", note: "習慣の現在形",
+  srs: null,
+};
 
 /** テストごとに独立した temp dir/log を持つフェイク RouteDeps を組み立てる */
 function makeTestDeps(overrides: Partial<RouteDeps> = {}): {
@@ -61,6 +66,12 @@ function makeTestDeps(overrides: Partial<RouteDeps> = {}): {
       saveModelTalk: (_e: { topicId: string; topicTitle: string; text: string }) => {},
       listModelTalks: () => [],
     },
+    sentenceStore: {
+      list: () => [FAKE_SENTENCE],
+      queue: (_newCount: number) => [FAKE_SENTENCE],
+      grade: (no: number, _grade: "good" | "soso" | "bad") =>
+        no === 1 ? { no: 1, stage: 1, due: "2026-07-09" } : null,
+    } as RouteDeps["sentenceStore"],
     ...overrides,
   };
   return { deps, logFile, recordingsDir };
@@ -695,5 +706,58 @@ describe("library", () => {
     );
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ text: "model talk" });
+  });
+});
+
+describe("sentences ルート", () => {
+  test("GET /api/sentences は {sentences} を返す", async () => {
+    const { deps } = makeTestDeps();
+    const res = await makeFetchHandler(deps)(new Request("http://x/api/sentences"));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ sentences: [FAKE_SENTENCE] });
+  });
+
+  test("GET /api/sentences/queue は new を検証して {queue} を返す", async () => {
+    const { deps } = makeTestDeps();
+    const handler = makeFetchHandler(deps);
+    const ok = await handler(new Request("http://x/api/sentences/queue?new=5"));
+    expect(ok.status).toBe(200);
+    expect(await ok.json()).toEqual({ queue: [FAKE_SENTENCE] });
+    const bad = await handler(new Request("http://x/api/sentences/queue?new=abc"));
+    expect(bad.status).toBe(400);
+    const neg = await handler(new Request("http://x/api/sentences/queue?new=-1"));
+    expect(neg.status).toBe(400);
+  });
+
+  test("POST /api/sentences/grade は成功で {no,stage,due}", async () => {
+    const { deps } = makeTestDeps();
+    const res = await makeFetchHandler(deps)(new Request("http://x/api/sentences/grade", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ no: 1, grade: "good" }),
+    }));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ no: 1, stage: 1, due: "2026-07-09" });
+  });
+
+  test("POST /api/sentences/grade は不正入力に 400", async () => {
+    const { deps } = makeTestDeps();
+    const handler = makeFetchHandler(deps);
+    const badGrade = await handler(new Request("http://x/api/sentences/grade", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ no: 1, grade: "perfect" }),
+    }));
+    expect(badGrade.status).toBe(400);
+    const badNo = await handler(new Request("http://x/api/sentences/grade", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ no: 1.5, grade: "good" }),
+    }));
+    expect(badNo.status).toBe(400);
+    const unknownNo = await handler(new Request("http://x/api/sentences/grade", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ no: 999, grade: "good" }),
+    }));
+    expect(unknownNo.status).toBe(400);
+    expect((await unknownNo.json()).error).toContain("unknown");
   });
 });

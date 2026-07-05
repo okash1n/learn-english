@@ -10,6 +10,7 @@ import { QUICK_KINDS, type Menu, type QuickKind } from "./menu";
 import type { AeFeedback, Reflection, PrepPack } from "./coach";
 import type { Settings } from "./settings";
 import type { LibraryStore } from "./db";
+import type { Grade, SentenceStore } from "./sentences";
 
 /**
  * HTTP ハンドラが依存する副作用を注入可能にする境界。
@@ -38,6 +39,8 @@ export type RouteDeps = {
   practiceDays: () => string[];
   getSettings: () => Settings;
   saveSettings: (s: Settings) => void;
+  /** 暗記例文300の一覧・出題キュー・自己評価（実体は sentences.ts、テストはフェイク） */
+  sentenceStore: SentenceStore;
 };
 
 function json(data: unknown, status = 200): Response {
@@ -200,6 +203,30 @@ async function handleSessionEnd(req: Request, deps: RouteDeps): Promise<Response
   return json({ ok: true });
 }
 
+const GRADES = ["good", "soso", "bad"] as const;
+
+function handleSentenceQueue(url: URL, deps: RouteDeps): Response {
+  const raw = url.searchParams.get("new") ?? "10";
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 0 || n > 50) {
+    return json({ error: "new must be an integer between 0 and 50" }, 400);
+  }
+  return json({ queue: deps.sentenceStore.queue(n) });
+}
+
+async function handleSentenceGrade(req: Request, deps: RouteDeps): Promise<Response> {
+  const parsed = await parseJsonBody<{ no?: unknown; grade?: unknown }>(req);
+  if (!parsed.ok) return parsed.response;
+  const { no, grade } = parsed.body;
+  if (typeof no !== "number" || !Number.isInteger(no)) return json({ error: "no must be an integer" }, 400);
+  if (!(GRADES as readonly string[]).includes(grade as string)) {
+    return json({ error: `grade must be one of: ${GRADES.join(", ")}` }, 400);
+  }
+  const r = deps.sentenceStore.grade(no, grade as Grade);
+  if (!r) return json({ error: `unknown sentence no: ${no}` }, 400);
+  return json(r);
+}
+
 /** 現在の index.ts の全ルーティング・ハンドラをソケットを開かずにテストできる形に切り出したもの */
 export function makeFetchHandler(deps: RouteDeps): (req: Request) => Promise<Response> {
   return async function fetch(req: Request): Promise<Response> {
@@ -223,6 +250,9 @@ export function makeFetchHandler(deps: RouteDeps): (req: Request) => Promise<Res
       if (req.method === "POST" && url.pathname === "/api/coach/prep") return await handlePrep(req, deps);
       if (req.method === "POST" && url.pathname === "/api/coach/reflection") return json(await deps.reflection());
       if (req.method === "POST" && url.pathname === "/api/session/event") return await handleSessionEvent(req, deps);
+      if (req.method === "GET" && url.pathname === "/api/sentences") return json({ sentences: deps.sentenceStore.list() });
+      if (req.method === "GET" && url.pathname === "/api/sentences/queue") return handleSentenceQueue(url, deps);
+      if (req.method === "POST" && url.pathname === "/api/sentences/grade") return await handleSentenceGrade(req, deps);
       return json({ error: "not found" }, 404);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

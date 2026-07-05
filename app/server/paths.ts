@@ -10,6 +10,7 @@ export const MODELS_DIR = path.join(REPO_ROOT, "models");
 export const CONTENT_DIR = path.join(REPO_ROOT, "content");
 export const TOPICS_DIR = path.join(CONTENT_DIR, "topics");
 export const SCENARIOS_DIR = path.join(CONTENT_DIR, "scenarios");
+export const SENTENCES_FILE = path.join(CONTENT_DIR, "sentences", "sentences300.json");
 export const PROGRESS_DIR = path.join(DATA_DIR, "progress");
 
 export function ensureDirs(): void {

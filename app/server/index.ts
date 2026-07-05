@@ -9,12 +9,15 @@ import { listPracticeDays, readEvents } from "./session-log";
 import { readSettings, writeSettings } from "./settings";
 import { makeFetchHandler, type RouteDeps } from "./routes";
 import { makeLibraryStore, openDb } from "./db";
+import { loadSentences, makeSentenceStore } from "./sentences";
 
 ensureDirs();
 const PORT = 3111;
 const HOSTNAME = "127.0.0.1";
 
-const libraryStore = makeLibraryStore(openDb());
+const db = openDb();
+const libraryStore = makeLibraryStore(db);
+const sentenceStore = makeSentenceStore(db, loadSentences());
 
 const realDeps: RouteDeps = {
   transcribe: transcribeAudio,
@@ -46,6 +49,7 @@ const realDeps: RouteDeps = {
   practiceDays: () => listPracticeDays(),
   getSettings: () => readSettings(),
   saveSettings: (s) => writeSettings(s),
+  sentenceStore,
 };
 
 Bun.serve({

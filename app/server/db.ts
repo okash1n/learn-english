@@ -31,6 +31,13 @@ export function openDb(dbPath: string = DEFAULT_DB_PATH): Database {
     topic_title TEXT NOT NULL,
     text TEXT NOT NULL
   )`);
+  db.run(`CREATE TABLE IF NOT EXISTS sentence_srs (
+    no INTEGER PRIMARY KEY,
+    stage INTEGER NOT NULL DEFAULT 0,
+    due TEXT NOT NULL,
+    last_grade TEXT,
+    reviews INTEGER NOT NULL DEFAULT 0
+  )`);
   return db;
 }
 
