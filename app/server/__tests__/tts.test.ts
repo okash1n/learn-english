@@ -49,7 +49,7 @@ describe("tts", () => {
     const fakeFetch = (async () => {
       calls++;
       return new Response(new Uint8Array([1, 2, 3]), { status: 200 });
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     const r1 = await synthesize("Hello there", { apiKey: "sk-test", cacheDir, fetchFn: fakeFetch });
     const r2 = await synthesize("Hello there", { apiKey: "sk-test", cacheDir, fetchFn: fakeFetch });
@@ -73,7 +73,7 @@ describe("tts", () => {
 
   test("OpenAI が実行時エラー（非200）でも say にフォールバックしてセッションを継続する", async () => {
     const cacheDir = mkdtempSync(path.join(tmpdir(), "tts-"));
-    const fakeFetch = (async () => new Response("boom", { status: 500 })) as typeof fetch;
+    const fakeFetch = (async () => new Response("boom", { status: 500 })) as unknown as typeof fetch;
     const spawned: string[][] = [];
 
     const r = await synthesize("Hello", {
@@ -88,7 +88,7 @@ describe("tts", () => {
     const cacheDir = mkdtempSync(path.join(tmpdir(), "tts-"));
     const fakeFetch = (async () => {
       throw new Error("network down");
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
     const spawned: string[][] = [];
 
     const r = await synthesize("Hello", {
@@ -100,7 +100,7 @@ describe("tts", () => {
 
   test("OpenAI も say も失敗したら synthesize は reject する", async () => {
     const cacheDir = mkdtempSync(path.join(tmpdir(), "tts-"));
-    const fakeFetch = (async () => new Response("boom", { status: 500 })) as typeof fetch;
+    const fakeFetch = (async () => new Response("boom", { status: 500 })) as unknown as typeof fetch;
     const fakeSpawn = async (_cmd: string[]) => ({ exitCode: 1, stderr: "say not available" });
 
     await expect(
@@ -116,7 +116,7 @@ describe("tts", () => {
     const fakeFetch = (async () => {
       calls++;
       return new Response(new Uint8Array([4, 2, 0]), { status: 200 });
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     const r = await synthesize("Cache write failure text", {
       apiKey: "sk-test", cacheDir: cacheDirAsFile, fetchFn: fakeFetch,

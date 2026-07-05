@@ -55,7 +55,7 @@ async function handleTts(req: Request, deps: RouteDeps): Promise<Response> {
   const body = parsed.body;
   if (!body.text?.trim()) return json({ error: "text is required" }, 400);
   const { audio, mime, engine } = await deps.synthesize(body.text, { voice: body.voice });
-  return new Response(audio, { headers: { "content-type": mime, "x-tts-engine": engine } });
+  return new Response(audio as unknown as BodyInit, { headers: { "content-type": mime, "x-tts-engine": engine } });
 }
 
 async function handleConverse(req: Request, deps: RouteDeps): Promise<Response> {
