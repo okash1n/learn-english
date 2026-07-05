@@ -5,6 +5,7 @@ cd "$(dirname "$0")/.."
 echo "== learn-english setup =="
 
 command -v brew >/dev/null || { echo "ERROR: Homebrew が必要です"; exit 1; }
+command -v bun >/dev/null || { echo "ERROR: bun が必要です (https://bun.sh)"; exit 1; }
 
 for pkg in whisper-cpp ffmpeg; do
   if ! brew list "$pkg" >/dev/null 2>&1; then
@@ -21,8 +22,9 @@ mkdir -p models
 MODEL=models/ggml-large-v3-turbo.bin
 if [ ! -f "$MODEL" ]; then
   echo "-- モデルをダウンロード (~1.6GB)"
-  curl -L -o "$MODEL" \
+  curl -fL --retry 3 -o "$MODEL.tmp" \
     "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin"
+  mv "$MODEL.tmp" "$MODEL"
 fi
 echo "model: $MODEL ($(du -h "$MODEL" | cut -f1))"
 

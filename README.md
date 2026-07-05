@@ -3,6 +3,13 @@
 俺専用の英会話学習システム。設計と根拠は
 [docs/superpowers/specs/2026-07-05-learn-english-system-design.md](docs/superpowers/specs/2026-07-05-learn-english-system-design.md) を参照。
 
+## 前提条件
+
+- Bun ≥1.3
+- Homebrew
+- `claude` CLI（Maxサブスクでログイン済み）
+- Chrome系ブラウザ推奨（録音は audio/webm 固定のため。Safari 非対応）
+
 ## セットアップ（初回のみ）
 
 ```bash
