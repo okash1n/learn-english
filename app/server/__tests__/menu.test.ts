@@ -86,25 +86,27 @@ describe("buildTodayMenu", () => {
     const menu = buildTodayMenu(60, { ...dirs, today: JULY5 });
     expect(menu.date).toBe("2026-07-05");
     expect(menu.blocks.map((b) => [b.kind, b.minutes])).toEqual([
-      ["chunk-placeholder", 8],
+      ["warmup-reading", 8],
       ["four-three-two", 16],
       ["roleplay", 20],
       ["shadowing", 8],
       ["reflection", 5],
     ]);
+    const warmup = menu.blocks[0].params.topic as ContentItem;
     const ftt = menu.blocks[1].params.topic as ContentItem;
     const rp = menu.blocks[2].params.scenario as ContentItem;
     const shadow = menu.blocks[3].params.topic as ContentItem;
     expect(ftt.id).toBe("t1");
     expect(rp.id).toBe("s1");
     expect(shadow.id).not.toBe(ftt.id); // シャドーイングは別トピック（次のローテーション候補）
+    expect(warmup).toBe(ftt); // 音読ウォームアップは4/3/2と同じトピックオブジェクト（同一Claude呼び出しのキャッシュを共有するため）
   });
 
   test("30分版: spec §5.3 の4ブロック構成・分数", () => {
     const dirs = makeContentDirs();
     const menu = buildTodayMenu(30, { ...dirs, today: JULY5 });
     expect(menu.blocks.map((b) => [b.kind, b.minutes])).toEqual([
-      ["chunk-placeholder", 6],
+      ["warmup-reading", 6],
       ["four-three-two", 12],
       ["roleplay", 10],
       ["reflection", 2],

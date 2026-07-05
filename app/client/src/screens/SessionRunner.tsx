@@ -6,6 +6,7 @@ import { FourThreeTwoScreen } from "./FourThreeTwoScreen";
 import { ReflectionScreen } from "./ReflectionScreen";
 import { RoleplayScreen } from "./RoleplayScreen";
 import { ShadowingScreen } from "./ShadowingScreen";
+import { WarmupReadingScreen } from "./WarmupReadingScreen";
 
 /** メニューを取得し、ブロックを順番に進行させる。ブロックタイマーと進行イベント記録を持つ */
 export function SessionRunner(props: { minutes: 60 | 30; sessionId: string; onExit: () => void }) {
@@ -99,6 +100,8 @@ function BlockBody({ block, sessionId }: { block: MenuBlock; sessionId: string }
   switch (block.kind) {
     case "chunk-placeholder":
       return <ChunkPlaceholderScreen />;
+    case "warmup-reading":
+      return block.params.topic ? <WarmupReadingScreen topic={block.params.topic} /> : <p>トピックがありません</p>;
     case "four-three-two":
       return block.params.topic ? (
         <FourThreeTwoScreen topic={block.params.topic} sessionId={sessionId} roundsSec={block.params.roundsSec} />

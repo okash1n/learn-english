@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import path from "node:path";
 import { PROGRESS_DIR, SCENARIOS_DIR, TOPICS_DIR } from "./paths";
 
-export type BlockKind = "chunk-placeholder" | "four-three-two" | "roleplay" | "shadowing" | "reflection";
+export type BlockKind = "chunk-placeholder" | "warmup-reading" | "four-three-two" | "roleplay" | "shadowing" | "reflection";
 export type ContentItem = { id: string; kind: "topic" | "scenario"; title: string; titleJa: string; hints: string[] };
 export type MenuBlock = { id: string; kind: BlockKind; title: string; minutes: number; params: Record<string, unknown> };
 export type Menu = { minutes: 60 | 30; date: string; blocks: MenuBlock[] };
@@ -131,18 +131,18 @@ export function buildTodayMenu(minutes: 60 | 30, deps: MenuDeps = {}): Menu {
   mkdirSync(path.dirname(usageFile), { recursive: true });
   writeFileSync(usageFile, JSON.stringify(usage, null, 2));
 
-  const chunkTitle = "チャンク産出リトリーバル（M3で実装予定。今日は最近覚えた表現を思い出して口に出す時間）";
+  const warmupTitle = "音読ウォームアップ";
   const blocks: MenuBlock[] =
     minutes === 60
       ? [
-          { id: "b1", kind: "chunk-placeholder", title: chunkTitle, minutes: 8, params: {} },
+          { id: "b1", kind: "warmup-reading", title: warmupTitle, minutes: 8, params: { topic: mainTopic } },
           { id: "b2", kind: "four-three-two", title: `4/3/2: ${mainTopic.title}`, minutes: 16, params: { topic: mainTopic, roundsSec: [...FTT_ROUNDS_SEC] } },
           { id: "b3", kind: "roleplay", title: `実務ロールプレイ: ${scenario.title}`, minutes: 20, params: { scenario } },
           { id: "b4", kind: "shadowing", title: `シャドーイング: ${shadowTopic.title}`, minutes: 8, params: { topic: shadowTopic } },
           { id: "b5", kind: "reflection", title: "振り返り", minutes: 5, params: {} },
         ]
       : [
-          { id: "b1", kind: "chunk-placeholder", title: chunkTitle, minutes: 6, params: {} },
+          { id: "b1", kind: "warmup-reading", title: warmupTitle, minutes: 6, params: { topic: mainTopic } },
           { id: "b2", kind: "four-three-two", title: `4/3/2: ${mainTopic.title}`, minutes: 12, params: { topic: mainTopic, roundsSec: [...FTT_ROUNDS_SEC] } },
           { id: "b3", kind: "roleplay", title: `実務ロールプレイ: ${scenario.title}`, minutes: 10, params: { scenario } },
           { id: "b4", kind: "reflection", title: "振り返り", minutes: 2, params: {} },

@@ -1,0 +1,95 @@
+import { useEffect, useRef, useState } from "react";
+import { fetchPrepPack, type ContentItem, type PrepPack } from "../api";
+
+type State = "loading" | "ready" | "error";
+
+/**
+ * セッション冒頭の低負荷な音読ウォームアップ。今日のトピックの表現チャンクと骨組みを
+ * 声に出して読むだけ（録音・採点なし）。この後の4/3/2で同じ素材を使う下地作り。
+ */
+export function WarmupReadingScreen(props: { topic: ContentItem }) {
+  const [state, setState] = useState<State>("loading");
+  const [prep, setPrep] = useState<PrepPack | null>(null);
+  const [errorMsg, setErrorMsg] = useState("");
+  const aliveRef = useRef(true);
+  const fetchedRef = useRef(false); // StrictMode の二重マウントで prep を二重フェッチしない
+
+  useEffect(() => {
+    aliveRef.current = true;
+    if (!fetchedRef.current) {
+      fetchedRef.current = true;
+      load();
+    }
+    return () => {
+      aliveRef.current = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function load() {
+    setState("loading");
+    setErrorMsg("");
+    try {
+      const pack = await fetchPrepPack(props.topic.id);
+      if (!aliveRef.current) return;
+      setPrep(pack);
+      setState("ready");
+    } catch (err) {
+      if (!aliveRef.current) return;
+      setErrorMsg(err instanceof Error ? err.message : String(err));
+      setState("error");
+    }
+  }
+
+  const chunks = prep?.chunks.filter((c) => typeof c.en === "string" && c.en) ?? [];
+
+  return (
+    <div>
+      <p style={{ color: "#666" }}>
+        声に出して読みましょう（各フレーズ2回ずつ）。このあとの 4/3/2 で実際に使います。
+      </p>
+      {state === "loading" && <p>コーチが表現チャンクを用意しています…</p>}
+      {state === "error" && (
+        <div>
+          <p style={{ color: "crimson" }}>
+            {errorMsg} <button onClick={load}>再試行</button>
+          </p>
+          {props.topic.hints.length > 0 && (
+            <div>
+              <h4>代わりにこちらを声に出して読みましょう</h4>
+              <ul>
+                {props.topic.hints.map((h, i) => (
+                  <li key={i}>{h}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+      {state === "ready" && prep && (
+        <div>
+          {chunks.length > 0 && (
+            <ul>
+              {chunks.map((c, i) => (
+                <li key={i} style={{ marginBottom: "0.4rem" }}>
+                  <strong>{c.en}</strong>
+                  {c.ja && <div style={{ color: "#666" }}>{c.ja}</div>}
+                </li>
+              ))}
+            </ul>
+          )}
+          {prep.outline.length > 0 && (
+            <div>
+              <h4>今日の話の骨組み</h4>
+              <ol>
+                {prep.outline.map((o, i) => (
+                  <li key={i}>{o}</li>
+                ))}
+              </ol>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}

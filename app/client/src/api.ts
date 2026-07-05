@@ -132,14 +132,24 @@ export async function fetchReflection(): Promise<Reflection> {
   return res.json();
 }
 
+/**
+ * トピックID→PrepPack のセッション内キャッシュ。音読ウォームアップと4/3/2準備フェーズが
+ * 同じトピックのパックを要求するため、Claude呼び出しをセッションあたり1回に抑える。
+ */
+const prepPackCache = new Map<string, PrepPack>();
+
 export async function fetchPrepPack(topicId: string): Promise<PrepPack> {
+  const cached = prepPackCache.get(topicId);
+  if (cached) return cached;
   const res = await fetch("/api/coach/prep", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ topicId }),
   });
   if (!res.ok) throw new Error(`prep failed: ${await extractErrorMessage(res)}`);
-  return res.json();
+  const pack = (await res.json()) as PrepPack;
+  prepPackCache.set(topicId, pack);
+  return pack;
 }
 
 export function sendSessionEvent(
