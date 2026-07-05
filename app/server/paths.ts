@@ -7,9 +7,13 @@ export const SESSIONS_DIR = path.join(DATA_DIR, "sessions");
 export const RECORDINGS_DIR = path.join(DATA_DIR, "recordings");
 export const TTS_CACHE_DIR = path.join(DATA_DIR, "tts-cache");
 export const MODELS_DIR = path.join(REPO_ROOT, "models");
+export const CONTENT_DIR = path.join(REPO_ROOT, "content");
+export const TOPICS_DIR = path.join(CONTENT_DIR, "topics");
+export const SCENARIOS_DIR = path.join(CONTENT_DIR, "scenarios");
+export const PROGRESS_DIR = path.join(DATA_DIR, "progress");
 
 export function ensureDirs(): void {
-  for (const d of [SESSIONS_DIR, RECORDINGS_DIR, TTS_CACHE_DIR, MODELS_DIR]) {
+  for (const d of [SESSIONS_DIR, RECORDINGS_DIR, TTS_CACHE_DIR, MODELS_DIR, PROGRESS_DIR]) {
     mkdirSync(d, { recursive: true });
   }
 }
