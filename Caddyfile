@@ -1,0 +1,9 @@
+# ローカルHTTPSプロキシ: https://learn-english → Vite(5173) → API(3111)
+# 使い方: リポジトリルートで `caddy run`（初回は `caddy trust` でローカルCAを信頼させる）
+# /etc/hosts に「127.0.0.1 learn-english」が必要。learn-english.localhost は hosts 不要（Chrome系）。
+
+learn-english, learn-english.localhost {
+	bind 127.0.0.1
+	tls internal
+	reverse_proxy 127.0.0.1:5173
+}
