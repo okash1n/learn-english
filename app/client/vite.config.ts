@@ -4,6 +4,8 @@ import react from "@vitejs/plugin-react";
 export default defineConfig({
   plugins: [react()],
   server: {
+    // Caddy(127.0.0.1:443) からの到達性を保証するため IPv4 ループバックに固定
+    host: "127.0.0.1",
     proxy: { "/api": "http://127.0.0.1:3111" },
     // Caddy 経由（https://learn-english）の Host ヘッダを許可
     allowedHosts: ["learn-english", ".localhost"],
