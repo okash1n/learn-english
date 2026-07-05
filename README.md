@@ -3,7 +3,7 @@
 検証済みの第二言語習得（SLA）研究に基づいて、英会話の独習を毎日回すためのローカルファーストなアプリ。
 A local-first, research-grounded English speaking practice app for daily self-study on macOS (Japanese UI).
 
-作者（[okash1n](https://github.com/okash1n)）が自分用に作って使っているものをそのまま公開しています。Issue / PR は歓迎ですが、対応は保証しません。
+個人開発のツールを公開しているものです。Issue / PR は歓迎しますが、対応は保証しません。お題・シナリオ（`content/`）はサンプルとして同梱しているので、自分の仕事・関心に合わせて差し替えて使ってください。
 
 ## 特徴
 
