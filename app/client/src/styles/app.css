@@ -224,3 +224,26 @@ ul, ol { margin: 0 0 var(--sp-3); padding-left: var(--sp-5); }
   .fade-in, .record-btn.is-recording, .spinner { animation: none; }
   .btn, .drill-card, .timer-chip { transition: none; }
 }
+
+/* 暗記例文300 */
+.filter-row { display: flex; gap: var(--sp-2); flex-wrap: wrap; }
+.filter-chip {
+  font: inherit; font-size: var(--fs-sm); font-weight: 550; cursor: pointer;
+  padding: 6px var(--sp-3); border-radius: 999px;
+  background: var(--surface); border: 1px solid var(--border); color: var(--text-muted);
+  transition: border-color var(--ease), color var(--ease), background var(--ease);
+}
+.filter-chip:hover { color: var(--text); }
+.filter-chip.is-active { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+.sentence-ja { font-size: var(--fs-xl); font-weight: 650; margin: 0 0 var(--sp-2); }
+.sentence-en { font-size: var(--fs-lg); line-height: var(--lh-reading); font-weight: 600; }
+.sentence-done { font-size: var(--fs-lg); font-weight: 650; margin: 0 0 var(--sp-2); }
+.grade-row { display: flex; gap: var(--sp-2); flex-wrap: wrap; margin-top: var(--sp-3); }
+.sentence-row {
+  display: grid; grid-template-columns: auto 1fr auto; gap: var(--sp-1) var(--sp-3);
+  align-items: start; padding: var(--sp-2) 0;
+}
+.sentence-row + .sentence-row { border-top: 1px solid var(--border); }
+.sentence-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.sentence-ja-sub { color: var(--text-muted); font-size: var(--fs-sm); }
+.sentence-srs { white-space: nowrap; }

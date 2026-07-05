@@ -252,3 +252,33 @@ export function prefetchModelTalkAudio(
   }
   return p;
 }
+
+export type SentenceSrs = { stage: number; due: string; reviews: number };
+export type SentenceItem = {
+  no: number; category_no: number; category: string;
+  domain: "daily" | "business" | "it";
+  en: string; ja: string; note: string;
+  srs: SentenceSrs | null;
+};
+
+export async function fetchSentences(): Promise<SentenceItem[]> {
+  const res = await fetch("/api/sentences");
+  if (!res.ok) throw new Error(`sentences failed: ${await extractErrorMessage(res)}`);
+  return ((await res.json()) as { sentences: SentenceItem[] }).sentences;
+}
+
+export async function fetchSentenceQueue(newCount = 10): Promise<SentenceItem[]> {
+  const res = await fetch(`/api/sentences/queue?new=${newCount}`);
+  if (!res.ok) throw new Error(`queue failed: ${await extractErrorMessage(res)}`);
+  return ((await res.json()) as { queue: SentenceItem[] }).queue;
+}
+
+export async function gradeSentence(no: number, grade: "good" | "soso" | "bad"): Promise<{ no: number; stage: number; due: string }> {
+  const res = await fetch("/api/sentences/grade", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ no, grade }),
+  });
+  if (!res.ok) throw new Error(`grade failed: ${await extractErrorMessage(res)}`);
+  return res.json();
+}

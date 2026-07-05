@@ -2,12 +2,13 @@ import { useEffect, useRef, useState } from "react";
 import { fetchPracticeDays, getHealth, sessionEnd, sessionEndKeepalive, sessionStart, type Health } from "./api";
 import { FreeTalkScreen } from "./screens/FreeTalkScreen";
 import { LibraryScreen } from "./screens/LibraryScreen";
+import { SentencesScreen } from "./screens/SentencesScreen";
 import { SessionRunner, type MenuSource } from "./screens/SessionRunner";
 import { StartScreen, type StartSelection } from "./screens/StartScreen";
 import { Banner } from "./ui/Banner";
 import { Button } from "./ui/Button";
 
-type Mode = { kind: "start" } | { kind: "free" } | { kind: "session"; source: MenuSource } | { kind: "library" };
+type Mode = { kind: "start" } | { kind: "free" } | { kind: "session"; source: MenuSource } | { kind: "library" } | { kind: "sentences" };
 
 export function App() {
   const [health, setHealth] = useState<Health | null>(null);
@@ -64,6 +65,13 @@ export function App() {
           <Button variant="secondary" onClick={() => setMode({ kind: "start" })}>← メニューに戻る</Button>
         )}
         <div className="sidebar-spacer" />
+        <button
+          className={`side-item${mode.kind === "sentences" ? " is-active" : ""}`}
+          onClick={() => setMode({ kind: "sentences" })}
+        >
+          <span className="side-icon" aria-hidden="true">📖</span>
+          暗記例文300
+        </button>
         <PracticeStat />
       </aside>
       <main className="app">
@@ -90,6 +98,7 @@ export function App() {
         </div>
       )}
       {mode.kind === "library" && <LibraryScreen />}
+      {mode.kind === "sentences" && <SentencesScreen />}
       </main>
     </div>
   );
