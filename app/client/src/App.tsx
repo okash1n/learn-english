@@ -1,18 +1,16 @@
 import { useEffect, useRef, useState } from "react";
-import { converse, getHealth, sessionEnd, sessionEndKeepalive, sessionStart, sttUpload, ttsFetch, type Health } from "./api";
-import { playBlob, Recorder } from "./audio";
+import { getHealth, sessionEnd, sessionEndKeepalive, sessionStart, type Health } from "./api";
+import { FreeTalkScreen } from "./screens/FreeTalkScreen";
+import { SessionRunner } from "./screens/SessionRunner";
+import { StartScreen } from "./screens/StartScreen";
 
-type Turn = { role: "you" | "ai"; text: string };
-type Status = "idle" | "recording" | "transcribing" | "thinking" | "speaking" | "error";
+type Mode = "start" | "session60" | "session30" | "free";
 
 export function App() {
   const [health, setHealth] = useState<Health | null>(null);
   const [serverDown, setServerDown] = useState(false);
-  const [status, setStatus] = useState<Status>("idle");
-  const [turns, setTurns] = useState<Turn[]>([]);
-  const [errorMsg, setErrorMsg] = useState("");
+  const [mode, setMode] = useState<Mode>("start");
   const sessionIdRef = useRef<string | undefined>(undefined);
-  const recorderRef = useRef(new Recorder());
 
   useEffect(() => {
     getHealth()
@@ -29,52 +27,19 @@ export function App() {
     };
   }, []);
 
-  async function onMainButton() {
-    setErrorMsg("");
-    if (status === "idle" || status === "error") {
-      try {
-        await recorderRef.current.start();
-        setStatus("recording");
-      } catch (err) {
-        setErrorMsg(`マイクにアクセスできません: ${err instanceof Error ? err.message : String(err)}`);
-        setStatus("error");
-      }
-      return;
-    }
-    if (status !== "recording") return;
-    try {
-      setStatus("transcribing");
-      const blob = await recorderRef.current.stop();
-      const text = await sttUpload(blob);
-      if (!text) { setStatus("idle"); return; }
-      setTurns((t) => [...t, { role: "you", text }]);
-
-      setStatus("thinking");
-      const { replyText, sessionId } = await converse(text, sessionIdRef.current);
-      sessionIdRef.current = sessionId;
-      setTurns((t) => [...t, { role: "ai", text: replyText }]);
-
-      setStatus("speaking");
-      await playBlob(await ttsFetch(replyText));
-      setStatus("idle");
-    } catch (err) {
-      setErrorMsg(err instanceof Error ? err.message : String(err));
-      setStatus("error");
-    }
-  }
-
-  const label: Record<Status, string> = {
-    idle: "🎙 話す（クリックで録音開始）",
-    recording: "⏹ 録音中…（クリックで送信）",
-    transcribing: "📝 文字起こし中…",
-    thinking: "🤔 考え中…",
-    speaking: "🔊 再生中…",
-    error: "🎙 もう一度話す",
-  };
-
   return (
     <main style={{ maxWidth: 640, margin: "2rem auto", fontFamily: "system-ui", padding: "0 1rem" }}>
-      <h1 style={{ fontSize: "1.2rem" }}>learn-english — M1 walking skeleton</h1>
+      <h1 style={{ fontSize: "1.2rem" }}>
+        learn-english
+        {mode !== "start" && (
+          <button
+            onClick={() => setMode("start")}
+            style={{ marginLeft: "1rem", fontSize: "0.8rem", cursor: "pointer" }}
+          >
+            ← メニューに戻る
+          </button>
+        )}
+      </h1>
       {serverDown && (
         <p style={{ color: "crimson" }}>
           APIサーバに接続できません — `cd app && bun run dev` で起動してください
@@ -88,23 +53,10 @@ export function App() {
       {!serverDown && health && health.ok && !health.ttsKey && (
         <p style={{ color: "darkorange" }}>OPENAI_API_KEY 未設定のため TTS は say フォールバックです</p>
       )}
-      <div style={{ margin: "1rem 0" }}>
-        <button
-          onClick={onMainButton}
-          disabled={status === "transcribing" || status === "thinking" || status === "speaking"}
-          style={{ fontSize: "1.1rem", padding: "0.8rem 1.4rem", cursor: "pointer" }}
-        >
-          {label[status]}
-        </button>
-      </div>
-      {errorMsg && <p style={{ color: "crimson" }}>{errorMsg}</p>}
-      <section>
-        {turns.map((t, i) => (
-          <p key={i} style={{ whiteSpace: "pre-wrap" }}>
-            <strong>{t.role === "you" ? "You" : "AI"}:</strong> {t.text}
-          </p>
-        ))}
-      </section>
+      {mode === "start" && <StartScreen onSelect={setMode} />}
+      {mode === "session60" && <SessionRunner minutes={60} onExit={() => setMode("start")} />}
+      {mode === "session30" && <SessionRunner minutes={30} onExit={() => setMode("start")} />}
+      {mode === "free" && <FreeTalkScreen onSessionId={(id) => { sessionIdRef.current = id; }} />}
     </main>
   );
 }

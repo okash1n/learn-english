@@ -31,11 +31,15 @@ export async function sttUpload(blob: Blob): Promise<string> {
   return (await res.json()).text as string;
 }
 
-export async function converse(userText: string, sessionId?: string): Promise<{ replyText: string; sessionId: string }> {
+export async function converse(
+  userText: string,
+  sessionId?: string,
+  scenarioId?: string,
+): Promise<{ replyText: string; sessionId: string }> {
   const res = await fetch("/api/converse", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ userText, sessionId }),
+    body: JSON.stringify({ userText, sessionId, scenarioId }),
   });
   if (!res.ok) throw new Error(`converse failed: ${await extractErrorMessage(res)}`);
   return res.json();
@@ -73,5 +77,60 @@ export function sessionEndKeepalive(sessionId: string): void {
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ sessionId }),
     keepalive: true,
+  });
+}
+
+export type ContentItem = { id: string; kind: "topic" | "scenario"; title: string; titleJa: string; hints: string[] };
+export type MenuBlock = { id: string; kind: string; title: string; minutes: number; params: { topic?: ContentItem; scenario?: ContentItem } };
+export type Menu = { minutes: number; date: string; blocks: MenuBlock[] };
+export type AeItem = { quote: string; issue: string; better: string; why_ja: string };
+export type AeFeedback = { items: AeItem[]; praise: string };
+export type Reflection = { goodPhrases: string[]; fixes: Array<{ original: string; better: string }>; noteForTomorrow_ja: string };
+
+export async function fetchMenu(minutes: 60 | 30): Promise<Menu> {
+  const res = await fetch(`/api/menu/today?minutes=${minutes}`);
+  if (!res.ok) throw new Error(`menu failed: ${await extractErrorMessage(res)}`);
+  return res.json();
+}
+
+export async function fetchAeFeedback(transcript: string, topicTitle: string): Promise<AeFeedback> {
+  const res = await fetch("/api/feedback/ae", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ transcript, topicTitle }),
+  });
+  if (!res.ok) throw new Error(`AE feedback failed: ${await extractErrorMessage(res)}`);
+  return res.json();
+}
+
+export async function fetchModelTalk(topicId: string): Promise<string> {
+  const res = await fetch("/api/coach/model-talk", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ topicId }),
+  });
+  if (!res.ok) throw new Error(`model talk failed: ${await extractErrorMessage(res)}`);
+  return ((await res.json()) as { text: string }).text;
+}
+
+export async function fetchReflection(): Promise<Reflection> {
+  const res = await fetch("/api/coach/reflection", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({}),
+  });
+  if (!res.ok) throw new Error(`reflection failed: ${await extractErrorMessage(res)}`);
+  return res.json();
+}
+
+export function sendSessionEvent(
+  type: "block_start" | "block_end" | "round_start" | "round_end",
+  meta?: Record<string, unknown>,
+): void {
+  // 進行イベントは fire-and-forget（記録失敗でセッションを止めない）
+  void fetch("/api/session/event", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ type, meta }),
   });
 }
