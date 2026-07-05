@@ -26,7 +26,7 @@ export function FreeTalkScreen(props: { scenarioId?: string; onSessionId?: (id: 
   const aliveRef = useRef(true);
 
   // 録音中/再生中に画面を離脱してもマイク・音声が解放されるよう、アンマウント時に停止する
-  useEffect(() => () => { aliveRef.current = false; recorderRef.current.cancel(); stopPlayback(); }, []);
+  useEffect(() => { aliveRef.current = true; return () => { aliveRef.current = false; recorderRef.current.cancel(); stopPlayback(); }; }, []);
 
   async function onMainButton() {
     setErrorMsg("");

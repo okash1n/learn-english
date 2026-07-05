@@ -42,6 +42,7 @@ export function FourThreeTwoScreen(props: { topic: ContentItem }) {
   // ラウンドが開始済み（round_start 送信済み）のまま離脱した場合は SessionRunner の
   // aborted block_end と対称に、aborted な round_end を1回だけ送る
   useEffect(() => {
+    aliveRef.current = true;
     return () => {
       aliveRef.current = false;
       recorderRef.current.cancel();
