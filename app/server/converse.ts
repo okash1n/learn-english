@@ -9,16 +9,20 @@ export const PARTNER_SYSTEM_PROMPT = `You are an English conversation partner fo
 - Do NOT correct errors explicitly in this mode; just respond naturally (recast briefly only when meaning is unclear).
 - Never switch to Japanese.`;
 
-export type ClaudeRunner = (prompt: string, resumeId?: string) => Promise<{ text: string; sessionId: string }>;
+export type ClaudeRunner = (
+  prompt: string,
+  resumeId?: string,
+  opts?: { systemPrompt?: string },
+) => Promise<{ text: string; sessionId: string }>;
 
 export function makeClaudeRunner(queryFn: typeof query): ClaudeRunner {
-  return async (prompt, resumeId) => {
+  return async (prompt, resumeId, opts) => {
     let sessionId = resumeId ?? "";
     let text = "";
     for await (const msg of queryFn({
       prompt,
       options: {
-        systemPrompt: PARTNER_SYSTEM_PROMPT,
+        systemPrompt: opts?.systemPrompt ?? PARTNER_SYSTEM_PROMPT,
         model: "sonnet",
         allowedTools: [],
         maxTurns: 1,
@@ -50,6 +54,7 @@ export async function converseTurn(args: {
   sessionId?: string;
   runner?: ClaudeRunner;
   logFile?: string;
+  systemPromptOverride?: string;
 }): Promise<{ replyText: string; sessionId: string }> {
   const runner = args.runner ?? runClaudeTurn;
   const logFile = args.logFile ?? sessionLogPath(new Date());
@@ -62,7 +67,11 @@ export async function converseTurn(args: {
   let text: string;
   let sessionId: string;
   try {
-    ({ text, sessionId } = await runner(args.userText, args.sessionId));
+    ({ text, sessionId } = await runner(
+      args.userText,
+      args.sessionId,
+      args.systemPromptOverride ? { systemPrompt: args.systemPromptOverride } : undefined,
+    ));
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     appendEvent(logFile, {

@@ -1,0 +1,91 @@
+import { query } from "@anthropic-ai/claude-agent-sdk";
+import { makeClaudeRunner, type ClaudeRunner } from "./converse";
+import type { SessionEvent } from "./session-log";
+
+export type AeItem = { quote: string; issue: string; better: string; why_ja: string };
+export type AeFeedback = { items: AeItem[]; praise: string };
+export type Reflection = {
+  goodPhrases: string[];
+  fixes: Array<{ original: string; better: string }>;
+  noteForTomorrow_ja: string;
+};
+
+const defaultRunner: ClaudeRunner = makeClaudeRunner(query);
+
+/** LLM出力からJSONを取り出す。```フェンス除去→最初の{から最後の}までをparse。失敗はnull */
+export function extractJson<T>(text: string): T | null {
+  const cleaned = text.replace(/```(?:json)?/g, "").trim();
+  const start = cleaned.indexOf("{");
+  const end = cleaned.lastIndexOf("}");
+  if (start === -1 || end <= start) return null;
+  try {
+    return JSON.parse(cleaned.slice(start, end + 1)) as T;
+  } catch {
+    return null;
+  }
+}
+
+const AE_SYSTEM = `You are an English error-correction coach for a Japanese IT professional (CEFR A2-B1).
+You receive the transcript of the learner's spoken monologue (round 1 of a 4/3/2 fluency task).
+Pick the 3-5 most impactful language problems (grammar, word choice, unnatural phrasing). Ignore filler words and small slips.
+Reply with STRICT JSON only — no markdown fences, no commentary — exactly this shape:
+{"items":[{"quote":"<the learner's exact words>","issue":"<short English label>","better":"<corrected natural version>","why_ja":"<1〜2文の簡潔な日本語解説>"}],"praise":"<one short encouraging sentence in English>"}`;
+
+export async function generateAeFeedback(
+  args: { transcript: string; topicTitle: string },
+  runner: ClaudeRunner = defaultRunner,
+): Promise<AeFeedback> {
+  const prompt = `Topic: ${args.topicTitle}\n\nLearner's transcript:\n${args.transcript}`;
+  const { text } = await runner(prompt, undefined, { systemPrompt: AE_SYSTEM });
+  const parsed = extractJson<AeFeedback>(text);
+  if (parsed && Array.isArray(parsed.items)) return parsed;
+  // パース失敗時のフォールバック: 素のテキストを1itemに包んでUIに出せる形にする
+  return { items: [{ quote: "", issue: "feedback", better: "", why_ja: text }], praise: "" };
+}
+
+const MODEL_TALK_SYSTEM = `You produce a model monologue for an English learner (CEFR B1) to shadow.
+Rules: 120-150 words, spoken register, first person, plain high-frequency vocabulary, short sentences.
+No headings, no lists — just the monologue text.`;
+
+export async function generateModelTalk(
+  args: { topicTitle: string; hints: string[] },
+  runner: ClaudeRunner = defaultRunner,
+): Promise<{ text: string }> {
+  const prompt = `Topic: ${args.topicTitle}\nCover these angles:\n${args.hints.map((h) => `- ${h}`).join("\n")}`;
+  const { text } = await runner(prompt, undefined, { systemPrompt: MODEL_TALK_SYSTEM });
+  return { text };
+}
+
+const REFLECTION_SYSTEM = `You review one day of an English learner's speaking practice (CEFR A2-B1, Japanese IT professional).
+You receive the learner's utterances from today's session log.
+Reply with STRICT JSON only — no markdown fences — exactly this shape:
+{"goodPhrases":["<up to 3 phrases the learner used well>"],"fixes":[{"original":"<learner's words>","better":"<natural version>"}],"noteForTomorrow_ja":"<明日に向けた1〜2文の日本語メモ>"}
+Keep fixes to the 3 most useful items.`;
+
+export async function generateReflection(
+  args: { events: SessionEvent[] },
+  runner: ClaudeRunner = defaultRunner,
+): Promise<Reflection> {
+  const utterances = args.events
+    .filter((e) => e.type === "user_utterance" && e.text)
+    .map((e) => `- ${e.text}`)
+    .join("\n");
+  const prompt = `Today's learner utterances:\n${utterances || "(none)"}`;
+  const { text } = await runner(prompt, undefined, { systemPrompt: REFLECTION_SYSTEM });
+  const parsed = extractJson<Reflection>(text);
+  if (parsed && Array.isArray(parsed.goodPhrases)) return parsed;
+  return { goodPhrases: [], fixes: [], noteForTomorrow_ja: text };
+}
+
+export function roleplayPrompt(scenario: { title: string; hints: string[] }): string {
+  return `You are an English roleplay partner for a Japanese IT professional (CEFR A2-B1).
+Scenario: ${scenario.title}
+Setup:
+${scenario.hints.map((h) => `- ${h}`).join("\n")}
+Rules:
+- Stay in your assigned role for the whole conversation. Do not break character.
+- Keep every reply SHORT: 2-4 sentences, then ask ONE question or make ONE request.
+- Use plain, high-frequency English (B1 level). No rare idioms.
+- Do NOT correct the learner's errors explicitly; respond naturally.
+- Never switch to Japanese.`;
+}

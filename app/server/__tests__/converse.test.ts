@@ -116,19 +116,19 @@ describe("converseTurn error path", () => {
   });
 });
 
-describe("makeClaudeRunner: SDK呼び出し引数のパススルー", () => {
-  function capturingQuery() {
-    const calls: Array<{ prompt: string; options: Record<string, unknown> }> = [];
-    const fakeQuery = ((args: { prompt: string; options: Record<string, unknown> }) => {
-      calls.push(args);
-      return (async function* () {
-        yield { type: "system", subtype: "init", session_id: "sess-x" };
-        yield { type: "result", subtype: "success", result: "ok" };
-      })();
-    }) as unknown as typeof query;
-    return { calls, fakeQuery };
-  }
+function capturingQuery() {
+  const calls: Array<{ prompt: string; options: Record<string, unknown> }> = [];
+  const fakeQuery = ((args: { prompt: string; options: Record<string, unknown> }) => {
+    calls.push(args);
+    return (async function* () {
+      yield { type: "system", subtype: "init", session_id: "sess-x" };
+      yield { type: "result", subtype: "success", result: "ok" };
+    })();
+  }) as unknown as typeof query;
+  return { calls, fakeQuery };
+}
 
+describe("makeClaudeRunner: SDK呼び出し引数のパススルー", () => {
   test("初回ターン: resume なし・規定オプションが query に渡る", async () => {
     const { calls, fakeQuery } = capturingQuery();
     const runner = makeClaudeRunner(fakeQuery);
@@ -149,4 +149,23 @@ describe("makeClaudeRunner: SDK呼び出し引数のパススルー", () => {
     await runner("second turn", "sess-x");
     expect(calls[0].options).toMatchObject({ resume: "sess-x" });
   });
+});
+
+test("makeClaudeRunner: 第3引数の systemPrompt が options に渡る", async () => {
+  const { calls, fakeQuery } = capturingQuery();
+  const runner = makeClaudeRunner(fakeQuery);
+  await runner("prompt", undefined, { systemPrompt: "CUSTOM PROMPT" });
+  expect(calls[0].options).toMatchObject({ systemPrompt: "CUSTOM PROMPT" });
+});
+
+test("converseTurn: systemPromptOverride が runner の第3引数に渡る", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "conv-"));
+  const logFile = path.join(dir, "log.jsonl");
+  const seen: Array<{ prompt: string; resumeId?: string; opts?: { systemPrompt?: string } }> = [];
+  const fakeRunner = async (prompt: string, resumeId?: string, opts?: { systemPrompt?: string }) => {
+    seen.push({ prompt, resumeId, opts });
+    return { text: "ok", sessionId: "s1" };
+  };
+  await converseTurn({ userText: "hi", runner: fakeRunner, logFile, systemPromptOverride: "ROLEPLAY" });
+  expect(seen[0].opts).toEqual({ systemPrompt: "ROLEPLAY" });
 });
