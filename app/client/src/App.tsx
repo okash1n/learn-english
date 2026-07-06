@@ -61,8 +61,7 @@ export function App() {
     if (sel.type === "free") setMode({ kind: "free" });
     else if (sel.type === "library") setMode({ kind: "library" });
     else if (sel.type === "placement") setMode({ kind: "placement" });
-    else if (sel.type === "daily") setMode({ kind: "session", source: { type: "daily", minutes: sel.minutes } });
-    else setMode({ kind: "session", source: { type: "quick", drill: sel.drill, domain: sel.domain } });
+    else setMode({ kind: "session", source: sel.source });
   }
 
   const navItems: Array<{ key: string; icon: string; label: string; active: boolean; go: () => void }> = [
