@@ -50,6 +50,7 @@ type Strings = {
     resultStartAt: (level: number) => string; chooseOwn: string; notNow: string;
     chooseLabel: string; apply: string; confirmError: string;
     xpNote: string;
+    micError: (detail: string) => string;
   };
 };
 
@@ -118,6 +119,7 @@ export const STR: Record<Lang, Strings> = {
       chooseLabel: "Level (1–999)", apply: "Apply",
       confirmError: "Couldn't apply. Please try again.",
       xpNote: "+10 XP for completing the check",
+      micError: (detail) => `Can't access the microphone: ${detail}`,
     },
   },
   ja: {
@@ -180,6 +182,7 @@ export const STR: Record<Lang, Strings> = {
       chooseLabel: "レベル（1〜999）", apply: "適用",
       confirmError: "適用できませんでした。もう一度お試しください",
       xpNote: "測定完了で +10 XP",
+      micError: (detail) => `マイクにアクセスできません: ${detail}`,
     },
   },
 };

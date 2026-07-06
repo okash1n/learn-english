@@ -93,7 +93,7 @@ export function PlacementScreen(props: { lang: Lang; onExit: () => void }) {
         setRecState("recording");
         if (!timer.running && !timer.expired) timer.start();
       } catch (err) {
-        setErrorMsg(`マイクにアクセスできません: ${err instanceof Error ? err.message : String(err)}`);
+        setErrorMsg(t.micError(err instanceof Error ? err.message : String(err)));
       }
       return;
     }
