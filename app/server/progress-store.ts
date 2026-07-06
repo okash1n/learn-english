@@ -166,11 +166,19 @@ export function makeProgressStore(db: Database): ProgressStore {
       if (!(kind in XP_CAPS)) return null;
       if (!Number.isInteger(amount) || amount < 1 || amount > XP_CAPS[kind]) return null;
       if (kind === "placement" && amount !== XP_CAPS.placement) return null;
+      const attemptId = (meta as { attemptId?: unknown }).attemptId;
+      const hasAttempt = kind === "block" && Number.isInteger(attemptId);
+      if (hasAttempt) {
+        // 同一 attemptId の完了XPが二重に付与されないようにする（連打・再送で block_attempts が既に
+        // completed=1 なら xp_events への記録もXP加算も行わず、現在の summary をそのまま返す）
+        const existing = db.query<{ completed: number }, [number]>(
+          "SELECT completed FROM block_attempts WHERE id = ?").get(attemptId as number);
+        if (existing?.completed === 1) return summarize(ensureRow(), today);
+      }
       const row = ensureRow();
       db.run("INSERT INTO xp_events (ts, ymd, kind, amount, meta) VALUES (?, ?, ?, ?, ?)",
         [nowTs(), today, kind, amount, Object.keys(meta).length ? JSON.stringify(meta) : null]);
-      const attemptId = (meta as { attemptId?: unknown }).attemptId;
-      if (kind === "block" && Number.isInteger(attemptId)) {
+      if (hasAttempt) {
         db.run("UPDATE block_attempts SET completed = 1 WHERE id = ?", [attemptId as number]);
       }
       row.xp += amount;

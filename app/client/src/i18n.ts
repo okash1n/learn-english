@@ -26,7 +26,8 @@ type Strings = {
     levelLabel: (n: number) => string;
     toNext: (xp: number) => string;
     maxed: string;
-    editTitle: string; editSave: string; editCancel: string;
+    editTitle: string; editSave: string; editCancel: string; editError: string;
+    gaugeLabel: string;
     upTitle: string; upBody: (toLevel: number) => string;
     downTitle: string; downBody: (toLevel: number) => string;
     xpReached: string;
@@ -67,6 +68,8 @@ export const STR: Record<Lang, Strings> = {
       toNext: (xp) => `${xp} XP to next level`,
       maxed: "Difficulty is at max — levels are just for fun now",
       editTitle: "Set your level", editSave: "Save", editCancel: "Cancel",
+      editError: "Couldn't update. Try 1–999.",
+      gaugeLabel: "Level progress",
       upTitle: "Ready for the next stage?",
       upBody: (toLevel) => `Your recent practice looks solid. Move up to Lv ${toLevel}?`,
       downTitle: "An easier option",
@@ -103,6 +106,8 @@ export const STR: Record<Lang, Strings> = {
       toNext: (xp) => `次のレベルまで ${xp} XP`,
       maxed: "難易度は最大です — 以降のレベルはおまけ",
       editTitle: "レベルを変更", editSave: "保存", editCancel: "キャンセル",
+      editError: "更新できませんでした。1〜999で指定してください",
+      gaugeLabel: "レベル進捗",
       upTitle: "次のステージに進みませんか？",
       upBody: (toLevel) => `最近の練習は好調です。Lv ${toLevel} に上げますか？`,
       downTitle: "難易度の調整もできます",

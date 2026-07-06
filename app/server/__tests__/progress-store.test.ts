@@ -73,6 +73,17 @@ describe("progress-store: ブロック試行と完了率", () => {
       "SELECT completed FROM block_attempts WHERE id = ?").get(attemptId)!;
     expect(row.completed).toBe(1);
   });
+  test("同一attemptIdで2回addXpしてもXPは1回分・xp_eventsは1行（二重付与防止）", () => {
+    const { db, store } = freshStore();
+    const { attemptId } = store.blockStart("warmup-reading", T);
+    const first = store.addXp("block", 6, { attemptId }, T)!;
+    const second = store.addXp("block", 6, { attemptId }, T)!;
+    expect(first.xp).toBe(6);
+    expect(second.xp).toBe(6); // 2回目は加算されない
+    const events = db.query<{ n: number }, [string]>(
+      "SELECT COUNT(*) AS n FROM xp_events WHERE kind = 'block' AND ymd = ?").get(T)!;
+    expect(events.n).toBe(1);
+  });
 });
 
 /** シグナル素材を直接仕込むヘルパ */

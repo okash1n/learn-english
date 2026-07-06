@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
-  fetchPracticeDays, fetchProgressSummary, getHealth, progressLevelAction, sessionEnd, sessionEndKeepalive,
-  sessionStart, type Health, type ProgressSummary,
+  fetchPracticeDays, fetchProgressSummary, getHealth, onProgressUpdate, progressLevelAction, sessionEnd,
+  sessionEndKeepalive, sessionStart, type Health, type ProgressSummary,
 } from "./api";
 import { loadLang, saveLang, STR, type Lang } from "./i18n";
 import { FreeTalkScreen } from "./screens/FreeTalkScreen";
@@ -118,6 +118,7 @@ function PracticeStat({ lang }: { lang: Lang }) {
   const [summary, setSummary] = useState<ProgressSummary | null>(null);
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState("");
+  const [editError, setEditError] = useState("");
   const fetchedRef = useRef(false);
   useEffect(() => {
     if (fetchedRef.current) return;
@@ -125,6 +126,8 @@ function PracticeStat({ lang }: { lang: Lang }) {
     fetchPracticeDays().then(setDays).catch(() => {});
     fetchProgressSummary().then(setSummary).catch(() => {});
   }, []);
+  // 他画面でのXP付与・レベル操作（提案の承認等）を購読し、再取得なしで最新値に追従する
+  useEffect(() => onProgressUpdate(setSummary), []);
   const t = STR[lang];
   const now = new Date();
   const weekAgo = new Date(now);
@@ -135,13 +138,24 @@ function PracticeStat({ lang }: { lang: Lang }) {
 
   async function saveLevel() {
     const n = Number(editValue);
-    if (!Number.isInteger(n) || n < 1) return;
+    if (!Number.isInteger(n) || n < 1 || n > 999) {
+      setEditError(t.progress.editError);
+      return;
+    }
     try {
-      setSummary(await progressLevelAction("set", n));
+      const s = await progressLevelAction("set", n);
+      setSummary(s);
+      setEditError("");
+      setEditing(false);
     } catch (err) {
       console.warn("level set failed:", err);
+      setEditError(t.progress.editError);
     }
+  }
+
+  function cancelEdit() {
     setEditing(false);
+    setEditError("");
   }
 
   const need = summary ? summary.xpIntoLevel + summary.xpToNext : 0;
@@ -154,22 +168,30 @@ function PracticeStat({ lang }: { lang: Lang }) {
           {editing ? (
             <div className="level-edit">
               <input
-                className="level-input" type="number" min={1} value={editValue} autoFocus
+                className="level-input" type="number" min={1} max={999} value={editValue} autoFocus
                 onChange={(e) => setEditValue(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") saveLevel();
+                  else if (e.key === "Escape") cancelEdit();
+                }}
                 aria-label={t.progress.editTitle}
               />
               <button className="level-edit-btn" onClick={saveLevel}>{t.progress.editSave}</button>
-              <button className="level-edit-btn" onClick={() => setEditing(false)}>{t.progress.editCancel}</button>
+              <button className="level-edit-btn" onClick={cancelEdit}>{t.progress.editCancel}</button>
             </div>
           ) : (
             <button
               className="stat-level" title={t.progress.editTitle}
-              onClick={() => { setEditValue(String(summary.level)); setEditing(true); }}
+              onClick={() => { setEditValue(String(summary.level)); setEditError(""); setEditing(true); }}
             >
               {t.progress.levelLabel(summary.level)}
             </button>
           )}
-          <div className="gauge" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
+          {editing && editError && <div className="level-edit-error">{editError}</div>}
+          <div
+            className="gauge" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}
+            aria-label={t.progress.gaugeLabel}
+          >
             <div className="gauge-fill" style={{ width: `${pct}%` }} />
           </div>
           <div className="stat-sub">{summary.difficultyMaxed ? t.progress.maxed : t.progress.toNext(summary.xpToNext)}</div>

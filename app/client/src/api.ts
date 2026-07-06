@@ -202,6 +202,24 @@ export async function fetchProgressSummary(): Promise<ProgressSummary> {
   return res.json();
 }
 
+/**
+ * summary 更新の軽量Pub/Sub。サイドバーのゲージ等、複数箇所で summary を表示する画面が
+ * XP付与・レベル操作の直後に最新値へ追従できるようにする（再取得のポーリングは行わない）。
+ */
+let progressListeners: Array<(s: ProgressSummary) => void> = [];
+
+/** 購読する。戻り値を呼ぶと購読解除される */
+export function onProgressUpdate(fn: (s: ProgressSummary) => void): () => void {
+  progressListeners.push(fn);
+  return () => {
+    progressListeners = progressListeners.filter((f) => f !== fn);
+  };
+}
+
+export function notifyProgress(s: ProgressSummary): void {
+  for (const fn of progressListeners) fn(s);
+}
+
 export async function progressBlockStart(kind: string): Promise<number> {
   const res = await fetch("/api/progress/block-start", {
     method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ kind }),
@@ -216,7 +234,9 @@ export async function progressBlockXp(amount: number, attemptId: number | null):
     body: JSON.stringify({ kind: "block", amount, attemptId: attemptId ?? undefined }),
   });
   if (!res.ok) throw new Error(`xp failed: ${await extractErrorMessage(res)}`);
-  return res.json();
+  const summary = (await res.json()) as ProgressSummary;
+  notifyProgress(summary);
+  return summary;
 }
 
 export async function progressLevelAction(
@@ -226,7 +246,9 @@ export async function progressLevelAction(
     method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action, level }),
   });
   if (!res.ok) throw new Error(`level action failed: ${await extractErrorMessage(res)}`);
-  return res.json();
+  const summary = (await res.json()) as ProgressSummary;
+  notifyProgress(summary);
+  return summary;
 }
 
 export type Settings = { anchor: string };

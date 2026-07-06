@@ -30,6 +30,8 @@ export function SessionRunner(props: { source: MenuSource; sessionId: string; on
   const openBlockRef = useRef<{ id: string; kind: string } | null>(null);
   // XP用のブロック試行ID（サーバの block_attempts）。取得失敗は記録なしで練習は続行
   const attemptIdRef = useRef<number | null>(null);
+  // 「次のブロックへ」の連打で同一ブロックのXPが二重送信されないようにする同期ガード
+  const advancingRef = useRef(false);
 
   function beginAttempt(kind: string) {
     attemptIdRef.current = null;
@@ -85,6 +87,8 @@ export function SessionRunner(props: { source: MenuSource; sessionId: string; on
   const isLast = index === menu.blocks.length - 1;
 
   function nextBlock() {
+    if (advancingRef.current) return;
+    advancingRef.current = true;
     sendSessionEvent("block_end", props.sessionId, { blockId: block.id, kind: block.kind });
     progressBlockXp(block.minutes, attemptIdRef.current)
       .catch((err) => console.warn("xp post failed:", err));
@@ -100,6 +104,7 @@ export function SessionRunner(props: { source: MenuSource; sessionId: string; on
     openBlockRef.current = { id: next.id, kind: next.kind };
     sendSessionEvent("block_start", props.sessionId, { blockId: next.id, kind: next.kind });
     beginAttempt(next.kind);
+    advancingRef.current = false;
   }
 
   return (
@@ -116,7 +121,7 @@ export function SessionRunner(props: { source: MenuSource; sessionId: string; on
         <BlockBody block={block} sessionId={props.sessionId} />
       </div>
       <div className="round-actions">
-        <Button variant="primary" size="lg" onClick={nextBlock}>
+        <Button variant="primary" size="lg" onClick={nextBlock} disabled={advancingRef.current}>
           {isLast ? "✅ セッションを終える" : "次のブロックへ →"}
         </Button>
       </div>
