@@ -91,7 +91,7 @@ export function sessionEndKeepalive(sessionId: string): void {
 }
 
 export type ContentItem = { id: string; kind: "topic" | "scenario"; title: string; titleJa: string; hints: string[] };
-export type MenuBlock = { id: string; kind: string; title: string; minutes: number; params: { topic?: ContentItem; scenario?: ContentItem; roundsSec?: number[] } };
+export type MenuBlock = { id: string; kind: string; title: string; minutes: number; params: { topic?: ContentItem; scenario?: ContentItem; roundsSec?: number[]; modelTalkMode?: "auto" | "button" | "none" } };
 export type Menu = { minutes: number; date: string; blocks: MenuBlock[] };
 export type AeItem = { quote: string; issue: string; better: string; why_ja: string };
 export type AeFeedback = { items: AeItem[]; praise: string };
@@ -184,6 +184,49 @@ export async function fetchPracticeDays(): Promise<string[]> {
   const res = await fetch("/api/progress/days");
   if (!res.ok) throw new Error(`practice days failed: ${await extractErrorMessage(res)}`);
   return ((await res.json()) as { days: string[] }).days;
+}
+
+export type LevelProposal = {
+  kind: "up" | "down";
+  toLevel: number;
+  rationale: { xpReached?: boolean; practicedDays14?: number; completionRate?: number | null; fttAborts?: number };
+};
+export type ProgressSummary = {
+  level: number; xp: number; xpIntoLevel: number; xpToNext: number;
+  stage: number; difficultyMaxed: boolean; proposal: LevelProposal | null;
+};
+
+export async function fetchProgressSummary(): Promise<ProgressSummary> {
+  const res = await fetch("/api/progress/summary");
+  if (!res.ok) throw new Error(`progress summary failed: ${await extractErrorMessage(res)}`);
+  return res.json();
+}
+
+export async function progressBlockStart(kind: string): Promise<number> {
+  const res = await fetch("/api/progress/block-start", {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ kind }),
+  });
+  if (!res.ok) throw new Error(`block-start failed: ${await extractErrorMessage(res)}`);
+  return ((await res.json()) as { attemptId: number }).attemptId;
+}
+
+export async function progressBlockXp(amount: number, attemptId: number | null): Promise<ProgressSummary> {
+  const res = await fetch("/api/progress/xp", {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ kind: "block", amount, attemptId: attemptId ?? undefined }),
+  });
+  if (!res.ok) throw new Error(`xp failed: ${await extractErrorMessage(res)}`);
+  return res.json();
+}
+
+export async function progressLevelAction(
+  action: "accept" | "decline" | "set", level?: number,
+): Promise<ProgressSummary> {
+  const res = await fetch("/api/progress/level", {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action, level }),
+  });
+  if (!res.ok) throw new Error(`level action failed: ${await extractErrorMessage(res)}`);
+  return res.json();
 }
 
 export type Settings = { anchor: string };

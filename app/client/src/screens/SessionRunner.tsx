@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { fetchMenu, fetchQuickMenu, sendSessionEvent, type Menu, type MenuBlock, type QuickDrillKind } from "../api";
+import {
+  fetchMenu, fetchQuickMenu, progressBlockStart, progressBlockXp, sendSessionEvent,
+  type Menu, type MenuBlock, type QuickDrillKind,
+} from "../api";
 import { useCountdown } from "../useCountdown";
 import { Banner } from "../ui/Banner";
 import { Button } from "../ui/Button";
@@ -25,6 +28,15 @@ export function SessionRunner(props: { source: MenuSource; sessionId: string; on
   // block_start を送信済みで block_end 未送信のブロック（開いているブロック）を追跡する。
   // アンマウント時に開いたままなら block_end(aborted:true) を送って未対応イベントを防ぐ
   const openBlockRef = useRef<{ id: string; kind: string } | null>(null);
+  // XP用のブロック試行ID（サーバの block_attempts）。取得失敗は記録なしで練習は続行
+  const attemptIdRef = useRef<number | null>(null);
+
+  function beginAttempt(kind: string) {
+    attemptIdRef.current = null;
+    progressBlockStart(kind)
+      .then((id) => { attemptIdRef.current = id; })
+      .catch((err) => console.warn("block-start failed:", err));
+  }
 
   function loadMenu() {
     setErrorMsg("");
@@ -37,6 +49,7 @@ export function SessionRunner(props: { source: MenuSource; sessionId: string; on
         timer.start();
         openBlockRef.current = { id: first.id, kind: first.kind };
         sendSessionEvent("block_start", props.sessionId, { blockId: first.id, kind: first.kind });
+        beginAttempt(first.kind);
       })
       .catch((err) => setErrorMsg(err instanceof Error ? err.message : String(err)));
   }
@@ -73,6 +86,8 @@ export function SessionRunner(props: { source: MenuSource; sessionId: string; on
 
   function nextBlock() {
     sendSessionEvent("block_end", props.sessionId, { blockId: block.id, kind: block.kind });
+    progressBlockXp(block.minutes, attemptIdRef.current)
+      .catch((err) => console.warn("xp post failed:", err));
     openBlockRef.current = null;
     if (isLast) {
       props.onExit();
@@ -84,6 +99,7 @@ export function SessionRunner(props: { source: MenuSource; sessionId: string; on
     timer.start();
     openBlockRef.current = { id: next.id, kind: next.kind };
     sendSessionEvent("block_start", props.sessionId, { blockId: next.id, kind: next.kind });
+    beginAttempt(next.kind);
   }
 
   return (
@@ -116,7 +132,10 @@ function BlockBody({ block, sessionId }: { block: MenuBlock; sessionId: string }
       return block.params.topic ? <WarmupReadingScreen topic={block.params.topic} /> : <p>トピックがありません</p>;
     case "four-three-two":
       return block.params.topic ? (
-        <FourThreeTwoScreen topic={block.params.topic} sessionId={sessionId} blockId={block.id} roundsSec={block.params.roundsSec} />
+        <FourThreeTwoScreen
+          topic={block.params.topic} sessionId={sessionId} blockId={block.id}
+          roundsSec={block.params.roundsSec} modelTalkMode={block.params.modelTalkMode}
+        />
       ) : (
         <p>トピックがありません</p>
       );

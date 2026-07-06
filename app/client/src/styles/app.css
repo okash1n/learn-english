@@ -191,6 +191,17 @@ ul, ol { margin: 0 0 var(--sp-3); padding-left: var(--sp-5); }
 .stat-main { font-size: 24px; font-weight: 750; letter-spacing: -0.02em; }
 .stat-unit { font-size: var(--fs-md); font-weight: 550; margin-left: 2px; }
 .stat-sub { font-size: var(--fs-sm); color: var(--text-muted); }
+.stat-level-wrap { margin-bottom: var(--sp-2); padding-bottom: var(--sp-2); border-bottom: 1px solid var(--border); }
+.stat-level { font: inherit; font-size: 20px; font-weight: 750; background: none; border: none; padding: 0; cursor: pointer; color: var(--text); }
+.stat-level:hover { color: var(--accent); }
+.gauge { height: 6px; border-radius: 3px; background: var(--border); overflow: hidden; margin: var(--sp-1) 0; }
+.gauge-fill { height: 100%; background: var(--accent); border-radius: 3px; transition: width 300ms ease; }
+.level-edit { display: flex; gap: 4px; align-items: center; }
+.level-input { width: 56px; font: inherit; padding: 2px 4px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); color: var(--text); }
+.level-edit-btn { font: inherit; font-size: var(--fs-sm); background: none; border: none; color: var(--accent); cursor: pointer; padding: 2px; }
+.proposal-card { border-color: var(--accent); }
+.proposal-card h3 { margin-top: 0; }
+.proposal-actions { display: flex; gap: var(--sp-2); margin-top: var(--sp-2); }
 @media (max-width: 860px) {
   .shell { flex-direction: column; }
   .sidebar { width: 100%; height: auto; position: static; flex-direction: row; align-items: center; border-right: none; border-bottom: 1px solid var(--border); padding: var(--sp-2) var(--sp-4); }

@@ -22,6 +22,19 @@ type Strings = {
   calendar: { title: string; practiced: string; notYet: string };
   cta: (title: string, minutes: string) => string;
   freeTalk: { title: string; desc: string };
+  progress: {
+    levelLabel: (n: number) => string;
+    toNext: (xp: number) => string;
+    maxed: string;
+    editTitle: string; editSave: string; editCancel: string;
+    upTitle: string; upBody: (toLevel: number) => string;
+    downTitle: string; downBody: (toLevel: number) => string;
+    xpReached: string;
+    practicedDays: (n: number) => string;
+    completionRate: (pct: number) => string;
+    fttAborts: (n: number) => string;
+    acceptUp: string; acceptDown: string; decline: string;
+  };
 };
 
 const WEEKDAYS_EN = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
@@ -49,6 +62,21 @@ export const STR: Record<Lang, Strings> = {
     calendar: { title: "Practice days", practiced: "Practiced", notYet: "Not yet" },
     cta: (title, minutes) => `Start today's practice — ${title} (${minutes})`,
     freeTalk: { title: "Free Talk", desc: "Talk about anything in English — press the button to start and stop recording" },
+    progress: {
+      levelLabel: (n) => `Lv ${n}`,
+      toNext: (xp) => `${xp} XP to next level`,
+      maxed: "Difficulty is at max — levels are just for fun now",
+      editTitle: "Set your level", editSave: "Save", editCancel: "Cancel",
+      upTitle: "Ready for the next stage?",
+      upBody: (toLevel) => `Your recent practice looks solid. Move up to Lv ${toLevel}?`,
+      downTitle: "An easier option",
+      downBody: (toLevel) => `You could drop to Lv ${toLevel} to rebuild momentum — your XP stays.`,
+      xpReached: "XP threshold reached",
+      practicedDays: (n) => `${n} practice days in the last 14`,
+      completionRate: (pct) => `${pct}% of recent blocks completed`,
+      fttAborts: (n) => `${n} of the last five 4/3/2 blocks were cut short`,
+      acceptUp: "Level up", acceptDown: "Move down", decline: "Not now",
+    },
   },
   ja: {
     nav: { home: "ホーム", free: "自由会話", library: "ライブラリ", sentences: "暗記例文300" },
@@ -70,5 +98,20 @@ export const STR: Record<Lang, Strings> = {
     calendar: { title: "練習日", practiced: "練習した日", notYet: "未実施" },
     cta: (title, minutes) => `今日の学習を始める — ${title}（${minutes}）`,
     freeTalk: { title: "自由会話", desc: "英語でなんでも話しかけてください — 録音ボタンで開始・停止" },
+    progress: {
+      levelLabel: (n) => `Lv ${n}`,
+      toNext: (xp) => `次のレベルまで ${xp} XP`,
+      maxed: "難易度は最大です — 以降のレベルはおまけ",
+      editTitle: "レベルを変更", editSave: "保存", editCancel: "キャンセル",
+      upTitle: "次のステージに進みませんか？",
+      upBody: (toLevel) => `最近の練習は好調です。Lv ${toLevel} に上げますか？`,
+      downTitle: "難易度の調整もできます",
+      downBody: (toLevel) => `Lv ${toLevel} に戻して基礎を固め直すこともできます（XPは減りません）。`,
+      xpReached: "必要XPに到達",
+      practicedDays: (n) => `直近14日間の練習日 ${n}日`,
+      completionRate: (pct) => `直近ブロックの完了率 ${pct}%`,
+      fttAborts: (n) => `直近5回の4/3/2のうち${n}回が中断`,
+      acceptUp: "レベルアップ", acceptDown: "レベルを下げる", decline: "今はしない",
+    },
   },
 };

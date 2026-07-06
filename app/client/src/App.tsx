@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { fetchPracticeDays, getHealth, sessionEnd, sessionEndKeepalive, sessionStart, type Health } from "./api";
+import {
+  fetchPracticeDays, fetchProgressSummary, getHealth, progressLevelAction, sessionEnd, sessionEndKeepalive,
+  sessionStart, type Health, type ProgressSummary,
+} from "./api";
 import { loadLang, saveLang, STR, type Lang } from "./i18n";
 import { FreeTalkScreen } from "./screens/FreeTalkScreen";
 import { LibraryScreen } from "./screens/LibraryScreen";
@@ -109,14 +112,18 @@ export function App() {
   );
 }
 
-/** サイドバー下部の練習実績（情報表示のみ — 連続日数・喪失演出は置かない） */
+/** サイドバー下部の練習実績＋レベル（情報表示のみ — 連続日数・喪失演出は置かない） */
 function PracticeStat({ lang }: { lang: Lang }) {
   const [days, setDays] = useState<string[]>([]);
+  const [summary, setSummary] = useState<ProgressSummary | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [editValue, setEditValue] = useState("");
   const fetchedRef = useRef(false);
   useEffect(() => {
     if (fetchedRef.current) return;
     fetchedRef.current = true;
     fetchPracticeDays().then(setDays).catch(() => {});
+    fetchProgressSummary().then(setSummary).catch(() => {});
   }, []);
   const t = STR[lang];
   const now = new Date();
@@ -125,8 +132,49 @@ function PracticeStat({ lang }: { lang: Lang }) {
   const p = (n: number) => String(n).padStart(2, "0");
   const ymd = (d: Date) => `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
   const thisWeek = days.filter((d) => d >= ymd(weekAgo) && d <= ymd(now)).length;
+
+  async function saveLevel() {
+    const n = Number(editValue);
+    if (!Number.isInteger(n) || n < 1) return;
+    try {
+      setSummary(await progressLevelAction("set", n));
+    } catch (err) {
+      console.warn("level set failed:", err);
+    }
+    setEditing(false);
+  }
+
+  const need = summary ? summary.xpIntoLevel + summary.xpToNext : 0;
+  const pct = summary && need > 0 ? Math.min(100, Math.round((summary.xpIntoLevel / need) * 100)) : 0;
+
   return (
     <div className="stat-box">
+      {summary && (
+        <div className="stat-level-wrap">
+          {editing ? (
+            <div className="level-edit">
+              <input
+                className="level-input" type="number" min={1} value={editValue} autoFocus
+                onChange={(e) => setEditValue(e.target.value)}
+                aria-label={t.progress.editTitle}
+              />
+              <button className="level-edit-btn" onClick={saveLevel}>{t.progress.editSave}</button>
+              <button className="level-edit-btn" onClick={() => setEditing(false)}>{t.progress.editCancel}</button>
+            </div>
+          ) : (
+            <button
+              className="stat-level" title={t.progress.editTitle}
+              onClick={() => { setEditValue(String(summary.level)); setEditing(true); }}
+            >
+              {t.progress.levelLabel(summary.level)}
+            </button>
+          )}
+          <div className="gauge" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
+            <div className="gauge-fill" style={{ width: `${pct}%` }} />
+          </div>
+          <div className="stat-sub">{summary.difficultyMaxed ? t.progress.maxed : t.progress.toNext(summary.xpToNext)}</div>
+        </div>
+      )}
       <div className="stat-title">{t.stat.title}</div>
       <div className="stat-main">{thisWeek}<span className="stat-unit">{t.stat.thisWeekUnit}</span></div>
       <div className="stat-sub">{t.stat.total(days.length)}</div>

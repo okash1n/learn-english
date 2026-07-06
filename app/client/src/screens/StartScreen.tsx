@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { fetchPracticeDays, type QuickDrillKind } from "../api";
+import {
+  fetchPracticeDays, fetchProgressSummary, progressLevelAction,
+  type LevelProposal, type ProgressSummary, type QuickDrillKind,
+} from "../api";
 import { STR, type Lang } from "../i18n";
+import { Button } from "../ui/Button";
 
 export type StartSelection =
   | { type: "quick"; drill: QuickDrillKind }
@@ -108,6 +112,7 @@ function PracticeCalendar({ days, lang }: { days: string[]; lang: Lang }) {
 export function StartScreen(props: { onSelect: (sel: StartSelection) => void; lang: Lang }) {
   const t = STR[props.lang];
   const [days, setDays] = useState<string[]>([]);
+  const [summary, setSummary] = useState<ProgressSummary | null>(null);
   const aliveRef = useRef(true);
   const fetchedRef = useRef(false);
 
@@ -117,6 +122,7 @@ export function StartScreen(props: { onSelect: (sel: StartSelection) => void; la
       fetchedRef.current = true;
       // カレンダーは補助情報 — 取得失敗でスタート画面を壊さない
       fetchPracticeDays().then((d) => { if (aliveRef.current) setDays(d); }).catch(() => {});
+      fetchProgressSummary().then((s) => { if (aliveRef.current) setSummary(s); }).catch(() => {});
     }
     return () => { aliveRef.current = false; };
   }, []);
@@ -176,11 +182,54 @@ export function StartScreen(props: { onSelect: (sel: StartSelection) => void; la
         </div>
       </div>
 
+      {summary?.proposal && (
+        <ProposalCard
+          proposal={summary.proposal} lang={props.lang}
+          onAction={async (action) => {
+            try {
+              setSummary(await progressLevelAction(action));
+            } catch (err) {
+              console.warn("level action failed:", err);
+            }
+          }}
+        />
+      )}
+
       <PracticeCalendar days={days} lang={props.lang} />
 
       <button className="cta" onClick={() => props.onSelect({ type: "quick", drill: pick.drill })}>
         {t.cta(pickText.title, pickText.minutes)}
       </button>
+    </div>
+  );
+}
+
+/** 昇格/降格の提案カード。根拠を実値で開示する（研究制約: 情報的フィードバック・中立トーン） */
+function ProposalCard(props: {
+  proposal: LevelProposal; lang: Lang;
+  onAction: (action: "accept" | "decline") => void;
+}) {
+  const t = STR[props.lang].progress;
+  const { proposal } = props;
+  const r = proposal.rationale;
+  const lines: string[] = [];
+  if (r.xpReached) lines.push(t.xpReached);
+  if (typeof r.practicedDays14 === "number") lines.push(t.practicedDays(r.practicedDays14));
+  if (typeof r.completionRate === "number") lines.push(t.completionRate(Math.round(r.completionRate * 100)));
+  if (typeof r.fttAborts === "number" && proposal.kind === "down") lines.push(t.fttAborts(r.fttAborts));
+  return (
+    <div className="card proposal-card">
+      <h3>{proposal.kind === "up" ? t.upTitle : t.downTitle}</h3>
+      <p>{proposal.kind === "up" ? t.upBody(proposal.toLevel) : t.downBody(proposal.toLevel)}</p>
+      <ul className="text-sm text-muted">
+        {lines.map((l, i) => (<li key={i}>{l}</li>))}
+      </ul>
+      <div className="proposal-actions">
+        <Button variant="primary" onClick={() => props.onAction("accept")}>
+          {proposal.kind === "up" ? t.acceptUp : t.acceptDown}
+        </Button>
+        <Button variant="secondary" onClick={() => props.onAction("decline")}>{t.decline}</Button>
+      </div>
     </div>
   );
 }

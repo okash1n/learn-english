@@ -36,7 +36,11 @@ type PrepState = "loading" | "ready" | "error";
  * 準備フェーズ（チャンク＋アウトライン＋モデル聴取）→ 同じ話を 2分→(AE)→1.5分→1分。
  * ラウンド秒数は menu params (roundsSec) が正で、流暢性の伸びに応じてサーバ側で較正する。
  */
-export function FourThreeTwoScreen(props: { topic: ContentItem; sessionId: string; blockId: string; roundsSec?: number[] }) {
+export function FourThreeTwoScreen(props: {
+  topic: ContentItem; sessionId: string; blockId: string; roundsSec?: number[];
+  modelTalkMode?: "auto" | "button" | "none";
+}) {
+  const modelTalkMode = props.modelTalkMode ?? "auto";
   const roundsSec =
     props.roundsSec && props.roundsSec.length >= 2 && props.roundsSec.every((s) => s > 0)
       ? props.roundsSec
@@ -54,8 +58,8 @@ export function FourThreeTwoScreen(props: { topic: ContentItem; sessionId: strin
   // 準備フェーズ
   const [prepState, setPrepState] = useState<PrepState>("loading");
   const [prep, setPrep] = useState<PrepPack | null>(null);
-  type ModelState = "script" | "audio" | "ready" | "playing" | "error";
-  const [modelState, setModelState] = useState<ModelState>("script");
+  type ModelState = "idle" | "script" | "audio" | "ready" | "playing" | "error";
+  const [modelState, setModelState] = useState<ModelState>(modelTalkMode === "auto" ? "script" : "idle");
   const [modelText, setModelText] = useState("");
   const [playingIdx, setPlayingIdx] = useState<number | null>(null);
   const prepFetchedRef = useRef(false); // StrictMode の二重マウントで prep を二重フェッチしない
@@ -77,17 +81,19 @@ export function FourThreeTwoScreen(props: { topic: ContentItem; sessionId: strin
       prepFetchedRef.current = true;
       loadPrep();
       prepTimer.start();
-      prefetchModelTalkAudio(props.topic.id, (stage) => {
-        if (aliveRef.current) setModelState(stage);
-      })
-        .then(({ text }) => {
-          if (!aliveRef.current) return;
-          setModelText(text);
-          setModelState("ready");
+      if (modelTalkMode === "auto") {
+        prefetchModelTalkAudio(props.topic.id, (stage) => {
+          if (aliveRef.current) setModelState(stage);
         })
-        .catch(() => {
-          if (aliveRef.current) setModelState("error");
-        });
+          .then(({ text }) => {
+            if (!aliveRef.current) return;
+            setModelText(text);
+            setModelState("ready");
+          })
+          .catch(() => {
+            if (aliveRef.current) setModelState("error");
+          });
+      }
     }
     return () => {
       aliveRef.current = false;
@@ -281,18 +287,21 @@ export function FourThreeTwoScreen(props: { topic: ContentItem; sessionId: strin
           );
         })()}
         <div className="start-row">
-          <Button onClick={playModelTalk} disabled={modelState === "script" || modelState === "audio" || modelState === "playing"}>
-            {modelState === "script" && "✍ 原稿を作成中…"}
-            {modelState === "audio" && "🎙 音声を生成中…"}
-            {modelState === "ready" && "🎧 モデルトークを聞く（任意）"}
-            {modelState === "playing" && "🔊 再生中…"}
-            {modelState === "error" && "🎧 モデルトーク（再試行）"}
-          </Button>
+          {modelTalkMode !== "none" && (
+            <Button onClick={playModelTalk} disabled={modelState === "script" || modelState === "audio" || modelState === "playing"}>
+              {modelState === "idle" && "🎧 モデルトークを聞く（任意）"}
+              {modelState === "script" && "✍ 原稿を作成中…"}
+              {modelState === "audio" && "🎙 音声を生成中…"}
+              {modelState === "ready" && "🎧 モデルトークを聞く（任意）"}
+              {modelState === "playing" && "🔊 再生中…"}
+              {modelState === "error" && "🎧 モデルトーク（再試行）"}
+            </Button>
+          )}
           <Button variant="primary" onClick={() => startRound(0)}>
             Round 1 を始める（{minLabel(roundsSec[0])}）→
           </Button>
         </div>
-        {modelText && (
+        {modelTalkMode !== "none" && modelText && (
           <details open>
             <summary className="text-muted">モデルトーク本文</summary>
             <p className="reading-text">{modelText}</p>
