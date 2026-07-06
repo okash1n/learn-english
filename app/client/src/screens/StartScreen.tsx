@@ -178,19 +178,20 @@ export function StartScreen(props: { onSelect: (sel: StartSelection) => void; la
       <div>
         <p className="section-label">{t.intensive.label} <span className="section-note">{t.intensive.note}</span></p>
         <div className="drill-grid">
-          <button className="drill-card" onClick={() => props.onSelect({ type: "daily", minutes: 60 })}>
-            <span className="drill-icon c-green" aria-hidden="true">📋</span>
-            <span className="drill-body">
-              <span className="drill-title">{t.fullSession.title} <span className="drill-min">{t.fullSession.minutes}</span></span>
-              <span className="drill-desc">{t.fullSession.desc}</span>
-            </span>
-            <span className="drill-arrow" aria-hidden="true">→</span>
-          </button>
+          {/* 負荷の軽い順（クイックドリル→30分→60分の流れに合わせる） */}
           <button className="drill-card" onClick={() => props.onSelect({ type: "daily", minutes: 30 })}>
             <span className="drill-icon c-blue" aria-hidden="true">⏱</span>
             <span className="drill-body">
               <span className="drill-title">{t.shortSession.title} <span className="drill-min">{t.shortSession.minutes}</span></span>
               <span className="drill-desc">{t.shortSession.desc}</span>
+            </span>
+            <span className="drill-arrow" aria-hidden="true">→</span>
+          </button>
+          <button className="drill-card" onClick={() => props.onSelect({ type: "daily", minutes: 60 })}>
+            <span className="drill-icon c-green" aria-hidden="true">📋</span>
+            <span className="drill-body">
+              <span className="drill-title">{t.fullSession.title} <span className="drill-min">{t.fullSession.minutes}</span></span>
+              <span className="drill-desc">{t.fullSession.desc}</span>
             </span>
             <span className="drill-arrow" aria-hidden="true">→</span>
           </button>
