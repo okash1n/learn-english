@@ -24,6 +24,16 @@ export const FTT_MINI_ROUNDS_SEC: readonly number[] = [120, 90];
 export type QuickKind = "warmup" | "ftt-mini" | "roleplay" | "shadowing";
 export const QUICK_KINDS: readonly QuickKind[] = ["warmup", "ftt-mini", "roleplay", "shadowing"];
 
+/** Phase B でレベル駆動になるまでの既定ステージ（スペック §3.2: デフォルト Lv13 = stage 2） */
+export const DEFAULT_STAGE = 2;
+
+/** rotation 永続化 v2。旧形式（UsageMap 直置き）は読み込み時に移行する */
+export type RotationState = {
+  version: 2;
+  usage: UsageMap;
+  lastDomain: { topic: Domain | ""; scenario: Domain | "" };
+};
+
 function parseDomain(raw: string | undefined): Domain {
   if (raw === undefined) return "it";
   if ((DOMAINS as readonly string[]).includes(raw)) return raw as Domain;
@@ -104,6 +114,30 @@ export function pickNext(items: ContentItem[], usage: UsageMap, todayYmd: string
   })[0];
 }
 
+/**
+ * 帯域フィルタ → ドメインラウンドロビン → LRU の選択（スペック §7.3）。
+ * stage 適合プール（空なら全体にフォールバック）から、前回ドメインの次を優先して
+ * 存在する最初のドメインを選び、ドメイン内は pickNext（LRU + 3日連続回避）。
+ */
+export function pickNextByDomain(
+  items: ContentItem[], state: RotationState, todayYmd: string, stage: number, kind: "topic" | "scenario",
+): ContentItem {
+  if (items.length === 0) throw new Error("no content items available");
+  const inBand = items.filter((it) => it.level[0] <= stage && stage <= it.level[1]);
+  const pool = inBand.length > 0 ? inBand : items;
+  const last = state.lastDomain[kind];
+  const start = last === "" ? 0 : (DOMAINS.indexOf(last) + 1) % DOMAINS.length;
+  for (let i = 0; i < DOMAINS.length; i++) {
+    const domain = DOMAINS[(start + i) % DOMAINS.length];
+    const sub = pool.filter((it) => it.domain === domain);
+    if (sub.length === 0) continue;
+    const picked = pickNext(sub, state.usage, todayYmd);
+    state.lastDomain[kind] = domain;
+    return picked;
+  }
+  return pickNext(pool, state.usage, todayYmd); // 論理上到達しない安全網
+}
+
 function markUsed(usage: UsageMap, id: string, ymd: string): void {
   const dates = usage[id] ?? [];
   if (!dates.includes(ymd)) dates.push(ymd);
@@ -121,13 +155,34 @@ function readJsonSafe<T>(file: string): T | undefined {
   }
 }
 
-function loadUsage(usageFile: string): UsageMap {
-  return readJsonSafe<UsageMap>(usageFile) ?? {};
+function freshRotation(): RotationState {
+  return { version: 2, usage: {}, lastDomain: { topic: "", scenario: "" } };
 }
 
-function saveUsage(usageFile: string, usage: UsageMap): void {
+/** v2 を読む。旧形式（id→日付配列の直置き）は usage として移行。不明形状は初期状態 */
+function loadRotation(usageFile: string): RotationState {
+  const raw = readJsonSafe<Record<string, unknown>>(usageFile);
+  if (raw === undefined) return freshRotation();
+  if (raw.version === 2 && typeof raw.usage === "object" && raw.usage !== null) {
+    const last = (raw.lastDomain ?? {}) as Partial<RotationState["lastDomain"]>;
+    const valid = (v: unknown): v is Domain | "" => v === "" || (DOMAINS as readonly string[]).includes(v as string);
+    return {
+      version: 2,
+      usage: raw.usage as UsageMap,
+      lastDomain: { topic: valid(last.topic) ? last.topic : "", scenario: valid(last.scenario) ? last.scenario : "" },
+    };
+  }
+  // 旧形式: すべての値が配列なら UsageMap とみなして移行
+  if (Object.values(raw).every((v) => Array.isArray(v))) {
+    return { ...freshRotation(), usage: raw as UsageMap };
+  }
+  console.warn(`[menu] unknown rotation state shape, starting fresh: ${usageFile}`);
+  return freshRotation();
+}
+
+function saveRotation(usageFile: string, state: RotationState): void {
   mkdirSync(path.dirname(usageFile), { recursive: true });
-  writeFileSync(usageFile, JSON.stringify(usage, null, 2));
+  writeFileSync(usageFile, JSON.stringify(state, null, 2));
 }
 
 /** JSONとしては妥当でも Menu の形になっていないキャッシュ（手動編集・古いフォーマット等）を弾く */
@@ -142,6 +197,7 @@ export type MenuDeps = {
   usageFile?: string;
   menuCacheDir?: string;
   today?: () => Date;
+  stage?: number;
 };
 
 export function buildTodayMenu(minutes: 60 | 30, deps: MenuDeps = {}): Menu {
@@ -159,20 +215,23 @@ export function buildTodayMenu(minutes: 60 | 30, deps: MenuDeps = {}): Menu {
     console.warn(`[menu] cached menu has unexpected shape, rebuilding: ${cacheFile}`);
   }
 
-  const usage = loadUsage(usageFile);
+  const stage = deps.stage ?? DEFAULT_STAGE;
+  const state = loadRotation(usageFile);
   const topics = loadContent(topicsDir);
   const scenarios = loadContent(scenariosDir);
 
-  const mainTopic = pickNext(topics, usage, ymd);
-  const scenario = pickNext(scenarios, usage, ymd);
+  const mainTopic = pickNextByDomain(topics, state, ymd, stage, "topic");
+  const scenario = pickNextByDomain(scenarios, state, ymd, stage, "scenario");
   // シャドーイング素材は「次にローテーションが選ぶトピック」のプレビュー。
-  // 使用済みマークはしない（近日中に 4/3/2 で回ってくる＝spec §5.2 の「翌日の下敷き」の近似）
+  // 使用済みマーク・ドメインカーソルの前進はしない（帯域フィルタだけ適用）
   const others = topics.filter((t) => t.id !== mainTopic.id);
-  const shadowTopic = others.length > 0 ? pickNext(others, usage, ymd) : mainTopic;
+  const othersInBand = others.filter((it) => it.level[0] <= stage && stage <= it.level[1]);
+  const shadowPool = othersInBand.length > 0 ? othersInBand : others;
+  const shadowTopic = shadowPool.length > 0 ? pickNext(shadowPool, state.usage, ymd) : mainTopic;
 
-  markUsed(usage, mainTopic.id, ymd);
-  markUsed(usage, scenario.id, ymd);
-  saveUsage(usageFile, usage);
+  markUsed(state.usage, mainTopic.id, ymd);
+  markUsed(state.usage, scenario.id, ymd);
+  saveRotation(usageFile, state);
 
   const warmupTitle = "音読ウォームアップ";
   const blocks: MenuBlock[] =
@@ -207,16 +266,17 @@ export function buildQuickMenu(kind: QuickKind, deps: MenuDeps = {}): Menu {
   const scenariosDir = deps.scenariosDir ?? SCENARIOS_DIR;
   const usageFile = deps.usageFile ?? path.join(PROGRESS_DIR, "topic-usage.json");
   const ymd = (deps.today ?? (() => new Date()))().toISOString().slice(0, 10);
-  const usage = loadUsage(usageFile);
+  const stage = deps.stage ?? DEFAULT_STAGE;
+  const state = loadRotation(usageFile);
 
   let block: MenuBlock;
   if (kind === "roleplay") {
-    const scenario = pickNext(loadContent(scenariosDir), usage, ymd);
-    markUsed(usage, scenario.id, ymd);
+    const scenario = pickNextByDomain(loadContent(scenariosDir), state, ymd, stage, "scenario");
+    markUsed(state.usage, scenario.id, ymd);
     block = { id: "q1", kind: "roleplay", title: `実務ロールプレイ: ${scenario.title}`, minutes: 10, params: { scenario } };
   } else {
-    const topic = pickNext(loadContent(topicsDir), usage, ymd);
-    markUsed(usage, topic.id, ymd);
+    const topic = pickNextByDomain(loadContent(topicsDir), state, ymd, stage, "topic");
+    markUsed(state.usage, topic.id, ymd);
     if (kind === "warmup") {
       block = { id: "q1", kind: "warmup-reading", title: "音読ウォームアップ", minutes: 6, params: { topic } };
     } else if (kind === "ftt-mini") {
@@ -229,6 +289,6 @@ export function buildQuickMenu(kind: QuickKind, deps: MenuDeps = {}): Menu {
     }
   }
 
-  saveUsage(usageFile, usage);
+  saveRotation(usageFile, state);
   return { minutes: block.minutes, date: ymd, blocks: [block] };
 }

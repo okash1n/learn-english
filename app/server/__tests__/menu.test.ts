@@ -3,8 +3,9 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, exist
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
-  buildQuickMenu, buildTodayMenu, FTT_MINI_ROUNDS_SEC, loadContent, parseContentFile, pickNext, QUICK_KINDS,
-  type ContentItem, type MenuDeps, type QuickKind, type UsageMap,
+  buildQuickMenu, buildTodayMenu, DEFAULT_STAGE, FTT_MINI_ROUNDS_SEC, loadContent, parseContentFile, pickNext,
+  pickNextByDomain, QUICK_KINDS,
+  type ContentItem, type Domain, type MenuDeps, type QuickKind, type RotationState, type UsageMap,
 } from "../menu";
 
 function makeContentDirs(): { topicsDir: string; scenariosDir: string; usageFile: string; menuCacheDir: string } {
@@ -146,10 +147,10 @@ describe("buildTodayMenu", () => {
   test("使用記録: 4/3/2とロールプレイのみ記録され、シャドーイングのプレビューは記録されない", () => {
     const dirs = makeContentDirs();
     buildTodayMenu(60, { ...dirs, today: JULY5 });
-    const usage = JSON.parse(readFileSync(dirs.usageFile, "utf8")) as UsageMap;
-    expect(usage.t1).toEqual(["2026-07-05"]);
-    expect(usage.s1).toEqual(["2026-07-05"]);
-    expect(usage.t2).toBeUndefined();
+    const state = JSON.parse(readFileSync(dirs.usageFile, "utf8")) as RotationState;
+    expect(state.usage.t1).toEqual(["2026-07-05"]);
+    expect(state.usage.s1).toEqual(["2026-07-05"]);
+    expect(state.usage.t2).toBeUndefined();
   });
 
   test("同日同minutesの再呼び出しは日次キャッシュから同一メニューを返し、使用記録を重ねない", () => {
@@ -157,8 +158,8 @@ describe("buildTodayMenu", () => {
     const first = buildTodayMenu(60, { ...dirs, today: JULY5 });
     const second = buildTodayMenu(60, { ...dirs, today: JULY5 });
     expect(second).toEqual(first);
-    const usage = JSON.parse(readFileSync(dirs.usageFile, "utf8")) as UsageMap;
-    expect(usage.t1).toEqual(["2026-07-05"]); // 1回だけ
+    const state = JSON.parse(readFileSync(dirs.usageFile, "utf8")) as RotationState;
+    expect(state.usage.t1).toEqual(["2026-07-05"]); // 1回だけ
     expect(existsSync(path.join(dirs.menuCacheDir, "menu-2026-07-05-60.json"))).toBe(true);
   });
 
@@ -200,9 +201,9 @@ describe("buildTodayMenu", () => {
     writeFileSync(dirs.usageFile, "{ broken usage json");
     const menu = buildTodayMenu(60, { ...dirs, today: JULY5 });
     expect(menu.date).toBe("2026-07-05");
-    const usage = JSON.parse(readFileSync(dirs.usageFile, "utf8")) as UsageMap;
-    expect(usage.t1).toEqual(["2026-07-05"]);
-    expect(usage.s1).toEqual(["2026-07-05"]);
+    const state = JSON.parse(readFileSync(dirs.usageFile, "utf8")) as RotationState;
+    expect(state.usage.t1).toEqual(["2026-07-05"]);
+    expect(state.usage.s1).toEqual(["2026-07-05"]);
   });
 
   test("同日に60分版→30分版と続けて構築しても、各アイテムの使用日に同日が重複記録されない", () => {
@@ -210,8 +211,8 @@ describe("buildTodayMenu", () => {
     buildTodayMenu(60, { ...dirs, today: JULY5 });
     const menu30 = buildTodayMenu(30, { ...dirs, today: JULY5 });
     expect(menu30.date).toBe("2026-07-05");
-    const usage = JSON.parse(readFileSync(dirs.usageFile, "utf8")) as UsageMap;
-    for (const dates of Object.values(usage)) {
+    const state = JSON.parse(readFileSync(dirs.usageFile, "utf8")) as RotationState;
+    for (const dates of Object.values(state.usage)) {
       const todayCount = dates.filter((d) => d === "2026-07-05").length;
       expect(todayCount).toBeLessThanOrEqual(1);
     }
@@ -240,8 +241,8 @@ describe("buildQuickMenu", () => {
     expect(m.blocks[0].kind).toBe("warmup-reading");
     expect(m.blocks[0].minutes).toBe(6);
     expect((m.blocks[0].params.topic as { id: string }).id).toBe("t1");
-    const usage = JSON.parse(readFileSync(usageFile, "utf8"));
-    expect(usage.t1).toEqual(["2026-07-05"]);
+    const state = JSON.parse(readFileSync(usageFile, "utf8")) as RotationState;
+    expect(state.usage.t1).toEqual(["2026-07-05"]);
   });
 
   test("ftt-mini: four-three-two・8分・roundsSec=[120,90]", () => {
@@ -279,5 +280,74 @@ describe("buildQuickMenu", () => {
 
   test("QUICK_KINDS は4種", () => {
     expect(QUICK_KINDS).toEqual(["warmup", "ftt-mini", "roleplay", "shadowing"]);
+  });
+});
+
+function freshState(): RotationState {
+  return { version: 2, usage: {}, lastDomain: { topic: "", scenario: "" } };
+}
+
+describe("pickNextByDomain", () => {
+  const mk = (id: string, domain: "daily" | "business" | "it", level: [number, number]): ContentItem =>
+    ({ id, kind: "topic", title: id, titleJa: "", hints: [], domain, level });
+  const items = [
+    mk("d1", "daily", [1, 6]), mk("d2", "daily", [1, 6]),
+    mk("b1", "business", [1, 6]),
+    mk("i1", "it", [1, 6]), mk("i2", "it", [4, 6]),
+  ];
+
+  test("ドメインを daily→business→it→daily の順に巡回する", () => {
+    expect(DEFAULT_STAGE).toBe(2); // Phase B までの既定ステージ（スペック §3.2）
+    const state = freshState();
+    expect(pickNextByDomain(items, state, "2026-07-06", 2, "topic").domain).toBe("daily");
+    expect(pickNextByDomain(items, state, "2026-07-06", 2, "topic").domain).toBe("business");
+    expect(pickNextByDomain(items, state, "2026-07-06", 2, "topic").domain).toBe("it");
+    expect(pickNextByDomain(items, state, "2026-07-06", 2, "topic").domain).toBe("daily");
+  });
+
+  test("stage 適合プールでフィルタする（stage2 は level [4,6] を除外）", () => {
+    const state = freshState();
+    state.lastDomain.topic = "business"; // 次は it
+    const picked = pickNextByDomain(items, state, "2026-07-06", 2, "topic");
+    expect(picked.id).toBe("i1"); // i2 は [4,6] で stage2 に不適合
+  });
+
+  test("プールが空になるドメインはスキップする", () => {
+    const noBusiness = items.filter((it) => it.domain !== "business");
+    const state = freshState();
+    // TS の control-flow narrowing がリテラル代入を関数呼び出し越しに保持してしまうため、
+    // 後続の `expect(state.lastDomain.topic).toBe("it")` と型不整合にならないよう Domain へ widen する
+    state.lastDomain.topic = "daily" as Domain; // 次は business → 無いので it へ
+    expect(pickNextByDomain(noBusiness, state, "2026-07-06", 2, "topic").domain).toBe("it");
+    expect(state.lastDomain.topic).toBe("it");
+  });
+
+  test("全アイテムが stage 不適合なら全体にフォールバックする", () => {
+    const hard = [mk("x1", "it", [5, 6]), mk("x2", "daily", [4, 6])];
+    const state = freshState();
+    const picked = pickNextByDomain(hard, state, "2026-07-06", 1, "topic");
+    expect(["x1", "x2"]).toContain(picked.id);
+  });
+
+  test("topic と scenario は別々のドメインカーソルを持つ", () => {
+    const state = freshState();
+    pickNextByDomain(items, state, "2026-07-06", 2, "topic");
+    expect(state.lastDomain.topic).toBe("daily");
+    expect(state.lastDomain.scenario).toBe("");
+  });
+});
+
+describe("rotation 永続化の後方互換", () => {
+  test("旧形式（UsageMap 直置き）を読んだら v2 に移行し LRU を引き継ぐ", () => {
+    const dirs = makeContentDirs();
+    // 旧形式: id → 日付配列 の直置き
+    writeFileSync(dirs.usageFile, JSON.stringify({ t1: ["2026-07-04"] }));
+    const m = buildQuickMenu("warmup", { ...dirs, today: JULY5 });
+    // t1 は使用済みなので LRU により t2 が選ばれる（旧 usage が引き継がれている証拠）
+    expect((m.blocks[0].params.topic as { id: string }).id).toBe("t2");
+    const saved = JSON.parse(readFileSync(dirs.usageFile, "utf8")) as RotationState;
+    expect(saved.version).toBe(2);
+    expect(saved.usage.t1).toEqual(["2026-07-04"]);
+    expect(saved.lastDomain.topic).toBe("it"); // フィクスチャは全て domain 省略 = it
   });
 });
