@@ -1,6 +1,6 @@
 import type { Database } from "bun:sqlite";
 import {
-  BOUNDARY_LEVELS, DEFAULT_LEVEL, demotionTargetLevel, needXp, stageOf,
+  BOUNDARY_LEVELS, DEFAULT_LEVEL, demotionTargetLevel, needXp, stageOf, PLACEMENT_XP,
 } from "./progression";
 import { addDaysYmd, localYmd } from "./sentences";
 
@@ -12,20 +12,22 @@ export type ProgressSummary = {
   level: number; xp: number; xpIntoLevel: number; xpToNext: number;
   stage: number; difficultyMaxed: boolean; proposal: Proposal | null;
 };
+/** レベル変更系の戻り値。summary は従来どおり、levelChanged で「当日メニューキャッシュを無効化すべきか」を伝える */
+export type LevelChangeResult = { summary: ProgressSummary; levelChanged: boolean };
 export type ProgressStore = {
   getLevel(): number;
   getSummary(today?: string): ProgressSummary;
   /** 不正な kind/amount は null（ルートは400にする）。meta.attemptId があれば該当試行を完了にする */
   addXp(kind: XpKind, amount: number, meta?: Record<string, unknown>, today?: string): ProgressSummary | null;
   blockStart(kind: string, today?: string): { attemptId: number };
-  /** accept/decline は提案が無ければ null。set は不正レベルで null */
-  levelAction(action: "accept" | "decline" | "set", level?: number, today?: string): ProgressSummary | null;
-  /** プレースメント確定によるレベル設定（level_events kind: placement-set）。同一レベルは no-op */
-  placementSet(level: number, today?: string): ProgressSummary | null;
+  /** accept/decline は提案が無ければ null。set は不正レベルで null。levelChanged=実際にレベルが動いたか */
+  levelAction(action: "accept" | "decline" | "set", level?: number, today?: string): LevelChangeResult | null;
+  /** プレースメント確定によるレベル設定（level_events kind: placement-set）。同一レベルは no-op（levelChanged=false） */
+  placementSet(level: number, today?: string): LevelChangeResult | null;
 };
 
 /** XP上限（kind別）。placement は固定値10のみ許容 */
-const XP_CAPS: Record<XpKind, number> = { block: 60, "srs-grade": 2, placement: 10 };
+const XP_CAPS: Record<XpKind, number> = { block: 60, "srs-grade": 2, placement: PLACEMENT_XP };
 
 /** 昇格: 14日窓の練習日下限 / 20試行窓の完了率下限。降格: 7日窓の完了率上限（最少試行数）/ 4/3/2中断 */
 const PROMOTE_MIN_PRACTICE_DAYS = 5;
@@ -156,16 +158,16 @@ export function makeProgressStore(db: Database): ProgressStore {
   }
 
   /** set系の共通処理。eventKind だけが異なる（manual-set / placement-set） */
-  function setLevelTo(level: number | undefined, eventKind: "manual-set" | "placement-set", today: string): ProgressSummary | null {
+  function setLevelTo(level: number | undefined, eventKind: "manual-set" | "placement-set", today: string): LevelChangeResult | null {
     const row = ensureRow();
     if (level === undefined || !Number.isInteger(level) || level < 1 || level > 999) return null;
     // 同一レベルへの set は no-op（xp_into_level を維持し、level_events も記録しない）
-    if (level === row.level) return summarize(row, today);
+    if (level === row.level) return { summary: summarize(row, today), levelChanged: false };
     recordLevelEvent(eventKind, row.level, level, null, today);
     row.level = level;
     row.xp_into_level = 0;
     save(row);
-    return summarize(row, today);
+    return { summary: summarize(row, today), levelChanged: true };
   }
 
   return {
@@ -216,7 +218,7 @@ export function makeProgressStore(db: Database): ProgressStore {
       if (!proposal) return null;
       if (action === "decline") {
         recordLevelEvent(proposal.kind === "up" ? "decline-up" : "decline-down", row.level, proposal.toLevel, proposal.rationale, today);
-        return summarize(row, today);
+        return { summary: summarize(row, today), levelChanged: false };
       }
       // accept
       const fromLevel = row.level; // 変異前に捕捉（up のカスケード / down のレベル上書きで壊れないように）
@@ -230,7 +232,7 @@ export function makeProgressStore(db: Database): ProgressStore {
       }
       recordLevelEvent(proposal.kind === "up" ? "accept-up" : "accept-down", fromLevel, row.level, proposal.rationale, today);
       save(row);
-      return summarize(row, today);
+      return { summary: summarize(row, today), levelChanged: true };
     },
 
     placementSet(level, today = localYmd()) {

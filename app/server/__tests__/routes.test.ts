@@ -96,8 +96,9 @@ function makeTestDeps(overrides: Partial<RouteDeps> = {}): {
         : kind === "srs-grade" ? FAKE_SUMMARY : null,
       blockStart: (_kind: string) => ({ attemptId: 7 }),
       levelAction: (action: string, level?: number) =>
-        action === "set" && Number.isInteger(level) && (level as number) >= 1 ? FAKE_SUMMARY : null,
-      placementSet: (_level: number) => FAKE_SUMMARY,
+        action === "set" && Number.isInteger(level) && (level as number) >= 1
+          ? { summary: FAKE_SUMMARY, levelChanged: true } : null,
+      placementSet: (_level: number) => ({ summary: FAKE_SUMMARY, levelChanged: true }),
     } as RouteDeps["progressStore"],
     invalidateMenuCache: () => {},
     placementStore: {
@@ -999,8 +1000,8 @@ describe("routes: progress", () => {
         addXp: () => FAKE_SUMMARY,
         blockStart: () => ({ attemptId: 1 }),
         // テスト目的で action を問わず成功させ、accept/decline それぞれのハンドラ分岐だけを見る
-        levelAction: () => FAKE_SUMMARY,
-        placementSet: () => FAKE_SUMMARY,
+        levelAction: (action: string) => ({ summary: FAKE_SUMMARY, levelChanged: action !== "decline" }),
+        placementSet: () => ({ summary: FAKE_SUMMARY, levelChanged: true }),
       } as RouteDeps["progressStore"],
     });
     const handler = makeFetchHandler(deps);
@@ -1028,8 +1029,8 @@ describe("routes: progress", () => {
         getLevel: () => 13, getSummary: () => FAKE_SUMMARY,
         addXp: () => FAKE_SUMMARY,
         blockStart: () => ({ attemptId: 1 }),
-        levelAction: () => FAKE_SUMMARY, // 現状レベル(13)と同じ level=13 で set
-        placementSet: () => FAKE_SUMMARY,
+        levelAction: (_action: string, level?: number) => ({ summary: FAKE_SUMMARY, levelChanged: level !== 13 }),
+        placementSet: () => ({ summary: FAKE_SUMMARY, levelChanged: true }),
       } as RouteDeps["progressStore"],
     });
     const handler = makeFetchHandler(deps);
@@ -1051,7 +1052,7 @@ describe("routes: progress", () => {
         getLevel: () => 13, getSummary: () => FAKE_SUMMARY,
         addXp: (kind: string, amount: number) => { calls.push({ kind, amount }); return FAKE_SUMMARY; },
         blockStart: () => ({ attemptId: 1 }), levelAction: () => null,
-        placementSet: () => FAKE_SUMMARY,
+        placementSet: () => ({ summary: FAKE_SUMMARY, levelChanged: false }),
       } as RouteDeps["progressStore"],
     });
     const handler = makeFetchHandler(deps);
@@ -1137,7 +1138,7 @@ describe("placement API", () => {
       invalidateMenuCache: () => { invalidated.push("x"); },
     });
     (deps.progressStore as { placementSet: (l: number) => unknown }).placementSet =
-      (l: number) => { placementSetCalls.push(l); return FAKE_SUMMARY; };
+      (l: number) => { placementSetCalls.push(l); return { summary: FAKE_SUMMARY, levelChanged: true }; };
     const res = await makeFetchHandler(deps)(new Request("http://x/api/placement/confirm", {
       method: "POST", body: JSON.stringify({ accept: false }),
     }));
@@ -1157,7 +1158,7 @@ describe("placement API", () => {
       } as RouteDeps["placementStore"],
     });
     (deps.progressStore as { placementSet: (l: number) => unknown }).placementSet =
-      (l: number) => { placementSetCalls.push(l); return FAKE_SUMMARY; };
+      (l: number) => { placementSetCalls.push(l); return { summary: FAKE_SUMMARY, levelChanged: true }; };
     const res = await makeFetchHandler(deps)(new Request("http://x/api/placement/confirm", {
       method: "POST", body: JSON.stringify({ accept: true }),
     }));
@@ -1170,7 +1171,7 @@ describe("placement API", () => {
     const placementSetCalls: number[] = [];
     const { deps } = makeTestDeps();
     (deps.progressStore as { placementSet: (l: number) => unknown }).placementSet =
-      (l: number) => { placementSetCalls.push(l); return FAKE_SUMMARY; };
+      (l: number) => { placementSetCalls.push(l); return { summary: FAKE_SUMMARY, levelChanged: true }; };
     const handler = makeFetchHandler(deps);
     const ok = await handler(new Request("http://x/api/placement/confirm", {
       method: "POST", body: JSON.stringify({ accept: true, level: 31 }),

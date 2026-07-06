@@ -61,3 +61,11 @@ export function prepParams(stage: number): PrepSupport {
 export function demotionTargetLevel(level: number): number {
   return (stageOf(level) - 1) * 10;
 }
+
+/** 自己評価1枚ごとの努力XP（スペック§4.1: good=2 / soso・bad=1）。routes 側の分散リテラルを一元化 */
+export function xpForGrade(grade: "good" | "soso" | "bad"): number {
+  return grade === "good" ? 2 : 1;
+}
+
+/** プレースメント測定完了の固定XP（スペック§4.1）。progress-store の XP_CAPS.placement と routes の二重定義を一元化 */
+export const PLACEMENT_XP = 10;

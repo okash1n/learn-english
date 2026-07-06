@@ -14,6 +14,7 @@ import { createHash } from "node:crypto";
 import type { LibraryStore, TalkExplainCache } from "./db";
 import type { Grade, SentenceStore } from "./sentences";
 import type { ProgressStore, XpKind } from "./progress-store";
+import { xpForGrade, PLACEMENT_XP } from "./progression";
 import { PLACEMENT_TASKS, type PlacementEvaluation, type PlacementStore, type PlacementSubmission } from "./placement";
 import type { Chunk, ChunkStore, CollectCandidate } from "./chunks";
 import { computeUtteranceMetrics, type UtteranceMetrics } from "./metrics";
@@ -310,17 +311,14 @@ async function handleProgressLevel(req: Request, deps: RouteDeps): Promise<Respo
     return json({ error: `action must be one of: ${LEVEL_ACTIONS.join(", ")}` }, 400);
   }
   if (level !== undefined && typeof level !== "number") return json({ error: "level must be a number" }, 400);
-  // set がレベルを実際に変えたかどうかを判定するため、変異前のレベルを捕捉しておく
-  const previousLevel = action === "set" ? deps.progressStore.getLevel() : undefined;
-  const s = deps.progressStore.levelAction(action as "accept" | "decline" | "set", level as number | undefined);
-  if (!s) {
+  const r = deps.progressStore.levelAction(action as "accept" | "decline" | "set", level as number | undefined);
+  if (!r) {
     return json({ error: action === "set" ? "level must be an integer between 1 and 999" : "no active proposal" }, 400);
   }
-  // 明示的なレベル変更（accept/set）は当日中に反映させる。decline は据え置きなので無効化しない。
-  // 同一レベルへの set は no-op なので無効化しない。
-  const setWasNoop = action === "set" && previousLevel === level;
-  if (action !== "decline" && !setWasNoop) deps.invalidateMenuCache();
-  return json(s);
+  // 明示的なレベル変更（accept/set）で実際にレベルが動いたときだけ当日メニューを再構築する。
+  // decline や同一レベルへの set は levelChanged=false なので無効化しない。
+  if (r.levelChanged) deps.invalidateMenuCache();
+  return json(r.summary);
 }
 
 async function handlePlacementSubmit(req: Request, deps: RouteDeps): Promise<Response> {
@@ -357,7 +355,7 @@ async function handlePlacementSubmit(req: Request, deps: RouteDeps): Promise<Res
   });
   // 測定完了XP（スペック§4.1: 10固定）。付与失敗で測定結果は失敗させない
   try {
-    deps.progressStore.addXp("placement", 10, {});
+    deps.progressStore.addXp("placement", PLACEMENT_XP, {});
   } catch (err) {
     console.warn("[placement] xp grant failed, continuing:", String(err));
   }
@@ -380,12 +378,11 @@ async function handlePlacementConfirm(req: Request, deps: RouteDeps): Promise<Re
     if (!latest) return json({ error: "no placement result to accept" }, 400);
     target = latest.startLevel;
   }
-  const previous = deps.progressStore.getLevel();
-  const s = deps.progressStore.placementSet(target);
-  if (!s) return json({ error: "level must be an integer between 1 and 999" }, 400);
+  const r = deps.progressStore.placementSet(target);
+  if (!r) return json({ error: "level must be an integer between 1 and 999" }, 400);
   // レベルが実際に変わったときだけ当日メニューを再構築する（manual-set と同じ規則）
-  if (previous !== target) deps.invalidateMenuCache();
-  return json(s);
+  if (r.levelChanged) deps.invalidateMenuCache();
+  return json(r.summary);
 }
 
 function handleSentenceQueue(url: URL, deps: RouteDeps): Response {
@@ -419,7 +416,7 @@ async function handleSentenceGrade(req: Request, deps: RouteDeps): Promise<Respo
   if (!r) return json({ error: `unknown sentence no: ${no}` }, 400);
   // 自己評価1枚ごとの努力XP（good=2 / soso=1 / bad=1）。付与失敗で採点自体は失敗させない
   try {
-    deps.progressStore.addXp("srs-grade", grade === "good" ? 2 : 1, { no });
+    deps.progressStore.addXp("srs-grade", xpForGrade(grade as Grade), { no });
   } catch (err) {
     console.warn("[progress] srs-grade xp failed, continuing:", String(err));
   }
@@ -438,7 +435,7 @@ async function handleChunkGrade(req: Request, deps: RouteDeps): Promise<Response
   if (!r) return json({ error: `unknown chunk id: ${id}` }, 400);
   // 例文と同じ努力XP（good=2 / soso=1 / bad=1）。付与失敗で採点は失敗させない
   try {
-    deps.progressStore.addXp("srs-grade", grade === "good" ? 2 : 1, { chunkId: id });
+    deps.progressStore.addXp("srs-grade", xpForGrade(grade as Grade), { chunkId: id });
   } catch (err) {
     console.warn("[progress] srs-grade xp (chunk) failed, continuing:", String(err));
   }
