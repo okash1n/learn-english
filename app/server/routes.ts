@@ -15,6 +15,8 @@ import type { Grade, SentenceStore } from "./sentences";
 import type { ProgressStore, XpKind } from "./progress-store";
 import { PLACEMENT_TASKS, type PlacementEvaluation, type PlacementStore, type PlacementSubmission } from "./placement";
 import type { Chunk, ChunkStore, CollectCandidate } from "./chunks";
+import { computeUtteranceMetrics, type UtteranceMetrics } from "./metrics";
+import type { MetricsSummary } from "./metrics-aggregate";
 
 /**
  * HTTP ハンドラが依存する副作用を注入可能にする境界。
@@ -57,6 +59,8 @@ export type RouteDeps = {
   chunkStore: ChunkStore;
   /** 例文の詳しい解説を生成（キャッシュは sentenceStore 側。実体は coach.ts、テストはフェイク） */
   explainSentence: (s: { en: string; ja: string; note: string }) => Promise<{ text: string }>;
+  /** 直近N日の練習メトリクス集計（実体は metrics-aggregate.ts、テストはフェイク） */
+  metricsSummary: (days: number) => MetricsSummary;
 };
 
 function json(data: unknown, status = 200): Response {
@@ -83,8 +87,19 @@ async function handleStt(req: Request, deps: RouteDeps): Promise<Response> {
   const ext = (req.headers.get("content-type") ?? "").includes("wav") ? "wav" : "webm";
   const file = path.join(dir, `${Date.now()}.${ext}`);
   await Bun.write(file, bytes);
-  const { text } = await deps.transcribe(file);
-  return json({ text });
+  const { text, segments } = await deps.transcribe(file);
+  // メトリクスは補助情報 — 計算・記録の失敗で文字起こし自体を失敗させない
+  let metrics: UtteranceMetrics | undefined;
+  try {
+    metrics = computeUtteranceMetrics(segments);
+    appendEvent(deps.logFile(), {
+      ts: new Date().toISOString(), type: "stt_result", sessionId: "stt", text, meta: { metrics },
+    });
+  } catch (err) {
+    metrics = undefined;
+    console.warn("[metrics] compute/record failed, continuing:", String(err));
+  }
+  return json(metrics ? { text, metrics } : { text });
 }
 
 async function handleTts(req: Request, deps: RouteDeps): Promise<Response> {
@@ -439,6 +454,15 @@ async function handleSentenceExplain(req: Request, deps: RouteDeps): Promise<Res
   return json({ no, text: generated.text });
 }
 
+function handleMetricsSummary(url: URL, deps: RouteDeps): Response {
+  const raw = url.searchParams.get("days") ?? "14";
+  const days = Number(raw);
+  if (!/^\d+$/.test(raw) || !Number.isInteger(days) || days < 1 || days > 90) {
+    return json({ error: "days must be an integer between 1 and 90" }, 400);
+  }
+  return json(deps.metricsSummary(days));
+}
+
 /** 現在の index.ts の全ルーティング・ハンドラをソケットを開かずにテストできる形に切り出したもの */
 export function makeFetchHandler(deps: RouteDeps): (req: Request) => Promise<Response> {
   return async function fetch(req: Request): Promise<Response> {
@@ -461,6 +485,7 @@ export function makeFetchHandler(deps: RouteDeps): (req: Request) => Promise<Res
       if (req.method === "POST" && url.pathname === "/api/placement/submit") return await handlePlacementSubmit(req, deps);
       if (req.method === "POST" && url.pathname === "/api/placement/confirm") return await handlePlacementConfirm(req, deps);
       if (req.method === "GET" && url.pathname === "/api/placement/latest") return json({ result: deps.placementStore.latest() });
+      if (req.method === "GET" && url.pathname === "/api/metrics/summary") return handleMetricsSummary(url, deps);
       if (req.method === "GET" && url.pathname === "/api/library/model-talks")
         return json({ entries: deps.libraryStore.listModelTalks() });
       if (req.method === "GET" && url.pathname === "/api/settings") return json(deps.getSettings());

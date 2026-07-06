@@ -106,6 +106,13 @@ function makeTestDeps(overrides: Partial<RouteDeps> = {}): {
     } as RouteDeps["placementStore"],
     evaluatePlacement: async () => ({ stage: 2, startLevel: 13, rationaleJa: "簡単な文は安定しています。" }),
     explainSentence: async () => ({ text: "be getting + 比較級は進行中の変化を表します。" }),
+    metricsSummary: (days: number) => ({
+      days: Array.from({ length: days }, (_, i) => ({
+        ymd: `2026-07-${String(i + 1).padStart(2, "0")}`,
+        utterances: 0, speakingSec: 0, avgArticulationWpm: 0, avgPauseRatio: 0, repetitionRatio: 0,
+      })),
+      level: { current: 13, history: [] },
+    }),
     ...overrides,
   };
   return { deps, logFile, recordingsDir };
@@ -143,7 +150,16 @@ describe("routes: stt", () => {
       }),
     );
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ text: "fake transcript" });
+    // segments: [] でも computeUtteranceMetrics は例外を投げず全ゼロを返すため、metrics は additive に付く
+    expect(await res.json()).toEqual({
+      text: "fake transcript",
+      metrics: {
+        words: 0, totalMs: 0, speechMs: 0,
+        speechRateWpm: 0, articulationRateWpm: 0,
+        pauses: { count: 0, totalMs: 0, longestMs: 0 },
+        repetitionRatio: 0,
+      },
+    });
 
     const day = new Date().toISOString().slice(0, 10);
     const dayDir = path.join(recordingsDir, day);
@@ -1258,5 +1274,47 @@ describe("chunks: 収集フックと API", () => {
     expect((await h(new Request("http://x/api/chunks/1", { method: "DELETE" }))).status).toBe(200);
     expect((await h(new Request("http://x/api/chunks/999", { method: "DELETE" }))).status).toBe(404);
     expect((await h(new Request("http://x/api/chunks/abc", { method: "DELETE" }))).status).toBe(400);
+  });
+});
+
+describe("routes: metrics", () => {
+  test("GET /api/metrics/summary はデフォルト14日で summary を返す", async () => {
+    const res = await makeFetchHandler(makeTestDeps().deps)(new Request("http://x/api/metrics/summary"));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.days).toHaveLength(14);
+    expect(body.level.current).toBe(13);
+  });
+
+  test("GET /api/metrics/summary の days は 1..90 の整数のみ", async () => {
+    const handler = makeFetchHandler(makeTestDeps().deps);
+    expect((await handler(new Request("http://x/api/metrics/summary?days=7"))).status).toBe(200);
+    for (const bad of ["0", "91", "abc", "7.5"]) {
+      const res = await handler(new Request(`http://x/api/metrics/summary?days=${bad}`));
+      expect(res.status).toBe(400);
+    }
+  });
+
+  test("POST /api/stt は text と metrics を返し stt_result を記録する", async () => {
+    const { deps, logFile } = makeTestDeps({
+      transcribe: (async () => ({
+        text: "I usually skip breakfast and grab coffee",
+        segments: [
+          { fromMs: 0, toMs: 2000, text: " I usually skip breakfast" },
+          { fromMs: 2500, toMs: 4000, text: " and grab coffee" },
+        ],
+      })) as RouteDeps["transcribe"],
+    });
+    const res = await makeFetchHandler(deps)(new Request("http://x/api/stt", {
+      method: "POST", body: new Uint8Array([1, 2, 3]),
+    }));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.text).toBe("I usually skip breakfast and grab coffee");
+    expect(body.metrics.articulationRateWpm).toBe(120);
+    const events = readEvents(logFile);
+    const stt = events.filter((e) => e.type === "stt_result");
+    expect(stt).toHaveLength(1);
+    expect((stt[0].meta as { metrics: { words: number } }).metrics.words).toBe(7);
   });
 });

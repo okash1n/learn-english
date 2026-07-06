@@ -14,6 +14,7 @@ import { makeChunkStore } from "./chunks";
 import { makeProgressStore } from "./progress-store";
 import { prepParams, stageOf } from "./progression";
 import { evaluatePlacement, makePlacementStore } from "./placement";
+import { makeMetricsSummary } from "./metrics-aggregate";
 
 ensureDirs();
 const PORT = 3111;
@@ -65,6 +66,7 @@ const realDeps: RouteDeps = {
   placementStore,
   evaluatePlacement: (subs) => evaluatePlacement(subs),
   explainSentence: (s) => generateSentenceExplanation(s),
+  metricsSummary: makeMetricsSummary({ db, currentLevel: () => progressStore.getLevel() }),
 };
 
 Bun.serve({
