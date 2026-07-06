@@ -1,6 +1,9 @@
 import type { Database } from "bun:sqlite";
 import { existsSync, readFileSync } from "node:fs";
+import { addDaysYmd, localYmd } from "./dates";
 import { EXPLANATIONS_FILE, SENTENCES_FILE } from "./paths";
+// 既存 import 元（chunks.ts / progress-store.ts / テスト）を壊さないための re-export
+export { addDaysYmd, localYmd } from "./dates";
 
 export type Sentence = {
   no: number;
@@ -26,17 +29,6 @@ export type SentenceStore = {
   /** 解説生成の入力用。未知の no は undefined */
   find(no: number): Sentence | undefined;
 };
-
-/** サーバのローカル日付 YYYY-MM-DD（UTC罠回避のため toISOString は使わない） */
-export function localYmd(d: Date = new Date()): string {
-  const p = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
-}
-
-export function addDaysYmd(ymd: string, days: number): string {
-  const [y, m, d] = ymd.split("-").map(Number);
-  return localYmd(new Date(y, m - 1, d + days));
-}
 
 /** 固定間隔ラダー（index = stage）。検証済みリサーチ: 均等〜長め固定で十分、拡張間隔に実証優位なし */
 export const LADDER = [1, 3, 7, 14, 30, 60] as const;

@@ -1,5 +1,6 @@
 import path from "node:path";
 import { mkdirSync } from "node:fs";
+import { localYmd } from "./dates";
 
 export const REPO_ROOT = path.resolve(import.meta.dir, "../..");
 export const DATA_DIR = path.join(REPO_ROOT, "data");
@@ -24,6 +25,5 @@ export function ensureDirs(): void {
 }
 
 export function sessionLogPath(date: Date): string {
-  const ymd = date.toISOString().slice(0, 10);
-  return path.join(SESSIONS_DIR, `${ymd}.jsonl`);
+  return path.join(SESSIONS_DIR, `${localYmd(date)}.jsonl`);
 }

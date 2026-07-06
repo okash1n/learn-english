@@ -48,3 +48,14 @@ describe("listPracticeDays", () => {
     expect(listPracticeDays("/nonexistent/nope")).toEqual([]);
   });
 });
+
+describe("session-log: 日付形式の互換性", () => {
+  test("listPracticeDays は旧UTC名・新ローカル名のファイルを区別なく列挙する", () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "sessions-"));
+    // 移行前（UTC名）と移行後（ローカル名）が混在しても、パターン一致で両方拾える
+    writeFileSync(path.join(dir, "2026-07-05.jsonl"), "");
+    writeFileSync(path.join(dir, "2026-07-06.jsonl"), "");
+    writeFileSync(path.join(dir, "not-a-log.txt"), "");
+    expect(listPracticeDays(dir)).toEqual(["2026-07-05", "2026-07-06"]);
+  });
+});

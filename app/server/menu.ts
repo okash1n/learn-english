@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { addDaysYmd, localYmd } from "./dates";
 import { PROGRESS_DIR, SCENARIOS_DIR, TOPICS_DIR } from "./paths";
 import { DEFAULT_LEVEL, fttMiniRoundsSec, fttRoundsSec, prepParams, stageOf } from "./progression";
 
@@ -79,12 +80,6 @@ export function loadContent(dir: string): ContentItem[] {
     .filter((c): c is ContentItem => c !== null);
 }
 
-function ymdOffset(ymd: string, days: number): string {
-  const d = new Date(`${ymd}T00:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + days);
-  return d.toISOString().slice(0, 10);
-}
-
 /**
  * least-recently-used ローテーション。未使用が最優先、次に最終使用が古い順（同着はid順）。
  * 前日・前々日の両方に使ったアイテムは除外する（3日連続の同一素材を避ける。
@@ -92,8 +87,8 @@ function ymdOffset(ymd: string, days: number): string {
  */
 export function pickNext(items: ContentItem[], usage: UsageMap, todayYmd: string): ContentItem {
   if (items.length === 0) throw new Error("no content items available");
-  const y1 = ymdOffset(todayYmd, -1);
-  const y2 = ymdOffset(todayYmd, -2);
+  const y1 = addDaysYmd(todayYmd, -1);
+  const y2 = addDaysYmd(todayYmd, -2);
   const eligible = items.filter((it) => {
     const dates = usage[it.id] ?? [];
     return !(dates.includes(y1) && dates.includes(y2));
@@ -222,7 +217,7 @@ export function buildTodayMenu(minutes: 60 | 30, deps: MenuDeps = {}): Menu {
   const scenariosDir = deps.scenariosDir ?? SCENARIOS_DIR;
   const usageFile = deps.usageFile ?? path.join(PROGRESS_DIR, "topic-usage.json");
   const menuCacheDir = deps.menuCacheDir ?? PROGRESS_DIR;
-  const ymd = (deps.today ?? (() => new Date()))().toISOString().slice(0, 10);
+  const ymd = localYmd((deps.today ?? (() => new Date()))());
 
   const level = deps.level ?? DEFAULT_LEVEL;
   const stage = stageOf(level);
@@ -282,7 +277,7 @@ export function buildTodayMenu(minutes: 60 | 30, deps: MenuDeps = {}): Menu {
  */
 export function invalidateTodayMenuCache(todayYmd?: string, cacheDir?: string): void {
   const menuCacheDir = cacheDir ?? PROGRESS_DIR;
-  const ymd = todayYmd ?? new Date().toISOString().slice(0, 10);
+  const ymd = todayYmd ?? localYmd();
   if (!existsSync(menuCacheDir)) return;
   const prefix = `menu-${ymd}-`;
   for (const f of readdirSync(menuCacheDir)) {
@@ -299,7 +294,7 @@ export function buildQuickMenu(kind: QuickKind, deps: MenuDeps = {}): Menu {
   const topicsDir = deps.topicsDir ?? TOPICS_DIR;
   const scenariosDir = deps.scenariosDir ?? SCENARIOS_DIR;
   const usageFile = deps.usageFile ?? path.join(PROGRESS_DIR, "topic-usage.json");
-  const ymd = (deps.today ?? (() => new Date()))().toISOString().slice(0, 10);
+  const ymd = localYmd((deps.today ?? (() => new Date()))());
   const level = deps.level ?? DEFAULT_LEVEL;
   const stage = stageOf(level);
   const state = loadRotation(usageFile);

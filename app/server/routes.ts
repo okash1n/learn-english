@@ -1,5 +1,6 @@
 import path from "node:path";
 import { mkdirSync } from "node:fs";
+import { localYmd } from "./dates";
 import { RECORDINGS_DIR } from "./paths";
 import { appendEvent, isErrorLogged } from "./session-log";
 import { transcribeAudio } from "./stt";
@@ -76,13 +77,13 @@ async function parseJsonBody<T>(req: Request): Promise<ParsedBody<T>> {
 async function handleStt(req: Request, deps: RouteDeps): Promise<Response> {
   const bytes = new Uint8Array(await req.arrayBuffer());
   if (bytes.length === 0) return json({ error: "empty audio body" }, 400);
-  const day = new Date().toISOString().slice(0, 10);
+  const day = localYmd();
   const dir = path.join(deps.recordingsDir ?? RECORDINGS_DIR, day);
   mkdirSync(dir, { recursive: true });
   const ext = (req.headers.get("content-type") ?? "").includes("wav") ? "wav" : "webm";
   const file = path.join(dir, `${Date.now()}.${ext}`);
   await Bun.write(file, bytes);
-  const text = await deps.transcribe(file);
+  const { text } = await deps.transcribe(file);
   return json({ text });
 }
 
