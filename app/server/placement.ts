@@ -1,7 +1,7 @@
-import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { Database } from "bun:sqlite";
 import { extractJson } from "./coach";
-import { makeClaudeRunner, type ClaudeRunner } from "./converse";
+import { defaultRunner, type ClaudeRunner } from "./converse";
+import { insertReturningId } from "./db-util";
 
 export type PlacementTaskDef = {
   id: string;
@@ -45,8 +45,6 @@ export type PlacementEvaluation = { stage: number; startLevel: number; rationale
 export function startLevelForStage(stage: number): number {
   return (stage - 1) * 10 + 3;
 }
-
-const defaultRunner: ClaudeRunner = makeClaudeRunner(query);
 
 /** stage 1..6 ↔ CEFR A2前半〜B2 の話し言葉記述子。プロンプトに明文で埋め込む（スペック§6.2） */
 const RUBRIC = `Stage rubric (spoken production, CEFR-informed; stage 1-6):
@@ -98,6 +96,14 @@ export type PlacementStore = {
 
 type DbRow = { id: number; ts: string; stage: number; start_level: number; rationale: string };
 
+export function ensurePlacementSchema(db: Database): void {
+  db.run(`CREATE TABLE IF NOT EXISTS placement_results (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts TEXT NOT NULL, stage INTEGER NOT NULL, start_level INTEGER NOT NULL,
+    rationale TEXT NOT NULL, metrics TEXT NOT NULL
+  )`);
+}
+
 export function makePlacementStore(db: Database): PlacementStore {
   return {
     save(r) {
@@ -106,8 +112,7 @@ export function makePlacementStore(db: Database): PlacementStore {
         "INSERT INTO placement_results (ts, stage, start_level, rationale, metrics) VALUES (?, ?, ?, ?, ?)",
         [ts, r.stage, r.startLevel, r.rationale, JSON.stringify(r.metrics)],
       );
-      const row = db.query<{ id: number }, []>("SELECT last_insert_rowid() AS id").get()!;
-      return { id: row.id, ts, stage: r.stage, startLevel: r.startLevel, rationale: r.rationale };
+      return { id: insertReturningId(db), ts, stage: r.stage, startLevel: r.startLevel, rationale: r.rationale };
     },
     latest() {
       const row = db

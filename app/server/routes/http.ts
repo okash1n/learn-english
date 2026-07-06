@@ -31,3 +31,12 @@ export function exact(method: string, pathname: string, handler: RouteEntry["han
 export function prefix(method: string, pathnamePrefix: string, handler: RouteEntry["handler"]): RouteEntry {
   return { method, match: (p) => p.startsWith(pathnamePrefix), handler };
 }
+
+/** ベストエフォート副作用: 失敗しても握りつぶし警告だけ出す（親レスポンスを失敗させないため）。同期処理専用 — async fn を渡すと例外が unhandled rejection になり警告されない。 */
+export function bestEffort(label: string, fn: () => void): void {
+  try {
+    fn();
+  } catch (err) {
+    console.warn(label, String(err));
+  }
+}

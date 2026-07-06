@@ -3,14 +3,14 @@ import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "n
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { openDb } from "../db";
-import { loadContent, parseContentFile } from "../menu";
+import { loadContent, parseContentFile } from "../content";
 import { loadSentences, type Sentence } from "../sentences";
-import type { CategoryRate } from "../assessment";
 import type { ClaudeRunner } from "../converse";
 import {
-  contentToMarkdown, genSentences, genTopics, pickWorstCategories,
+  contentToMarkdown, genSentences, genTopics,
   validateNewSentences, validateTopicCandidate,
 } from "../content-gen";
+import { pickWorstCategories, type CategoryRate } from "../srs-analytics";
 
 /** 呼び出し順にレスポンスを返す fake ClaudeRunner（実Claude呼び出し・実content/への書き込みは一切しない） */
 function makeRunner(responses: string[]): ClaudeRunner {
@@ -69,6 +69,14 @@ describe("content-gen / validateNewSentences", () => {
   test("不正 domain / 空 en は null", () => {
     expect(validateNewSentences([{ domain: "casual", en: "x", ja: "y", note: "" }], EXISTING, 1, "現在形")).toBeNull();
     expect(validateNewSentences([{ domain: "daily", en: "  ", ja: "y", note: "" }], EXISTING, 1, "現在形")).toBeNull();
+  });
+
+  test("空の ja は候補全体を不採用にする（en 空拒否と同じ扱い）", () => {
+    const existing = [
+      { no: 1, category_no: 1, category: "現在形", domain: "daily", en: "I work here.", ja: "ここで働いています", note: "" },
+    ] as Sentence[];
+    const cands = [{ domain: "daily", en: "I test this daily.", ja: "   ", note: "現在形" }];
+    expect(validateNewSentences(cands, existing, 1, "現在形")).toBeNull();
   });
 });
 

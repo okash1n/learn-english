@@ -1,39 +1,11 @@
-import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { Database } from "bun:sqlite";
 import { addDaysYmd, localYmd } from "./dates";
-import { makeClaudeRunner, type ClaudeRunner } from "./converse";
-import { pickWorstCategories } from "./content-gen";
+import { defaultRunner, type ClaudeRunner } from "./converse";
+import { insertReturningId } from "./db-util";
 import type { Sentence } from "./sentences";
 import type { MetricsSummary } from "./metrics-aggregate";
 import type { PlacementResultRow } from "./placement";
-
-export type CategoryRate = { categoryNo: number; category: string; reviewed: number; badRate: number };
-
-/** カテゴリ別の bad率（現在の last_grade スナップショット・reviewed>0 の文のみ）。bad率降順・同率は reviewed 降順 */
-export function categoryBadRates(db: Database, sentences: Sentence[]): CategoryRate[] {
-  const rows = db
-    .query<{ no: number; last_grade: string | null }, []>(
-      "SELECT no, last_grade FROM sentence_srs WHERE reviews > 0")
-    .all();
-  const byNo = new Map(sentences.map((s) => [s.no, s]));
-  const agg = new Map<number, { category: string; reviewed: number; bad: number }>();
-  for (const r of rows) {
-    const s = byNo.get(r.no);
-    if (!s) continue;
-    const a = agg.get(s.category_no) ?? { category: s.category, reviewed: 0, bad: 0 };
-    a.reviewed++;
-    if (r.last_grade === "bad") a.bad++;
-    agg.set(s.category_no, a);
-  }
-  return [...agg.entries()]
-    .map(([categoryNo, a]) => ({
-      categoryNo,
-      category: a.category,
-      reviewed: a.reviewed,
-      badRate: Math.round((a.bad / a.reviewed) * 1000) / 1000,
-    }))
-    .sort((x, y) => y.badRate - x.badRate || y.reviewed - x.reviewed);
-}
+import { categoryBadRates, pickWorstCategories, type CategoryRate } from "./srs-analytics";
 
 export type MonthData = {
   windowDays: number;
@@ -129,8 +101,6 @@ export function makeAssembleMonthData(deps: AssembleDeps) {
   };
 }
 
-const defaultRunner: ClaudeRunner = makeClaudeRunner(query);
-
 const REPORT_SYSTEM = `あなたは日本人ITプロフェッショナルの英語スピーキング学習を見守るコーチです。
 受け取った直近30日の学習データ(JSON)から、日本語で「今月のスピーキング振り返り」を書いてください。
 構成（見出し記号・箇条書き記号は使わず、段落と改行のみ。全体で12行以内のプレーンテキスト）:
@@ -166,14 +136,23 @@ export type AssessmentStore = {
 
 type ReportDbRow = { id: number; ts: string; ymd: string; text: string };
 
+export function ensureAssessmentSchema(db: Database): void {
+  db.run(`CREATE TABLE IF NOT EXISTS monthly_reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts TEXT NOT NULL,
+    ymd TEXT NOT NULL,
+    text TEXT NOT NULL,
+    data_json TEXT NOT NULL
+  )`);
+}
+
 export function makeAssessmentStore(db: Database): AssessmentStore {
   return {
     save(r) {
       const ts = new Date().toISOString();
       db.run("INSERT INTO monthly_reports (ts, ymd, text, data_json) VALUES (?, ?, ?, ?)",
         [ts, r.ymd, r.text, JSON.stringify(r.data)]);
-      const row = db.query<{ id: number }, []>("SELECT last_insert_rowid() AS id").get()!;
-      return { id: row.id, ts, ymd: r.ymd, text: r.text };
+      return { id: insertReturningId(db), ts, ymd: r.ymd, text: r.text };
     },
     latest() {
       return db.query<ReportDbRow, []>(
