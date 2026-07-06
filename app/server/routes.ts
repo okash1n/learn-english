@@ -18,6 +18,7 @@ import { PLACEMENT_TASKS, type PlacementEvaluation, type PlacementStore, type Pl
 import type { Chunk, ChunkStore, CollectCandidate } from "./chunks";
 import { computeUtteranceMetrics, type UtteranceMetrics } from "./metrics";
 import type { MetricsSummary } from "./metrics-aggregate";
+import type { AssessmentStore, MonthData } from "./assessment";
 
 /**
  * HTTP ハンドラが依存する副作用を注入可能にする境界。
@@ -62,6 +63,12 @@ export type RouteDeps = {
   explainSentence: (s: { en: string; ja: string; note: string }) => Promise<{ text: string }>;
   /** 直近N日の練習メトリクス集計（実体は metrics-aggregate.ts、テストはフェイク） */
   metricsSummary: (days: number) => MetricsSummary;
+  /** 月次レビューの保存・取得（実体は assessment.ts、テストはフェイク） */
+  assessmentStore: AssessmentStore;
+  /** 直近30日の学習データ組み立て（実体は assessment.ts、テストはフェイク） */
+  assembleMonthData: () => MonthData;
+  /** 月次レポート生成。空出力は null（ルートは502） */
+  generateMonthlyReport: (data: MonthData) => Promise<string | null>;
   /** モデルトークの日本語訳＋表現解説を生成（実体は coach.ts、テストはフェイク） */
   explainTalk: (text: string) => Promise<{ text: string }>;
   /** モデルトーク解説のキャッシュ（実体は db.ts、テストはフェイク） */
@@ -492,6 +499,20 @@ function handleMetricsSummary(url: URL, deps: RouteDeps): Response {
   return json(deps.metricsSummary(days));
 }
 
+async function handleAssessmentGenerate(req: Request, deps: RouteDeps): Promise<Response> {
+  const parsed = await parseJsonBody<{ force?: unknown }>(req);
+  if (!parsed.ok) return parsed.response;
+  const force = parsed.body.force === true;
+  const today = localYmd();
+  const existing = deps.assessmentStore.findByMonth(today.slice(0, 7));
+  if (existing && !force) return json({ report: existing, cached: true });
+  const data = deps.assembleMonthData();
+  const text = await deps.generateMonthlyReport(data);
+  if (!text) return json({ error: "report generation returned empty output — try again" }, 502);
+  const saved = deps.assessmentStore.save({ ymd: today, text, data });
+  return json({ report: saved, cached: false });
+}
+
 /** 現在の index.ts の全ルーティング・ハンドラをソケットを開かずにテストできる形に切り出したもの */
 export function makeFetchHandler(deps: RouteDeps): (req: Request) => Promise<Response> {
   return async function fetch(req: Request): Promise<Response> {
@@ -515,6 +536,9 @@ export function makeFetchHandler(deps: RouteDeps): (req: Request) => Promise<Res
       if (req.method === "POST" && url.pathname === "/api/placement/confirm") return await handlePlacementConfirm(req, deps);
       if (req.method === "GET" && url.pathname === "/api/placement/latest") return json({ result: deps.placementStore.latest() });
       if (req.method === "GET" && url.pathname === "/api/metrics/summary") return handleMetricsSummary(url, deps);
+      if (req.method === "POST" && url.pathname === "/api/assessment/generate") return await handleAssessmentGenerate(req, deps);
+      if (req.method === "GET" && url.pathname === "/api/assessment/latest") return json({ report: deps.assessmentStore.latest() });
+      if (req.method === "GET" && url.pathname === "/api/assessment/list") return json({ reports: deps.assessmentStore.list() });
       if (req.method === "GET" && url.pathname === "/api/library/model-talks")
         return json({ entries: deps.libraryStore.listModelTalks() });
       if (req.method === "GET" && url.pathname === "/api/settings") return json(deps.getSettings());

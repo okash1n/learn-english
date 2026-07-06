@@ -87,6 +87,13 @@ export function openDb(dbPath: string = DEFAULT_DB_PATH): Database {
     text TEXT NOT NULL,
     created TEXT NOT NULL
   )`);
+  db.run(`CREATE TABLE IF NOT EXISTS monthly_reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts TEXT NOT NULL,
+    ymd TEXT NOT NULL,
+    text TEXT NOT NULL,
+    data_json TEXT NOT NULL
+  )`);
   return db;
 }
 

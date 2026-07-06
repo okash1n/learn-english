@@ -15,6 +15,7 @@ import { makeProgressStore } from "./progress-store";
 import { prepParams, stageOf } from "./progression";
 import { evaluatePlacement, makePlacementStore } from "./placement";
 import { makeMetricsSummary } from "./metrics-aggregate";
+import { generateMonthlyReport, makeAssembleMonthData, makeAssessmentStore } from "./assessment";
 
 ensureDirs();
 const PORT = 3111;
@@ -27,6 +28,15 @@ const sentenceStore = makeSentenceStore(db, sentences);
 const chunkStore = makeChunkStore(db, sentences.map((s) => s.en));
 const progressStore = makeProgressStore(db);
 const placementStore = makePlacementStore(db);
+const metricsSummary = makeMetricsSummary({ db, currentLevel: () => progressStore.getLevel() });
+const assessmentStore = makeAssessmentStore(db);
+const assembleMonthData = makeAssembleMonthData({
+  db,
+  sentences,
+  metricsSummary,
+  currentLevel: () => progressStore.getLevel(),
+  placementLatest: () => placementStore.latest(),
+});
 
 const realDeps: RouteDeps = {
   transcribe: transcribeAudio,
@@ -68,7 +78,10 @@ const realDeps: RouteDeps = {
   explainSentence: (s) => generateSentenceExplanation(s),
   explainTalk: (text) => generateTalkExplanation({ text }),
   talkExplainCache: makeTalkExplainCache(db),
-  metricsSummary: makeMetricsSummary({ db, currentLevel: () => progressStore.getLevel() }),
+  metricsSummary,
+  assessmentStore,
+  assembleMonthData: () => assembleMonthData(),
+  generateMonthlyReport: (data) => generateMonthlyReport(data),
 };
 
 Bun.serve({
