@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { localYmd } from "../dates";
 import { makeFetchHandler, type RouteDeps } from "../routes";
 import { markErrorLogged, readEvents } from "../session-log";
 import type { QuickKind } from "../menu";
@@ -161,7 +162,8 @@ describe("routes: stt", () => {
       },
     });
 
-    const day = new Date().toISOString().slice(0, 10);
+    // handleStt は録音ディレクトリをサーバローカル日付で切る（UTCだとJST早朝にズレる）
+    const day = localYmd();
     const dayDir = path.join(recordingsDir, day);
     expect(existsSync(dayDir)).toBe(true);
     const files = readdirSync(dayDir);
@@ -179,7 +181,8 @@ describe("routes: stt", () => {
         body: new Uint8Array([1, 2, 3, 4]),
       }),
     );
-    const day = new Date().toISOString().slice(0, 10);
+    // handleStt は録音ディレクトリをサーバローカル日付で切る（UTCだとJST早朝にズレる）
+    const day = localYmd();
     const files = readdirSync(path.join(recordingsDir, day));
     expect(files[0]).toMatch(/^\d+\.wav$/);
   });
