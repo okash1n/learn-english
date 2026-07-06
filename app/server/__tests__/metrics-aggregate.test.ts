@@ -51,4 +51,18 @@ describe("metrics-aggregate", () => {
       { ymd: "2026-07-06", level: 21 },
     ]);
   });
+
+  test("level history は却下された提案（decline-*）のレベルを除外する", () => {
+    const db = openDb(":memory:");
+    // manual-set で 13 にセット
+    db.run("INSERT INTO level_events (ts, ymd, kind, from_level, to_level) VALUES ('t','2026-07-05','manual-set',0,13)");
+    // decline-up で 14 に却下（history に含めてはいけない）
+    db.run("INSERT INTO level_events (ts, ymd, kind, from_level, to_level) VALUES ('t','2026-07-05','decline-up',13,14)");
+    const dir = mkdtempSync(path.join(tmpdir(), "ma-"));
+    const summary = makeMetricsSummary({ db, sessionsDir: dir, currentLevel: () => 13 })(1, "2026-07-05");
+    expect(summary.level.current).toBe(13);
+    expect(summary.level.history).toEqual([
+      { ymd: "2026-07-05", level: 13 },
+    ]);
+  });
 });

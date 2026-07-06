@@ -48,7 +48,7 @@ export function makeMetricsSummary(deps: { db: Database; sessionsDir?: string; c
       });
     }
     const rows = deps.db
-      .query<{ ymd: string; to_level: number }, []>("SELECT ymd, to_level FROM level_events ORDER BY id")
+      .query<{ ymd: string; to_level: number }, []>("SELECT ymd, to_level FROM level_events WHERE kind IN ('accept-up','accept-down','manual-set','placement-set') ORDER BY id")
       .all();
     const lastByYmd = new Map<string, number>();
     for (const r of rows) lastByYmd.set(r.ymd, r.to_level);
