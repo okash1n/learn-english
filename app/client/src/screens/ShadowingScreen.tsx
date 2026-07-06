@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { prefetchModelTalkAudio, type ContentItem } from "../api";
+import { fetchTalkExplanation, prefetchModelTalkAudio, type ContentItem } from "../api";
 import { playBlob, stopPlayback } from "../audio";
 import { Banner } from "../ui/Banner";
 import { Button } from "../ui/Button";
@@ -13,6 +13,8 @@ export function ShadowingScreen(props: { topic: ContentItem }) {
   const [text, setText] = useState("");
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
   const [errorMsg, setErrorMsg] = useState("");
+  // 日本語訳と解説: null=未取得, "loading"=生成中, それ以外=本文
+  const [explain, setExplain] = useState<string | null>(null);
   const aliveRef = useRef(true);
   const fetchedRef = useRef(false);
 
@@ -77,6 +79,26 @@ export function ShadowingScreen(props: { topic: ContentItem }) {
             {state === "playing" ? "🔊 再生中…" : "▶ 再生（何度でも）"}
           </Button>
           <Card className="reading-text">{text}</Card>
+          {explain === null && (
+            <Button
+              variant="ghost"
+              onClick={async () => {
+                setExplain("loading");
+                try {
+                  const t = await fetchTalkExplanation(text);
+                  if (aliveRef.current) setExplain(t);
+                } catch {
+                  if (aliveRef.current) setExplain("解説を取得できませんでした。もう一度お試しください。");
+                }
+              }}
+            >
+              💡 日本語訳と解説
+            </Button>
+          )}
+          {explain === "loading" && <p className="text-sm text-muted">日本語訳と解説を書いています…</p>}
+          {explain !== null && explain !== "loading" && (
+            <p className="sentence-explain text-sm">{explain}</p>
+          )}
         </div>
       )}
     </div>

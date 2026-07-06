@@ -10,7 +10,8 @@ import { checkHealth } from "./health";
 import { BLOCK_KINDS, DOMAINS, QUICK_KINDS, type Domain, type Menu, type QuickKind } from "./menu";
 import type { AeFeedback, Reflection, PrepPack } from "./coach";
 import type { Settings } from "./settings";
-import type { LibraryStore } from "./db";
+import { createHash } from "node:crypto";
+import type { LibraryStore, TalkExplainCache } from "./db";
 import type { Grade, SentenceStore } from "./sentences";
 import type { ProgressStore, XpKind } from "./progress-store";
 import { PLACEMENT_TASKS, type PlacementEvaluation, type PlacementStore, type PlacementSubmission } from "./placement";
@@ -61,6 +62,10 @@ export type RouteDeps = {
   explainSentence: (s: { en: string; ja: string; note: string }) => Promise<{ text: string }>;
   /** 直近N日の練習メトリクス集計（実体は metrics-aggregate.ts、テストはフェイク） */
   metricsSummary: (days: number) => MetricsSummary;
+  /** モデルトークの日本語訳＋表現解説を生成（実体は coach.ts、テストはフェイク） */
+  explainTalk: (text: string) => Promise<{ text: string }>;
+  /** モデルトーク解説のキャッシュ（実体は db.ts、テストはフェイク） */
+  talkExplainCache: TalkExplainCache;
 };
 
 function json(data: unknown, status = 200): Response {
@@ -440,6 +445,25 @@ function handleChunkDelete(url: URL, deps: RouteDeps): Response {
   return deps.chunkStore.remove(id) ? json({ ok: true }) : json({ error: `unknown chunk id: ${id}` }, 404);
 }
 
+async function handleTalkExplain(req: Request, deps: RouteDeps): Promise<Response> {
+  const parsed = await parseJsonBody<{ text?: unknown }>(req);
+  if (!parsed.ok) return parsed.response;
+  const { text } = parsed.body;
+  if (typeof text !== "string" || text.trim().length === 0) return json({ error: "text must be a non-empty string" }, 400);
+  if (text.length > 3000) return json({ error: "text too long" }, 400);
+  const hash = createHash("sha256").update(text).digest("hex");
+  const cached = deps.talkExplainCache.get(hash);
+  if (cached !== null) return json({ text: cached });
+  const generated = await deps.explainTalk(text);
+  // キャッシュ書き込み失敗は解説の返却を妨げない
+  try {
+    deps.talkExplainCache.save(hash, generated.text, new Date().toISOString());
+  } catch (err) {
+    console.warn("[coach] talk explanation cache write failed, continuing:", String(err));
+  }
+  return json({ text: generated.text });
+}
+
 async function handleSentenceExplain(req: Request, deps: RouteDeps): Promise<Response> {
   const parsed = await parseJsonBody<{ no?: unknown }>(req);
   if (!parsed.ok) return parsed.response;
@@ -499,6 +523,7 @@ export function makeFetchHandler(deps: RouteDeps): (req: Request) => Promise<Res
       if (req.method === "POST" && url.pathname === "/api/coach/model-talk") return await handleModelTalk(req, deps);
       if (req.method === "POST" && url.pathname === "/api/coach/prep") return await handlePrep(req, deps);
       if (req.method === "POST" && url.pathname === "/api/coach/reflection") return await handleReflection(deps);
+      if (req.method === "POST" && url.pathname === "/api/coach/talk-explain") return await handleTalkExplain(req, deps);
       if (req.method === "POST" && url.pathname === "/api/session/event") return await handleSessionEvent(req, deps);
       if (req.method === "GET" && url.pathname === "/api/sentences") return json({ sentences: deps.sentenceStore.list() });
       if (req.method === "GET" && url.pathname === "/api/sentences/queue") return handleSentenceQueue(url, deps);

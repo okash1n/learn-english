@@ -4,11 +4,11 @@ import { synthesize } from "./tts";
 import { converseTurn } from "./converse";
 import { checkHealth } from "./health";
 import { buildQuickMenu, buildTodayMenu, invalidateTodayMenuCache, loadContent } from "./menu";
-import { generateAeFeedback, generateModelTalk, generatePrepPack, generateReflection, generateSentenceExplanation, roleplayPrompt } from "./coach";
+import { generateAeFeedback, generateModelTalk, generatePrepPack, generateReflection, generateSentenceExplanation, generateTalkExplanation, roleplayPrompt } from "./coach";
 import { listPracticeDays, readEvents } from "./session-log";
 import { readSettings, writeSettings } from "./settings";
 import { makeFetchHandler, type RouteDeps } from "./routes";
-import { makeLibraryStore, openDb } from "./db";
+import { makeLibraryStore, makeTalkExplainCache, openDb } from "./db";
 import { loadSentences, makeSentenceStore } from "./sentences";
 import { makeChunkStore } from "./chunks";
 import { makeProgressStore } from "./progress-store";
@@ -66,6 +66,8 @@ const realDeps: RouteDeps = {
   placementStore,
   evaluatePlacement: (subs) => evaluatePlacement(subs),
   explainSentence: (s) => generateSentenceExplanation(s),
+  explainTalk: (text) => generateTalkExplanation({ text }),
+  talkExplainCache: makeTalkExplainCache(db),
   metricsSummary: makeMetricsSummary({ db, currentLevel: () => progressStore.getLevel() }),
 };
 

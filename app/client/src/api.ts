@@ -399,6 +399,17 @@ export async function fetchSentenceExplanation(no: number): Promise<string> {
   return ((await res.json()) as { text: string }).text;
 }
 
+/** モデルトークの日本語訳＋表現解説（サーバ側で本文ハッシュキャッシュ・2回目以降は即返る） */
+export async function fetchTalkExplanation(text: string): Promise<string> {
+  const res = await fetch("/api/coach/talk-explain", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ text }),
+  });
+  if (!res.ok) throw new Error(`talk explain failed: ${await extractErrorMessage(res)}`);
+  return ((await res.json()) as { text: string }).text;
+}
+
 export type PlacementTaskDef = {
   id: string; durationSec: number; instructionEn: string; instructionJa: string; promptText: string;
 };

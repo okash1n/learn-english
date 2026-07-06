@@ -63,6 +63,24 @@ export async function generateSentenceExplanation(
   return { text: text.trim() };
 }
 
+const TALK_EXPLAIN_SYSTEM = `You are an English coach for a Japanese learner (CEFR A2-B1).
+You receive a short English model talk the learner is shadowing.
+Reply IN JAPANESE with exactly this structure (plain text, no markdown):
+1. 「日本語訳:」の行に続けて、全文の自然な日本語訳（直訳調にしない）
+2. 空行を1つ
+3. 「表現ポイント:」の行に続けて、この文章から学ぶ価値のある表現を3つ、各行「- <英語表現> — <日本語で使い方の説明1文>」の形式で
+Keep the whole reply within 15 lines.
+Do not use any tools — reply directly with text only.`;
+
+/** モデルトークの日本語訳＋表現ポイント解説（routes 側で本文ハッシュをキーにキャッシュされる） */
+export async function generateTalkExplanation(
+  args: { text: string },
+  runner: ClaudeRunner = defaultRunner,
+): Promise<{ text: string }> {
+  const { text } = await runner(args.text, undefined, { systemPrompt: TALK_EXPLAIN_SYSTEM });
+  return { text: text.trim() };
+}
+
 const MODEL_TALK_SYSTEM = `You produce a model monologue for an English learner (CEFR B1) to shadow.
 Rules: 120-150 words, spoken register, first person, plain high-frequency vocabulary, short sentences.
 No headings, no lists — just the monologue text.

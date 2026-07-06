@@ -114,6 +114,8 @@ function makeTestDeps(overrides: Partial<RouteDeps> = {}): {
       })),
       level: { current: 13, history: [] },
     }),
+    explainTalk: async () => ({ text: "日本語訳: テスト訳\n\n表現ポイント:\n- test — テスト" }),
+    talkExplainCache: { get: (_hash: string) => null, save: (_hash: string, _text: string, _created: string) => {} },
     ...overrides,
   };
   return { deps, logFile, recordingsDir };
@@ -874,6 +876,61 @@ describe("sentences ルート", () => {
     }));
     expect(unknownNo.status).toBe(400);
     expect((await unknownNo.json()).error).toContain("unknown");
+  });
+});
+
+describe("routes: モデルトーク解説", () => {
+  test("POST /api/coach/talk-explain は生成して返しハッシュキーで保存する", async () => {
+    const saved: Array<{ hash: string; text: string }> = [];
+    let generateCalls = 0;
+    const { deps } = makeTestDeps({
+      explainTalk: async () => { generateCalls++; return { text: "日本語訳: 訳文\n\n表現ポイント:\n- a — b" }; },
+      talkExplainCache: {
+        get: () => null,
+        save: (hash: string, text: string) => { saved.push({ hash, text }); },
+      },
+    });
+    const res = await makeFetchHandler(deps)(new Request("http://x/api/coach/talk-explain", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text: "I usually start my day with coffee." }),
+    }));
+    expect(res.status).toBe(200);
+    expect((await res.json()).text).toContain("日本語訳");
+    expect(generateCalls).toBe(1);
+    expect(saved).toHaveLength(1);
+    expect(saved[0].hash).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  test("POST /api/coach/talk-explain はキャッシュ命中時に生成しない", async () => {
+    let generateCalls = 0;
+    const { deps } = makeTestDeps({
+      explainTalk: async () => { generateCalls++; return { text: "x" }; },
+      talkExplainCache: {
+        get: () => "キャッシュ済み訳と解説",
+        save: () => { throw new Error("must not save on cache hit"); },
+      },
+    });
+    const res = await makeFetchHandler(deps)(new Request("http://x/api/coach/talk-explain", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text: "Any talk text." }),
+    }));
+    expect(res.status).toBe(200);
+    expect((await res.json()).text).toBe("キャッシュ済み訳と解説");
+    expect(generateCalls).toBe(0);
+  });
+
+  test("POST /api/coach/talk-explain は空文字・過長テキストに 400", async () => {
+    const handler = makeFetchHandler(makeTestDeps().deps);
+    const empty = await handler(new Request("http://x/api/coach/talk-explain", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text: "  " }),
+    }));
+    expect(empty.status).toBe(400);
+    const tooLong = await handler(new Request("http://x/api/coach/talk-explain", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text: "a".repeat(3001) }),
+    }));
+    expect(tooLong.status).toBe(400);
   });
 });
 

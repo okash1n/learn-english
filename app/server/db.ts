@@ -82,7 +82,36 @@ export function openDb(dbPath: string = DEFAULT_DB_PATH): Database {
     last_grade TEXT,
     reviews INTEGER NOT NULL DEFAULT 0
   )`);
+  db.run(`CREATE TABLE IF NOT EXISTS talk_explanations (
+    hash TEXT PRIMARY KEY,
+    text TEXT NOT NULL,
+    created TEXT NOT NULL
+  )`);
   return db;
+}
+
+/** モデルトーク解説のキャッシュ（本文の sha256 をキーにする） */
+export type TalkExplainCache = {
+  get(hash: string): string | null;
+  save(hash: string, text: string, created: string): void;
+};
+
+export function makeTalkExplainCache(db: Database): TalkExplainCache {
+  return {
+    get(hash) {
+      const row = db.query<{ text: string }, [string]>(
+        "SELECT text FROM talk_explanations WHERE hash = ?",
+      ).get(hash);
+      return row?.text ?? null;
+    },
+    save(hash, text, created) {
+      db.run(
+        `INSERT INTO talk_explanations (hash, text, created) VALUES (?, ?, ?)
+         ON CONFLICT(hash) DO UPDATE SET text = excluded.text, created = excluded.created`,
+        [hash, text, created],
+      );
+    },
+  };
 }
 
 type Row = { id: number; created_at: string; topic_id: string; topic_title: string; text: string };
