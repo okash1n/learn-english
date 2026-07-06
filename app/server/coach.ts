@@ -1,4 +1,5 @@
 import { defaultRunner, type ClaudeRunner } from "./converse";
+import type { HintLang } from "./progression";
 import type { SessionEvent } from "./session-log";
 
 export type AeItem = { quote: string; issue: string; better: string; why_ja: string };
@@ -162,7 +163,7 @@ export async function generateReflection(
   return { goodPhrases: [], fixes: [], noteForTomorrow_ja: text };
 }
 
-export type PrepPack = { chunks: Array<{ en: string; ja: string }>; outline: string[] };
+export type PrepPack = { chunks: Array<{ en: string; ja: string }>; outline: string[]; hintDefault: HintLang };
 
 function prepSystem(chunkCount: number): string {
   return `You prepare a Japanese IT professional (CEFR A2-B1) for a short English monologue.
@@ -181,28 +182,26 @@ Do not use any tools — reply directly with text only.`;
 }
 
 export async function generatePrepPack(
-  args: { topicTitle: string; hints: string[]; chunkCount?: number; hintLang?: "ja" | "en" },
+  args: { topicTitle: string; hints: string[]; chunkCount?: number; hintLang?: HintLang },
   runner: ClaudeRunner = defaultRunner,
 ): Promise<PrepPack> {
   const chunkCount = args.chunkCount ?? 6;
+  // hintLang は「表示既定の供給者」。ja のデータ自体は常に返し、表示するかはクライアントが決める。
+  const hintDefault: HintLang = args.hintLang ?? "ja";
   const prompt = `Topic: ${args.topicTitle}\nHint angles:\n${args.hints.map((h) => `- ${h}`).join("\n")}`;
   const { text } = await runner(prompt, undefined, { systemPrompt: prepSystem(chunkCount) });
   const parsed = extractJson<PrepPack>(text);
   if (parsed && Array.isArray(parsed.chunks) && Array.isArray(parsed.outline)) {
-    // Sanitize chunks: keep only items where both en and ja are strings
-    const sanitizedChunks = parsed.chunks
+    // Sanitize chunks: keep only items where both en and ja are strings（ja は空にしない）
+    const chunks = parsed.chunks
       .filter((item) => typeof item?.en === "string" && item.en && typeof item?.ja === "string")
       .map((item) => ({ en: item.en, ja: item.ja }));
     // Sanitize outline: keep only string elements
-    const sanitizedOutline = parsed.outline.filter((el) => typeof el === "string");
-    // hintLang "en"（stage4+）は日本語併記をやめる。LLM出力に頼らずサーバ側で決定的に空にする
-    const chunks = args.hintLang === "en"
-      ? sanitizedChunks.map((c) => ({ ...c, ja: "" }))
-      : sanitizedChunks;
-    return { chunks, outline: sanitizedOutline };
+    const outline = parsed.outline.filter((el) => typeof el === "string");
+    return { chunks, outline, hintDefault };
   }
   // パース失敗時のフォールバック: チャンクなし・素のテキストをアウトラインとして表示できる形
-  return { chunks: [], outline: [text] };
+  return { chunks: [], outline: [text], hintDefault };
 }
 
 export function roleplayPrompt(scenario: { title: string; hints: string[] }): string {

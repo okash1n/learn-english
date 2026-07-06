@@ -91,12 +91,12 @@ export function sessionEndKeepalive(sessionId: string): void {
 }
 
 export type ContentItem = { id: string; kind: "topic" | "scenario"; title: string; titleJa: string; hints: string[]; starters?: string[] };
-export type MenuBlock = { id: string; kind: string; title: string; minutes: number; params: { topic?: ContentItem; scenario?: ContentItem; roundsSec?: number[]; modelTalkMode?: "auto" | "button" | "none" } };
+export type MenuBlock = { id: string; kind: string; title: string; minutes: number; params: { topic?: ContentItem; scenario?: ContentItem; roundsSec?: number[]; modelTalkMode?: "auto" | "button" } };
 export type Menu = { minutes: number; date: string; blocks: MenuBlock[] };
 export type AeItem = { quote: string; issue: string; better: string; why_ja: string };
 export type AeFeedback = { items: AeItem[]; praise: string };
 export type Reflection = { goodPhrases: string[]; fixes: Array<{ original: string; better: string }>; noteForTomorrow_ja: string };
-export type PrepPack = { chunks: Array<{ en: string; ja: string }>; outline: string[] };
+export type PrepPack = { chunks: Array<{ en: string; ja: string }>; outline: string[]; hintDefault: "ja" | "en" };
 
 export async function fetchMenu(minutes: 60 | 30): Promise<Menu> {
   const res = await fetch(`/api/menu/today?minutes=${minutes}`);
