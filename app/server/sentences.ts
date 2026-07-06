@@ -1,6 +1,6 @@
 import type { Database } from "bun:sqlite";
-import { readFileSync } from "node:fs";
-import { SENTENCES_FILE } from "./paths";
+import { existsSync, readFileSync } from "node:fs";
+import { EXPLANATIONS_FILE, SENTENCES_FILE } from "./paths";
 
 export type Sentence = {
   no: number;
@@ -70,7 +70,30 @@ export function loadSentences(file: string = SENTENCES_FILE): Sentence[] {
 
 type SrsRow = { no: number; stage: number; due: string; last_grade: string | null; reviews: number };
 
-export function makeSentenceStore(db: Database, sentences: Sentence[]): SentenceStore {
+/** 同梱解説を読み込む（no→text）。欠落・不正はエラーにせず空で返す（都度生成にフォールバック） */
+export function loadBundledExplanations(file: string = EXPLANATIONS_FILE): Map<number, string> {
+  const map = new Map<number, string>();
+  if (!existsSync(file)) return map;
+  try {
+    const raw = JSON.parse(readFileSync(file, "utf8"));
+    if (Array.isArray(raw)) {
+      for (const e of raw) {
+        if (typeof e?.no === "number" && typeof e?.text === "string" && e.text.length > 0) {
+          map.set(e.no, e.text);
+        }
+      }
+    }
+  } catch (err) {
+    console.warn(`[sentences] bundled explanations unreadable, falling back to on-demand: ${String(err)}`);
+  }
+  return map;
+}
+
+export function makeSentenceStore(
+  db: Database,
+  sentences: Sentence[],
+  bundledExplanations: Map<number, string> = loadBundledExplanations(),
+): SentenceStore {
   const byNo = new Map(sentences.map((s) => [s.no, s]));
 
   function srsMap(): Map<number, SrsState> {
@@ -125,6 +148,9 @@ export function makeSentenceStore(db: Database, sentences: Sentence[]): Sentence
     },
 
     getExplanation(no) {
+      // 同梱 → SQLiteキャッシュ（カスタム例文の都度生成分） → null（ルートが生成）
+      const bundled = bundledExplanations.get(no);
+      if (bundled !== undefined) return bundled;
       const row = db.query<{ text: string }, [number]>(
         "SELECT text FROM sentence_explanations WHERE no = ?",
       ).get(no);

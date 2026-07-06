@@ -22,8 +22,9 @@ function writeFixture(sentences: unknown): string {
   return file;
 }
 
-function memStore(sentences: Sentence[] = FIVE) {
-  return makeSentenceStore(openDb(":memory:"), sentences);
+function memStore(sentences: Sentence[] = FIVE, bundled = new Map<number, string>()) {
+  // 実リポジトリの同梱解説ファイルに依存しないよう、テストは常に明示の Map を渡す
+  return makeSentenceStore(openDb(":memory:"), sentences, bundled);
 }
 
 describe("sentences / loadSentences", () => {
@@ -134,5 +135,20 @@ describe("sentences / queue", () => {
     const store = makeSentenceStore(openDb(":memory:"), outOfOrder);
     const q = store.queue(2, "2026-07-06");
     expect(q.map((s) => s.no)).toEqual([1, 2]);
+  });
+});
+
+describe("sentences / explanations", () => {
+  test("同梱解説がSQLiteキャッシュより優先される", () => {
+    const store = memStore(FIVE, new Map([[1, "同梱の解説"]]));
+    store.saveExplanation(1, "後から生成された解説");
+    expect(store.getExplanation(1)).toBe("同梱の解説");
+  });
+
+  test("同梱になければSQLiteキャッシュ、それもなければnull", () => {
+    const store = memStore();
+    expect(store.getExplanation(2)).toBeNull();
+    store.saveExplanation(2, "生成解説");
+    expect(store.getExplanation(2)).toBe("生成解説");
   });
 });
