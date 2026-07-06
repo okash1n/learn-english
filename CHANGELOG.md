@@ -2,6 +2,22 @@
 
 このプロジェクトの特筆すべき変更を記録します。形式は [Keep a Changelog](https://keepachangelog.com/ja/1.1.0/) に、バージョニングは [Semantic Versioning](https://semver.org/lang/ja/) に従います。
 
+## [0.5.0] - 2026-07-06
+
+### Added
+
+- **月次レビュー（M5）**: Progress 画面で直近30日の練習データ（練習時間・調音速度・例文の定着・苦手カテゴリ・収集チャンク・レベル遷移）をまとめた日本語の振り返りレポートを生成。同一月は再生成せずキャッシュを返す（情報表示のみ・ノルマや判定なし）。過去レポートの一覧・展開も可能
+- **実力データ駆動のコンテンツ生成CLI（M5）**: `scripts/generate-content.ts` — SRS の bad 率が高いワースト3カテゴリに新規例文を4文ずつ追記する `sentences`、現在レベル向けのお題2本＋シナリオ1本を生成する `topics`。書き込み前バリデーション（不正なら書かず非ゼロ終了）・全件検証後の一括書き込み・`--dry` プレビュー対応
+- **ロールプレイの3種分割**: クイックドリルが日常・ビジネス・IT の3枚に。タイトルも実際のシナリオのドメイン表記に
+- **シャドーイングの日本語訳＋表現解説ボタン**（本文ハッシュでキャッシュ）
+- **レベル測定の常設導線**: サイドバー「ホーム」直下に Level Check を常設。導線カードは未測定時ヒーロー直下・月次時カレンダー手前の専用スタイルに
+- UX一貫性レビューと次期計画（P1〜P5）を docs に追加
+
+### Changed
+
+- 日替わり「今日の学習を始める」CTA を削除（カード1クリックと重複のため）
+- README のロードマップを次期計画（P1〜P5）に更新
+
 ## [0.4.0] - 2026-07-06
 
 ### Added
@@ -78,6 +94,7 @@
 - 音声データはマシン外に出ない（外部送信はテキストのみ: Claude への発話テキスト、OpenAI TTS への応答テキスト）
 
 [0.3.0]: https://github.com/okash1n/learn-english/compare/v0.2.0...v0.3.0
+[0.5.0]: https://github.com/okash1n/learn-english/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/okash1n/learn-english/compare/v0.3.0...v0.4.0
 [0.2.0]: https://github.com/okash1n/learn-english/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/okash1n/learn-english/releases/tag/v0.1.0
