@@ -1,9 +1,11 @@
 #!/usr/bin/env bun
 /**
- * 暗記例文300の音声を一括生成して data/tts-cache/ に載せる（冪等）。
+ * 暗記例文300の音声を一括生成して content/sentences/audio/（リポジトリ同梱）に載せる（冪等）。
+ * 例文を編集・追加した後に再実行すると、音声が無い文だけ生成される。
  * 実行方法（app/.env の OPENAI_API_KEY を読み込むため app/ をCWDにする）:
  *   cd app && bun ../scripts/generate-sentence-audio.ts [--limit N]
  */
+import { BUNDLED_AUDIO_DIR } from "../app/server/paths";
 import { loadSentences } from "../app/server/sentences";
 import { synthesize } from "../app/server/tts";
 
@@ -31,7 +33,8 @@ let doneCount = 0;
 async function generateOne(s: { no: number; en: string }): Promise<void> {
   for (let attempt = 1; attempt <= 2; attempt++) {
     try {
-      const result = await synthesize(s.en, {});
+      // cacheDir と bundledDir を同梱先に揃える: 既存はスキップ・新規はバンドルへ直接書き込み
+      const result = await synthesize(s.en, { cacheDir: BUNDLED_AUDIO_DIR });
       // Check if actually using OpenAI (not the say fallback which is not cached)
       if (result.engine === "openai") {
         return;
@@ -71,4 +74,4 @@ if (failed.length) {
   for (const f of failed) console.error(`  No.${f.no}: ${f.error}`);
   process.exit(1);
 }
-console.log("完了: 全文の音声がキャッシュされました");
+console.log(`完了: 全文の音声が ${BUNDLED_AUDIO_DIR} に揃いました（git add してコミットできます）`);

@@ -28,6 +28,8 @@ A local-first, research-grounded English speaking practice app for daily self-st
 
 会話でそのまま使える文法・言い回しを網羅したオリジナル300文（文法・機能25分類 × 日常/ビジネス/IT）。**日本語を見て声に出す → 答え合わせ（音声つき）→ 3段階の自己評価**という産出リトリーバル型で、評価に応じて 1→3→7→14→30→60日 の間隔反復（SRS）が次の出題日を決めます。一覧モードでは全文をフィルタ・音声つきで眺められます。
 
+300文の音声はリポジトリに同梱済み（`content/sentences/audio/`、OpenAI TTS で事前生成したAI音声）なので、**OpenAI キーなしでもネイティブ品質の音声で練習できます**。
+
 ### 📚 ライブラリと練習記録
 
 - 生成されたモデルトークは自動でライブラリに保存され、あとから本文確認・再再生できる
@@ -79,12 +81,6 @@ A local-first, research-grounded English speaking practice app for daily self-st
 OPENAI_API_KEY=$YOUR_OPENAI_KEY_ENV_VAR
 ```
 
-任意: 暗記例文300の音声を一括生成しておく（初回のみ・要 OPENAI_API_KEY。数十円程度・再実行安全）:
-
-```bash
-cd app && bun ../scripts/generate-sentence-audio.ts
-```
-
 ### 起動: 常駐（推奨）
 
 launchd の LaunchAgent として API サーバを常駐させ、ビルド済みクライアントを共有 Caddy デーモンが静的配信します。ログイン時に自動起動し、クラッシュ時は自動再起動。
@@ -129,7 +125,11 @@ Talk about:
 - English hint — 日本語の補足
 ```
 
-暗記例文（`content/sentences/sentences300.json`）も同じ発想で差し替え・追記できます（`no` の一意性だけ保つこと）。
+暗記例文（`content/sentences/sentences300.json`）も同じ発想で差し替え・追記できます（`no` の一意性だけ保つこと）。編集・追加した文の音声は次のコマンドで再生成できます（要 OPENAI_API_KEY・既存分はスキップされる冪等動作）:
+
+```bash
+cd app && bun ../scripts/generate-sentence-audio.ts
+```
 
 ## テスト
 

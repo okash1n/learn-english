@@ -43,6 +43,32 @@ describe("tts", () => {
     expect(k1).toMatch(/^[0-9a-f]{64}$/);
   });
 
+  test("同梱音声があれば APIキーなしでも say に落ちず openai として返す", async () => {
+    const bundledDir = mkdtempSync(path.join(tmpdir(), "tts-bundle-"));
+    const key = cacheKeyFor("gpt-4o-mini-tts", "alloy", "Bundled sentence");
+    await Bun.write(path.join(bundledDir, `${key}.mp3`), new Uint8Array([7, 7, 7]));
+    const spawned: string[][] = [];
+    const r = await withNoApiKey(() =>
+      synthesize("Bundled sentence", { bundledDir, spawnFn: makeFakeSpawn(spawned) }),
+    );
+    expect(r.engine).toBe("openai");
+    expect(Array.from(r.audio)).toEqual([7, 7, 7]);
+    expect(spawned).toHaveLength(0);
+  });
+
+  test("同梱音声は API 呼び出しより優先される", async () => {
+    const bundledDir = mkdtempSync(path.join(tmpdir(), "tts-bundle-"));
+    const cacheDir = mkdtempSync(path.join(tmpdir(), "tts-"));
+    const key = cacheKeyFor("gpt-4o-mini-tts", "alloy", "Bundled first");
+    await Bun.write(path.join(bundledDir, `${key}.mp3`), new Uint8Array([5]));
+    const fakeFetch = (async () => {
+      throw new Error("API must not be called when bundled audio exists");
+    }) as unknown as typeof fetch;
+    const r = await synthesize("Bundled first", { apiKey: "sk-test", bundledDir, cacheDir, fetchFn: fakeFetch });
+    expect(r.engine).toBe("openai");
+    expect(Array.from(r.audio)).toEqual([5]);
+  });
+
   test("APIキーがあれば OpenAI を呼び、2回目はキャッシュを使う", async () => {
     const cacheDir = mkdtempSync(path.join(tmpdir(), "tts-"));
     let calls = 0;

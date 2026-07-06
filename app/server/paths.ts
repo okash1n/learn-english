@@ -11,6 +11,8 @@ export const CONTENT_DIR = path.join(REPO_ROOT, "content");
 export const TOPICS_DIR = path.join(CONTENT_DIR, "topics");
 export const SCENARIOS_DIR = path.join(CONTENT_DIR, "scenarios");
 export const SENTENCES_FILE = path.join(CONTENT_DIR, "sentences", "sentences300.json");
+// 暗記例文300の同梱音声（リポジトリにコミット済み・読み取り専用のバンドルキャッシュ）
+export const BUNDLED_AUDIO_DIR = path.join(CONTENT_DIR, "sentences", "audio");
 export const PROGRESS_DIR = path.join(DATA_DIR, "progress");
 
 export function ensureDirs(): void {

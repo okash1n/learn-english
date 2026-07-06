@@ -3,7 +3,7 @@ import { existsSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import { tmpdir } from "node:os";
 import { mkdtempSync, rmSync } from "node:fs";
-import { TTS_CACHE_DIR } from "./paths";
+import { BUNDLED_AUDIO_DIR, TTS_CACHE_DIR } from "./paths";
 import { realSpawn, type SpawnFn } from "./spawn";
 
 const TTS_MODEL = "gpt-4o-mini-tts";
@@ -13,6 +13,8 @@ export type SynthesizeOpts = {
   voice?: string;
   apiKey?: string;
   cacheDir?: string;
+  /** リポジトリ同梱の読み取り専用音声（APIキーなしでも参照される） */
+  bundledDir?: string;
   fetchFn?: typeof fetch;
   spawnFn?: SpawnFn;
 };
@@ -58,6 +60,18 @@ export async function synthesize(
   const voice = opts.voice ?? DEFAULT_VOICE;
   const apiKey = opts.apiKey ?? Bun.env.OPENAI_API_KEY;
   const cacheDir = opts.cacheDir ?? TTS_CACHE_DIR;
+
+  // 同梱音声（暗記例文300など）は APIキーの有無に関わらず最優先で参照する。
+  // OpenAI TTS で事前生成したものなので engine は "openai" として返す
+  const bundledPath = path.join(opts.bundledDir ?? BUNDLED_AUDIO_DIR, `${cacheKeyFor(TTS_MODEL, voice, text)}.mp3`);
+  try {
+    if (existsSync(bundledPath)) {
+      return { audio: new Uint8Array(await Bun.file(bundledPath).arrayBuffer()), mime: "audio/mpeg", engine: "openai" };
+    }
+  } catch (err) {
+    // バンドル読み取り失敗はベストエフォート（通常経路に続行）
+    console.warn(`tts: bundled audio read failed for ${bundledPath}: ${String(err)}`);
+  }
 
   if (apiKey) {
     const cachePath = path.join(cacheDir, `${cacheKeyFor(TTS_MODEL, voice, text)}.mp3`);
