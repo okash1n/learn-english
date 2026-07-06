@@ -1,8 +1,8 @@
-# UX一貫性レビューと次期計画（学習サポートの統一）
+# UX一貫性レビューと次期計画（学習サポートの統一＋リファクタリング）
 
 - 日付: 2026-07-06
-- 方法: 全画面＋サーバのつまみを4レンズ（A: 段階的ステップ / B: 日本語訳・解説 / C: ユーザー調整 / D: UI文言i18n）で並列監査（5エージェント・全所見 file:line 根拠付き）
-- 位置づけ: M1〜M5 完了後の次期ロードマップの土台
+- 方法: ①全画面＋サーバのつまみを4レンズ（A: 段階的ステップ / B: 日本語訳・解説 / C: ユーザー調整 / D: UI文言i18n）で並列監査（5エージェント・61所見）②アーキテクチャを3エリア（server/client/tests）で並列監査（28所見）。全所見 file:line 根拠付き
+- 位置づけ: M1〜M5 完了後（v0.5.0）の次期ロードマップ。P系列=UX、R系列=リファクタリング
 
 ## 1. 現状マトリクス
 
@@ -58,9 +58,50 @@
 - placement お題本文の日本語訳トグル（低ステージ受験者向け）
 - cloze マスク率の設定（P2 の個別トグルに含めるか検討）
 
-## 4. 実施メモ
+## 4. 実施メモ（UX）
 
 - P1 と P2 は独立して着手可能。P3 は P2 の設定基盤があると綺麗（シャドーイングの既定値をサポート設定に従わせる）
 - P4 は機械的だが量が多い（8画面）。1タスクで一括より 2 分割が安全
 - 研究制約（情報的フィードバックのみ）は全案で維持。P1 の「言い方ヒント」は明示的な要求ベースなので recast 論争とは無関係
-- 監査の生所見（file:line 付き 44件）はワークフロー出力に保存済み。実装計画を書く際は該当画面の所見を貼り付けて使う
+- 監査の生所見は `.superpowers/sdd/ux-audit-findings.json`（61件）と `.superpowers/sdd/arch-audit-findings.json`（28件）に保存済み。実装計画を書く際は該当所見を貼り付けて使う
+
+## 5. アーキテクチャ監査（R系列）
+
+1日で M1→M5 まで増築した結果、規模自体は健全（サーバ約3,000行・クライアント約3,400行）だが、**変更摩擦が集中箇所に蓄積**している。監査で見つかった実バグ1件（クイックロールプレイのドメイン受け渡し漏れ — StartSelection→MenuSource の手詰め替えが原因）は修正済み。ReflectionScreen の StrictMode 二重POST（ガードのコピー漏れ）は R2 で解消する。
+
+### R1: サーバHTTP層の解体（最優先 — P1 でエンドポイントを増やす前に）
+- **問題**: routes.ts 576行に26ハンドラ・37ルート・RouteDeps 30フィールドの神オブジェクト。エンドポイント1本追加で3ファイル5箇所以上（型・ハンドラ・if連鎖・index配線・テストフェイク）の修正が必須。routes.test.ts は1,463行の単一モノリスで、インラインのフルスペックフェイクが23箇所重複、`as RouteDeps["…"]` アサーション43箇所が型検査を無効化（ストアにメソッドを足すと実行時 TypeError で発覚 — 過去に実発生）
+- **やること**: 機能単位のルータモジュール（`makeSrsRoutes(deps: SrsDeps)` 等、狭い deps 型）＋ `[method, path, handler]` テーブル合成に分割。テストも同じ単位に分割し、共有フェイクファクトリを `satisfies` で型完全に。XP換算（good=2等）・メニューキャッシュ無効化判定などのドメインポリシーは progression.ts / ストア戻り値（levelChanged）へ移動
+- **効果**: 新エンドポイント追加が「1モジュール＋配線1行」になる。P1 の新API群はこの規約で実装する
+
+### R2: クライアント基盤の共通化（P1 の画面改修前に）
+- **問題**: aliveRef+fetchedRef+LoadState+エラー整形のイディオムが9ファイル11箇所で手書きコピー（ReflectionScreen はコピー漏れで無ガード）。StartSelection と MenuSource の二重型＋手詰め替えが実バグを生んだ。localYmd がクライアント3実装＋サーバ1実装の4重
+- **やること**: `useLoad()` フック抽出（全画面置換・Reflection のガード漏れ解消）、StartSelection のセッション系を MenuSource 透過に一本化、クライアント共有 `dates.ts`
+- **効果**: 画面追加時の決まり文句が消え、詰め替え起因のバグクラスが型で封じられる
+
+### R3: サーバモジュール境界の整理
+- content.ts（frontmatterパース・ロード・findTopic/findScenario）と rotation.ts を menu.ts から抽出（menu.ts はブロック構築＋キャッシュに縮小）。index.ts の重複検索クロージャも解消
+- srs-analytics.ts 新設で categoryBadRates/pickWorstCategories を移し、assessment⇄content-gen の**循環 import を解消**
+- defaultRunner を1箇所から共有（現在4ファイルで重複生成）。プロンプト配置規約を「各ドメインモジュールに置く」に明文化（coach.ts は AE/振り返り等に縮小）
+- ストア規約統一: 各ストアが自テーブルの `ensureSchema(db)` を持ち、openDb は合成だけ。insertReturningId ヘルパ共有。db.ts 内の2ストア（library/talkExplainCache）も同規約へ
+- 小粒: `bestEffort(label, fn)` ヘルパで swallow 8箇所を統一 / dates 移行完了（sentences.ts の re-export 削除）/ validateNewSentences の空 ja 拒否
+
+### R4: クライアント神モジュールの分割
+- api.ts（490行: 型20+・fetch30+・キャッシュ3・pub-sub）→ `api/` 配下にドメイン別分割。notifyProgress の手動結線3箇所は「summary を返す fetch の共通ラッパ」で自動化
+- i18n.ts の神型 Strings → 画面別サブ辞書の合成に再構成。`drills: Record<string, …>` を union キーに戻して型検査を復活（P4 の8画面辞書化と同時実施が一石二鳥）
+- SentencesScreen（415行）→ PracticeTab / BrowseTab をファイル分割。行TTS再生イディオム5箇所をフック化
+
+### R5: 小粒（余裕があれば）
+- routes.test の Request 生成ボイラープレート113箇所 → post/get ヘルパ
+- 31日月の cached 無反応への UI フィードバック / kebab-case・空title 拒否テスト / rollback 実書き込み後経路テスト
+
+## 6. 統合実施順序（R × P）
+
+| 順 | 内容 | 理由 |
+|---|---|---|
+| 1 | **R1 + R2** | P1 がエンドポイント追加と会話画面改修をするため、先に土台を直すと P1 自体が新規約の実証になる |
+| 2 | **P1** 会話系の日本語支援 | 最大のUXギャップ。R1 の機能別ルータ・R2 の useLoad で実装 |
+| 3 | **R3** サーバ境界整理 | P2 が設定→サーバつまみの経路を触る前に境界を確定 |
+| 4 | **P2** 学習サポート設定 + **P3** 段階ステップ | P2 の設定基盤の上に P3 の既定値を載せる |
+| 5 | **R4 + P4** i18n 一括対応 | i18n 構造改革と8画面辞書化を同時に |
+| 6 | **P5 + R5** 非対称解消・小粒 | 仕上げ |

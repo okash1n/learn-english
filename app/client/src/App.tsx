@@ -27,9 +27,9 @@ export function App() {
     saveLang(next);
   }
   // 文字サイズ（小/中/大）。tokens.css の :root[data-ui-scale] が --fs-* を切り替える
-  const [uiScale, setUiScale] = useState<"small" | "medium" | "large">(() => {
+  const [uiScale, setUiScale] = useState<"small" | "medium" | "large" | "xlarge">(() => {
     const v = localStorage.getItem("ui.scale");
-    return v === "small" || v === "large" ? v : "medium";
+    return v === "small" || v === "large" || v === "xlarge" ? v : "medium";
   });
   useEffect(() => {
     document.documentElement.dataset.uiScale = uiScale;
@@ -94,6 +94,7 @@ export function App() {
           <button className={uiScale === "small" ? "is-active" : ""} onClick={() => setUiScale("small")}>{t.uiScale.small}</button>
           <button className={uiScale === "medium" ? "is-active" : ""} onClick={() => setUiScale("medium")}>{t.uiScale.medium}</button>
           <button className={uiScale === "large" ? "is-active" : ""} onClick={() => setUiScale("large")}>{t.uiScale.large}</button>
+          <button className={uiScale === "xlarge" ? "is-active" : ""} onClick={() => setUiScale("xlarge")}>{t.uiScale.xlarge}</button>
         </div>
         <div className="lang-toggle" role="group" aria-label="Language">
           <button className={lang === "en" ? "is-active" : ""} onClick={() => switchLang("en")}>EN</button>
