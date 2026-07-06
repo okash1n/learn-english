@@ -148,3 +148,56 @@ describe("routes: モデルトーク解説", () => {
     expect(tooLong.status).toBe(400);
   });
 });
+
+describe("routes: AI発話の訳（translate）", () => {
+  test("POST /api/coach/translate は訳を生成して返しハッシュキーで保存する", async () => {
+    const saved: Array<{ hash: string; text: string }> = [];
+    let generateCalls = 0;
+    const { deps } = makeTestDeps({
+      translate: async () => { generateCalls++; return { text: "私はたいていコーヒーで一日を始めます。" }; },
+      translationCache: makeFakeTalkExplainCache({
+        get: () => null,
+        save: (hash, text) => { saved.push({ hash, text }); },
+      }),
+    });
+    const res = await makeFetchHandler(deps)(new Request("http://x/api/coach/translate", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text: "I usually start my day with coffee." }),
+    }));
+    expect(res.status).toBe(200);
+    expect((await res.json()).text).toBe("私はたいていコーヒーで一日を始めます。");
+    expect(generateCalls).toBe(1);
+    expect(saved).toHaveLength(1);
+    expect(saved[0].hash).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  test("POST /api/coach/translate はキャッシュ命中時に生成しない", async () => {
+    let generateCalls = 0;
+    const { deps } = makeTestDeps({
+      translate: async () => { generateCalls++; return { text: "x" }; },
+      translationCache: makeFakeTalkExplainCache({
+        get: () => "キャッシュ済みの訳",
+        save: () => { throw new Error("must not save on cache hit"); },
+      }),
+    });
+    const res = await makeFetchHandler(deps)(new Request("http://x/api/coach/translate", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text: "Any line." }),
+    }));
+    expect(res.status).toBe(200);
+    expect((await res.json()).text).toBe("キャッシュ済みの訳");
+    expect(generateCalls).toBe(0);
+  });
+
+  test("POST /api/coach/translate は空文字・過長テキストに 400", async () => {
+    const handler = makeFetchHandler(makeTestDeps().deps);
+    const empty = await handler(new Request("http://x/api/coach/translate", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: "  " }),
+    }));
+    expect(empty.status).toBe(400);
+    const tooLong = await handler(new Request("http://x/api/coach/translate", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: "a".repeat(3001) }),
+    }));
+    expect(tooLong.status).toBe(400);
+  });
+});

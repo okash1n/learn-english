@@ -81,6 +81,20 @@ export async function generateTalkExplanation(
   return { text: text.trim() };
 }
 
+const TRANSLATE_SYSTEM = `You translate one short English line from a live conversation into natural Japanese for a Japanese learner (CEFR A2-B1).
+Reply with ONLY the Japanese translation — no English, no notes, no labels, no quotes — plain text on a single line.
+Do not correct or comment on the English; just translate its meaning naturally.
+Do not use any tools — reply directly with text only.`;
+
+/** AI発話の日本語訳のみを生成する（表現解説は付けない・routes 側で本文ハッシュをキーにキャッシュされる） */
+export async function generateUtteranceTranslation(
+  args: { text: string },
+  runner: ClaudeRunner = defaultRunner,
+): Promise<{ text: string }> {
+  const { text } = await runner(args.text, undefined, { systemPrompt: TRANSLATE_SYSTEM });
+  return { text: text.trim() };
+}
+
 const MODEL_TALK_SYSTEM = `You produce a model monologue for an English learner (CEFR B1) to shadow.
 Rules: 120-150 words, spoken register, first person, plain high-frequency vocabulary, short sentences.
 No headings, no lists — just the monologue text.
