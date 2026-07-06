@@ -5,10 +5,11 @@ import {
 } from "../api";
 import { STR, type Lang } from "../i18n";
 import { Button } from "../ui/Button";
+import { type MenuSource } from "./SessionRunner";
+import { localYmd } from "../dates";
 
 export type StartSelection =
-  | { type: "quick"; drill: QuickDrillKind; domain?: RoleplayDomain }
-  | { type: "daily"; minutes: 60 | 30 }
+  | { type: "session"; source: MenuSource }
   | { type: "free" }
   | { type: "library" }
   | { type: "placement" };
@@ -27,12 +28,6 @@ const WEEKDAY_LETTERS: Record<Lang, string[]> = {
   en: ["M", "T", "W", "T", "F", "S", "S"],
   ja: ["月", "火", "水", "木", "金", "土", "日"],
 };
-
-/** ローカル日付の YYYY-MM-DD（カレンダー表示用） */
-function localYmd(d: Date): string {
-  const p = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
-}
 
 /**
  * 練習日カレンダー（GitHub風: 列=週・行=曜日、横幅に入るだけ週列を表示）。
@@ -162,7 +157,7 @@ export function StartScreen(props: { onSelect: (sel: StartSelection) => void; la
           {QUICK_DRILLS.map((q) => {
             const d = t.drills[q.drillKey];
             return (
-              <button key={q.drillKey} className="drill-card" onClick={() => props.onSelect({ type: "quick", drill: q.drill, domain: q.domain })}>
+              <button key={q.drillKey} className="drill-card" onClick={() => props.onSelect({ type: "session", source: { type: "quick", drill: q.drill, domain: q.domain } })}>
                 <span className={`drill-icon ${q.tile}`} aria-hidden="true">{q.icon}</span>
                 <span className="drill-body">
                   <span className="drill-title">{d.title} <span className="drill-min">{d.minutes}</span></span>
@@ -179,7 +174,7 @@ export function StartScreen(props: { onSelect: (sel: StartSelection) => void; la
         <p className="section-label">{t.intensive.label} <span className="section-note">{t.intensive.note}</span></p>
         <div className="drill-grid">
           {/* 負荷の軽い順（クイックドリル→30分→60分の流れに合わせる） */}
-          <button className="drill-card" onClick={() => props.onSelect({ type: "daily", minutes: 30 })}>
+          <button className="drill-card" onClick={() => props.onSelect({ type: "session", source: { type: "daily", minutes: 30 } })}>
             <span className="drill-icon c-blue" aria-hidden="true">⏱</span>
             <span className="drill-body">
               <span className="drill-title">{t.shortSession.title} <span className="drill-min">{t.shortSession.minutes}</span></span>
@@ -187,7 +182,7 @@ export function StartScreen(props: { onSelect: (sel: StartSelection) => void; la
             </span>
             <span className="drill-arrow" aria-hidden="true">→</span>
           </button>
-          <button className="drill-card" onClick={() => props.onSelect({ type: "daily", minutes: 60 })}>
+          <button className="drill-card" onClick={() => props.onSelect({ type: "session", source: { type: "daily", minutes: 60 } })}>
             <span className="drill-icon c-green" aria-hidden="true">📋</span>
             <span className="drill-body">
               <span className="drill-title">{t.fullSession.title} <span className="drill-min">{t.fullSession.minutes}</span></span>

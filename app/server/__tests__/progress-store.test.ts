@@ -124,7 +124,7 @@ describe("progress-store: 昇格提案（3条件すべて）", () => {
     for (const d of ["2026-06-30", "2026-07-01", "2026-07-02", "2026-07-03", "2026-07-05"]) seedBlockXpDay(db, d);
     for (let i = 0; i < 10; i++) seedAttempt(db, "2026-07-05", "warmup-reading", 1);
     expect(store.getSummary(T).proposal?.kind).toBe("up");
-    store.levelAction("decline", undefined, T);
+    expect(store.levelAction("decline", undefined, T)!.levelChanged).toBe(false); // 却下はレベル不変=無効化不要
     expect(store.getSummary(T).proposal).toBeNull();
     expect(store.getSummary("2026-07-12").proposal).toBeNull();  // 6日後
     // 8日目: 14日窓に入る練習日を追加で確保
@@ -137,8 +137,9 @@ describe("progress-store: 昇格提案（3条件すべて）", () => {
     for (let i = 0; i < 10; i++) seedAttempt(db, "2026-07-05", "warmup-reading", 1);
     store.addXp("block", 30, {}, T); // into=55（境界で停止中）
     const s = store.levelAction("accept", undefined, T)!;
-    expect(s.level).toBe(22); // 21へ昇格後、余剰30 ≥ need(21)=30 → 22
-    expect(s.xpIntoLevel).toBe(0);
+    expect(s.summary.level).toBe(22); // 21へ昇格後、余剰30 ≥ need(21)=30 → 22
+    expect(s.summary.xpIntoLevel).toBe(0);
+    expect(s.levelChanged).toBe(true); // メニューキャッシュ無効化の根拠（退行するとルート側フェイクでは検出できない）
   });
   test("回帰: accept-up のカスケード時、level_events の from は受諾前レベル（「最終-1」にならない）", () => {
     const { db, store } = boundaryReady(); // level 20
@@ -146,7 +147,7 @@ describe("progress-store: 昇格提案（3条件すべて）", () => {
     for (let i = 0; i < 10; i++) seedAttempt(db, "2026-07-05", "warmup-reading", 1);
     store.addXp("block", 30, {}, T); // into=55（境界で停止中）
     const s = store.levelAction("accept", undefined, T)!;
-    expect(s.level).toBe(22); // カスケードで 20 → 21 → 22
+    expect(s.summary.level).toBe(22); // カスケードで 20 → 21 → 22
     const row = db.query<{ kind: string; from_level: number; to_level: number }, []>(
       "SELECT kind, from_level, to_level FROM level_events WHERE kind = 'accept-up' ORDER BY id DESC LIMIT 1").get()!;
     expect(row.from_level).toBe(20); // 受諾前レベル（誤実装では 22-1=21 になっていた）
@@ -197,16 +198,17 @@ describe("progress-store: 降格提案", () => {
     store.addXp("block", 10, {}, T);
     for (let i = 0; i < 5; i++) seedAttempt(db, "2026-07-04", "roleplay", 0);
     const s = store.levelAction("accept", undefined, T)!;
-    expect(s.level).toBe(20);
-    expect(s.xp).toBe(10); // 累積XPは不変
-    expect(s.xpIntoLevel).toBe(0);
+    expect(s.summary.level).toBe(20);
+    expect(s.summary.xp).toBe(10); // 累積XPは不変
+    expect(s.summary.xpIntoLevel).toBe(0);
+    expect(s.levelChanged).toBe(true);
   });
   test("回帰: accept-down の level_events は from=受諾前レベル・to=降格先（from==toにならない）", () => {
     const { db, store } = freshStore();
     store.levelAction("set", 23, T);
     for (let i = 0; i < 5; i++) seedAttempt(db, "2026-07-04", "roleplay", 0);
     const s = store.levelAction("accept", undefined, T)!;
-    expect(s.level).toBe(20);
+    expect(s.summary.level).toBe(20);
     const row = db.query<{ kind: string; from_level: number; to_level: number }, []>(
       "SELECT kind, from_level, to_level FROM level_events WHERE kind = 'accept-down' ORDER BY id DESC LIMIT 1").get()!;
     expect(row.from_level).toBe(23);
@@ -228,8 +230,8 @@ describe("progress-store: levelAction", () => {
   test("set はレベルを変更し xpIntoLevel を0にする（1未満・非整数は null）", () => {
     const { store } = freshStore();
     const s = store.levelAction("set", 40, T)!;
-    expect(s.level).toBe(40);
-    expect(s.xpIntoLevel).toBe(0);
+    expect(s.summary.level).toBe(40);
+    expect(s.summary.xpIntoLevel).toBe(0);
     expect(store.levelAction("set", 0, T)).toBeNull();
     expect(store.levelAction("set", 2.5, T)).toBeNull();
     expect(store.levelAction("set", undefined, T)).toBeNull();
@@ -248,9 +250,10 @@ describe("progress-store: levelAction", () => {
     const countBefore = db.query<{ n: number }, []>("SELECT COUNT(*) AS n FROM level_events").get()!.n;
 
     const s = store.levelAction("set", 13, T)!;
+    expect(s.levelChanged).toBe(false);
 
-    expect(s.level).toBe(13);
-    expect(s.xpIntoLevel).toBe(10); // リセットされない
+    expect(s.summary.level).toBe(13);
+    expect(s.summary.xpIntoLevel).toBe(10); // リセットされない
     const countAfter = db.query<{ n: number }, []>("SELECT COUNT(*) AS n FROM level_events").get()!.n;
     expect(countAfter).toBe(countBefore); // level_events 行が増えない
   });
@@ -262,8 +265,9 @@ describe("progress-store: placementSet", () => {
     const store = makeProgressStore(db);
     store.getSummary("2026-07-06"); // ensureRow（Lv13）
     const s = store.placementSet(23, "2026-07-06");
-    expect(s!.level).toBe(23);
-    expect(s!.xpIntoLevel).toBe(0);
+    expect(s!.levelChanged).toBe(true);
+    expect(s!.summary.level).toBe(23);
+    expect(s!.summary.xpIntoLevel).toBe(0);
     const ev = db.query<{ kind: string; from_level: number; to_level: number }, []>(
       "SELECT kind, from_level, to_level FROM level_events ORDER BY id DESC LIMIT 1").get()!;
     expect(ev).toEqual({ kind: "placement-set", from_level: 13, to_level: 23 });
@@ -274,7 +278,8 @@ describe("progress-store: placementSet", () => {
     const store = makeProgressStore(db);
     store.addXp("block", 6, {}, "2026-07-06"); // xpIntoLevel=6
     const s = store.placementSet(13, "2026-07-06");
-    expect(s!.xpIntoLevel).toBe(6);
+    expect(s!.levelChanged).toBe(false);
+    expect(s!.summary.xpIntoLevel).toBe(6);
     const count = db.query<{ n: number }, []>("SELECT COUNT(*) AS n FROM level_events").get()!;
     expect(count.n).toBe(0);
     expect(store.placementSet(0, "2026-07-06")).toBeNull();

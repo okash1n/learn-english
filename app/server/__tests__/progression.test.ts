@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   BOUNDARY_LEVELS, DEFAULT_LEVEL, demotionTargetLevel, fttMiniRoundsSec, fttRoundsSec,
-  needXp, prepParams, stageOf,
+  needXp, PLACEMENT_XP, prepParams, stageOf, xpForGrade,
 } from "../progression";
 
 describe("progression: stageOf", () => {
@@ -69,5 +69,11 @@ describe("progression: 定数と降格先", () => {
     expect(demotionTargetLevel(23)).toBe(20);
     expect(demotionTargetLevel(11)).toBe(10);
     expect(demotionTargetLevel(75)).toBe(50);
+  });
+  test("XP換算は good=2・soso=1・bad=1（bad でも参加XPは付く）・placement=10", () => {
+    expect(xpForGrade("good")).toBe(2);
+    expect(xpForGrade("soso")).toBe(1);
+    expect(xpForGrade("bad")).toBe(1);
+    expect(PLACEMENT_XP).toBe(10);
   });
 });
