@@ -410,6 +410,17 @@ export async function fetchTalkExplanation(text: string): Promise<string> {
   return ((await res.json()) as { text: string }).text;
 }
 
+/** AI発話の日本語訳のみ（サーバ側で本文ハッシュキャッシュ・2回目以降は即返る） */
+export async function fetchUtteranceTranslation(text: string): Promise<string> {
+  const res = await fetch("/api/coach/translate", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ text }),
+  });
+  if (!res.ok) throw new Error(`translate failed: ${await extractErrorMessage(res)}`);
+  return ((await res.json()) as { text: string }).text;
+}
+
 export type PlacementTaskDef = {
   id: string; durationSec: number; instructionEn: string; instructionJa: string; promptText: string;
 };

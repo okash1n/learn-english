@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { converse, sttUpload, ttsFetch } from "../api";
+import { converse, fetchUtteranceTranslation, sttUpload, ttsFetch } from "../api";
 import { playBlob, Recorder, stopPlayback } from "../audio";
 import { Banner } from "../ui/Banner";
 import { Button } from "../ui/Button";
@@ -26,6 +26,8 @@ export function FreeTalkScreen(props: { scenarioId?: string; onSessionId?: (id: 
   // stop→sttUpload→converse→ttsFetch→playBlob の対話パイプラインがアンマウント後も
   // 走り続けないようにするフラグ。await の後・setState の前（特に playBlob の前）で毎回チェックする
   const aliveRef = useRef(true);
+  // AI発話ごとの訳。キーは turns の index。値: undefined=未取得, "loading"=取得中, それ以外=訳文
+  const [translations, setTranslations] = useState<Record<number, string>>({});
 
   // 録音中/再生中に画面を離脱してもマイク・音声が解放されるよう、アンマウント時に停止する
   useEffect(() => { aliveRef.current = true; return () => { aliveRef.current = false; recorderRef.current.cancel(); stopPlayback(); }; }, []);
@@ -76,6 +78,16 @@ export function FreeTalkScreen(props: { scenarioId?: string; onSessionId?: (id: 
     }
   }
 
+  async function translateTurn(i: number, text: string) {
+    setTranslations((m) => ({ ...m, [i]: "loading" }));
+    try {
+      const ja = await fetchUtteranceTranslation(text);
+      if (aliveRef.current) setTranslations((m) => ({ ...m, [i]: ja }));
+    } catch {
+      if (aliveRef.current) setTranslations((m) => ({ ...m, [i]: "訳を取得できませんでした。もう一度お試しください。" }));
+    }
+  }
+
   return (
     <div>
       <Button
@@ -91,6 +103,17 @@ export function FreeTalkScreen(props: { scenarioId?: string; onSessionId?: (id: 
         {turns.map((t, i) => (
           <div key={i} className={`chat-row ${t.role === "you" ? "you" : "ai"}`}>
             <div className={`bubble ${t.role === "you" ? "bubble-you" : "bubble-ai"}`} aria-label={t.role === "you" ? "あなた" : "AI"}>{t.text}</div>
+            {t.role === "ai" && (
+              <div className="chat-translate">
+                {translations[i] === undefined && (
+                  <Button variant="ghost" onClick={() => translateTurn(i, t.text)}>訳</Button>
+                )}
+                {translations[i] === "loading" && <p className="text-sm text-muted">訳しています…</p>}
+                {typeof translations[i] === "string" && translations[i] !== "loading" && (
+                  <p className="sentence-explain text-sm">{translations[i]}</p>
+                )}
+              </div>
+            )}
           </div>
         ))}
       </section>
