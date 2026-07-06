@@ -22,6 +22,8 @@ export type CoachRoutesDeps = {
   translate: (text: string) => Promise<{ text: string }>;
   /** 訳のハッシュキャッシュ（実体は db.ts の utterance_translations、テストはフェイク） */
   translationCache: TalkExplainCache;
+  /** 言い方ヒント（会話コンテキスト付き・実体は coach.ts、テストはフェイク） */
+  phraseHint: (args: { jaText: string; history?: Array<{ role: "you" | "ai"; text: string }> }) => Promise<{ suggestions: Array<{ en: string; ja: string }> }>;
   /** 詰まった表現の収集チャンク（実体は chunks.ts、テストはフェイク） */
   chunkStore: ChunkStore;
 };
@@ -98,6 +100,23 @@ async function respondHashCached(
   return json({ text: generated.text });
 }
 
+async function handlePhraseHint(req: Request, deps: CoachRoutesDeps): Promise<Response> {
+  const parsed = await parseJsonBody<{ jaText?: unknown; history?: unknown }>(req);
+  if (!parsed.ok) return parsed.response;
+  const { jaText, history } = parsed.body;
+  if (typeof jaText !== "string" || jaText.trim().length === 0) return json({ error: "jaText must be a non-empty string" }, 400);
+  if (jaText.length > 1000) return json({ error: "jaText too long" }, 400);
+  // 履歴は任意。role/text が揃った要素だけ残し、直近6件までに絞ってプロンプト肥大を防ぐ
+  const safeHistory = Array.isArray(history)
+    ? history
+        .filter((h): h is { role: "you" | "ai"; text: string } =>
+          !!h && typeof h === "object" && (h.role === "you" || h.role === "ai") && typeof h.text === "string")
+        .slice(-6)
+    : undefined;
+  const result = await deps.phraseHint({ jaText, history: safeHistory });
+  return json(result);
+}
+
 export function makeCoachRoutes(deps: CoachRoutesDeps): RouteEntry[] {
   return [
     exact("POST", "/api/feedback/ae", (req) => handleAeFeedback(req, deps)),
@@ -108,5 +127,6 @@ export function makeCoachRoutes(deps: CoachRoutesDeps): RouteEntry[] {
       respondHashCached(req, deps.talkExplainCache, deps.explainTalk, "[coach] talk explanation cache write failed, continuing:")),
     exact("POST", "/api/coach/translate", (req) =>
       respondHashCached(req, deps.translationCache, deps.translate, "[coach] translation cache write failed, continuing:")),
+    exact("POST", "/api/coach/phrase-hint", (req) => handlePhraseHint(req, deps)),
   ];
 }
