@@ -1,0 +1,162 @@
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import type { RouteDeps } from "../../routes";
+import type { SentenceStore } from "../../sentences";
+import type { ChunkStore } from "../../chunks";
+import type { ProgressStore } from "../../progress-store";
+import type { PlacementStore } from "../../placement";
+import type { LibraryStore, TalkExplainCache } from "../../db";
+import type { AssessmentStore } from "../../assessment";
+import type { Menu, QuickKind } from "../../menu";
+
+export const FAKE_HEALTH = { ok: true, whisper: true, ffmpeg: true, claude: true, ttsKey: true, modelFile: true };
+export const FAKE_MENU = {
+  minutes: 60 as const,
+  date: "2026-07-05",
+  level: 13,
+  blocks: [{ id: "b1", kind: "reflection", title: "振り返り", minutes: 5, params: {} }],
+} satisfies Menu;
+export const FAKE_QUICK_MENU = {
+  minutes: 6,
+  date: "2026-07-05",
+  level: 13,
+  blocks: [{ id: "q1", kind: "warmup-reading", title: "音読ウォームアップ", minutes: 6, params: {} }],
+} satisfies Menu;
+export const FAKE_AE = { items: [{ quote: "q", issue: "i", better: "b", why_ja: "w" }], praise: "p" };
+export const FAKE_REFLECTION = { goodPhrases: ["g"], fixes: [], noteForTomorrow_ja: "n" };
+export const FAKE_SENTENCE = {
+  no: 1, category_no: 1, category: "現在形", domain: "daily" as const,
+  en: "I usually start work at nine.", ja: "たいてい9時に仕事を始めます。", note: "習慣の現在形",
+  srs: null,
+};
+export const FAKE_SUMMARY = {
+  level: 13, xp: 0, xpIntoLevel: 0, xpToNext: 25, stage: 2, difficultyMaxed: false, proposal: null,
+};
+
+export function makeFakeSentenceStore(overrides: Partial<SentenceStore> = {}): SentenceStore {
+  return {
+    list: () => [FAKE_SENTENCE],
+    queue: (_newCount: number) => [FAKE_SENTENCE],
+    grade: (no: number, _grade: "good" | "soso" | "bad") =>
+      no === 1 ? { no: 1, stage: 1, due: "2026-07-09" } : null,
+    getExplanation: (_no: number) => null,
+    saveExplanation: (_no: number, _text: string) => {},
+    find: (no: number) => (no === 1 ? FAKE_SENTENCE : undefined),
+    ...overrides,
+  } satisfies SentenceStore;
+}
+
+export function makeFakeChunkStore(overrides: Partial<ChunkStore> = {}): ChunkStore {
+  return {
+    collect: (_c) => 0,
+    list: () => [],
+    dueChunks: () => [],
+    grade: (id, _g) => (id === 1 ? { id: 1, stage: 1, due: "2026-07-09" } : null),
+    remove: (id) => id === 1,
+    ...overrides,
+  } satisfies ChunkStore;
+}
+
+export function makeFakeProgressStore(overrides: Partial<ProgressStore> = {}): ProgressStore {
+  return {
+    getLevel: () => 13,
+    getSummary: () => FAKE_SUMMARY,
+    addXp: (kind, amount) =>
+      kind === "block" && Number.isInteger(amount) && amount >= 1 && amount <= 60 ? FAKE_SUMMARY
+      : kind === "srs-grade" ? FAKE_SUMMARY : null,
+    blockStart: (_kind) => ({ attemptId: 7 }),
+    levelAction: (action, level) =>
+      action === "set" && Number.isInteger(level) && (level as number) >= 1
+        ? { summary: FAKE_SUMMARY, levelChanged: true } : null,
+    placementSet: (_level) => ({ summary: FAKE_SUMMARY, levelChanged: true }),
+    ...overrides,
+  } satisfies ProgressStore;
+}
+
+export function makeFakePlacementStore(overrides: Partial<PlacementStore> = {}): PlacementStore {
+  return {
+    save: (r) => ({ id: 1, ts: "2026-07-06T00:00:00.000Z", stage: r.stage, startLevel: r.startLevel, rationale: r.rationale }),
+    latest: () => null,
+    ...overrides,
+  } satisfies PlacementStore;
+}
+
+export function makeFakeLibraryStore(overrides: Partial<LibraryStore> = {}): LibraryStore {
+  return {
+    saveModelTalk: (_e) => {},
+    listModelTalks: () => [],
+    ...overrides,
+  } satisfies LibraryStore;
+}
+
+export function makeFakeAssessmentStore(overrides: Partial<AssessmentStore> = {}): AssessmentStore {
+  return {
+    save: (r) => ({ id: 1, ts: "2026-07-06T00:00:00.000Z", ymd: r.ymd, text: r.text }),
+    latest: () => null,
+    list: () => [],
+    findByMonth: () => null,
+    ...overrides,
+  } satisfies AssessmentStore;
+}
+
+export function makeFakeTalkExplainCache(overrides: Partial<TalkExplainCache> = {}): TalkExplainCache {
+  return {
+    get: (_hash) => null,
+    save: (_hash, _text, _created) => {},
+    ...overrides,
+  } satisfies TalkExplainCache;
+}
+
+/** テストごとに独立した temp dir/log を持つフェイク RouteDeps を組み立てる */
+export function makeTestDeps(overrides: Partial<RouteDeps> = {}): {
+  deps: RouteDeps;
+  logFile: string;
+  recordingsDir: string;
+} {
+  const dir = mkdtempSync(path.join(tmpdir(), "routes-"));
+  const logFile = path.join(dir, "log.jsonl");
+  const recordingsDir = path.join(dir, "recordings");
+  const deps: RouteDeps = {
+    transcribe: async (_inputPath: string) => ({ text: "fake transcript", segments: [] }),
+    synthesize: async (_text: string) => ({ audio: new Uint8Array([1, 2, 3]), mime: "audio/mpeg", engine: "say" as const }),
+    converse: async (args: { userText: string; sessionId?: string }) => ({
+      replyText: `echo: ${args.userText}`, sessionId: args.sessionId ?? "sess-fake",
+    }),
+    health: () => FAKE_HEALTH,
+    logFile: () => logFile,
+    recordingsDir,
+    buildMenu: (_minutes) => FAKE_MENU,
+    aeFeedback: async () => FAKE_AE,
+    modelTalk: async (topicId: string) => (topicId === "known-topic" ? { text: "model talk" } : null),
+    reflection: async () => FAKE_REFLECTION,
+    scenarioPrompt: (id: string) => (id === "known-scenario" ? "ROLEPLAY PROMPT" : null),
+    prepPack: async () => ({ chunks: [{ en: "The main problem was ...", ja: "一番の問題は…" }], outline: ["Opening"] }),
+    buildQuick: (_kind: QuickKind) => FAKE_QUICK_MENU,
+    practiceDays: () => ["2026-07-01", "2026-07-03"],
+    getSettings: () => ({ anchor: "" }),
+    saveSettings: (_s) => {},
+    libraryStore: makeFakeLibraryStore(),
+    sentenceStore: makeFakeSentenceStore(),
+    chunkStore: makeFakeChunkStore(),
+    progressStore: makeFakeProgressStore(),
+    invalidateMenuCache: () => {},
+    placementStore: makeFakePlacementStore(),
+    evaluatePlacement: async () => ({ stage: 2, startLevel: 13, rationaleJa: "簡単な文は安定しています。" }),
+    explainSentence: async () => ({ text: "be getting + 比較級は進行中の変化を表します。" }),
+    metricsSummary: (days: number) => ({
+      days: Array.from({ length: days }, (_, i) => ({
+        ymd: `2026-07-${String(i + 1).padStart(2, "0")}`,
+        utterances: 0, speakingSec: 0, avgArticulationWpm: 0, avgPauseRatio: 0, repetitionRatio: 0,
+      })),
+      level: { current: 13, history: [] },
+    }),
+    explainTalk: async () => ({ text: "日本語訳: テスト訳\n\n表現ポイント:\n- test — テスト" }),
+    talkExplainCache: makeFakeTalkExplainCache(),
+    assessmentStore: makeFakeAssessmentStore(),
+    assembleMonthData: () => ({ windowDays: 30 }) as ReturnType<RouteDeps["assembleMonthData"]>,
+    generateMonthlyReport: async () => "今月の振り返りテキスト",
+    ...overrides,
+  };
+  return { deps, logFile, recordingsDir };
+}
