@@ -1,0 +1,201 @@
+import { describe, expect, test } from "bun:test";
+import { openDb } from "../db";
+import { makeProgressStore } from "../progress-store";
+
+const T = "2026-07-06"; // 固定のテスト日付
+
+function freshStore() {
+  const db = openDb(":memory:");
+  return { db, store: makeProgressStore(db) };
+}
+
+describe("progress-store: 初期化とsummary", () => {
+  test("初回は DEFAULT_LEVEL=13・xp0 で初期化される", () => {
+    const { store } = freshStore();
+    const s = store.getSummary(T);
+    expect(s.level).toBe(13);
+    expect(s.xp).toBe(0);
+    expect(s.xpIntoLevel).toBe(0);
+    expect(s.xpToNext).toBe(25); // needXp(13)
+    expect(s.stage).toBe(2);
+    expect(s.difficultyMaxed).toBe(false);
+    expect(s.proposal).toBeNull();
+    expect(store.getLevel()).toBe(13);
+  });
+});
+
+describe("progress-store: addXp とステージ内自動昇格", () => {
+  test("XP到達でレベルが自動で上がる（余剰は持ち越し）", () => {
+    const { store } = freshStore();
+    const s = store.addXp("block", 30, {}, T)!; // need(13)=25 → Lv14, into=5
+    expect(s.level).toBe(14);
+    expect(s.xpIntoLevel).toBe(5);
+    expect(s.xp).toBe(30); // 累積は減らない
+  });
+  test("複数レベルの一括昇格", () => {
+    const { store } = freshStore();
+    const s = store.addXp("block", 60, {}, T)!; // 25+25=50消費 → Lv15, into=10
+    expect(s.level).toBe(15);
+    expect(s.xpIntoLevel).toBe(10);
+  });
+  test("ステージ境界では自動昇格が止まる（Lv20で停止・xpToNextは0まで下がる）", () => {
+    const { store } = freshStore();
+    store.levelAction("set", 19, T);
+    const s = store.addXp("block", 60, {}, T)!; // need(19)=25 → Lv20, into=35 ≥ need(20)=25 だが境界で停止
+    expect(s.level).toBe(20);
+    expect(s.xpIntoLevel).toBe(35);
+    expect(s.xpToNext).toBe(0);
+  });
+  test("60→61 は境界ではなく自動昇格し difficultyMaxed になる", () => {
+    const { store } = freshStore();
+    store.levelAction("set", 60, T);
+    const s = store.addXp("block", 45, {}, T)!;
+    expect(s.level).toBe(61);
+    expect(s.difficultyMaxed).toBe(true);
+  });
+  test("上限検証: block>60・srs-grade>2・placement≠10・非整数・0以下は null", () => {
+    const { store } = freshStore();
+    expect(store.addXp("block", 61, {}, T)).toBeNull();
+    expect(store.addXp("srs-grade", 3, {}, T)).toBeNull();
+    expect(store.addXp("placement", 9, {}, T)).toBeNull();
+    expect(store.addXp("block", 0, {}, T)).toBeNull();
+    expect(store.addXp("block", 1.5, {}, T)).toBeNull();
+    expect(store.addXp("bogus" as never, 1, {}, T)).toBeNull();
+  });
+});
+
+describe("progress-store: ブロック試行と完了率", () => {
+  test("blockStart→addXp(attemptId) で completed になる", () => {
+    const { db, store } = freshStore();
+    const { attemptId } = store.blockStart("warmup-reading", T);
+    store.addXp("block", 6, { attemptId }, T);
+    const row = db.query<{ completed: number }, [number]>(
+      "SELECT completed FROM block_attempts WHERE id = ?").get(attemptId)!;
+    expect(row.completed).toBe(1);
+  });
+});
+
+/** シグナル素材を直接仕込むヘルパ */
+function seedAttempt(db: ReturnType<typeof openDb>, ymd: string, kind: string, completed: 0 | 1) {
+  db.run("INSERT INTO block_attempts (ts, ymd, kind, completed) VALUES (?, ?, ?, ?)",
+    [`${ymd}T09:00:00`, ymd, kind, completed]);
+}
+function seedBlockXpDay(db: ReturnType<typeof openDb>, ymd: string) {
+  db.run("INSERT INTO xp_events (ts, ymd, kind, amount, meta) VALUES (?, ?, 'block', 6, NULL)",
+    [`${ymd}T09:00:00`, ymd]);
+}
+
+describe("progress-store: 昇格提案（3条件すべて）", () => {
+  function boundaryReady() {
+    const { db, store } = freshStore();
+    store.levelAction("set", 20, T);
+    // set は into=0 にするので、境界XP到達まで直接加算（need(20)=25）
+    store.addXp("block", 25, {}, T);
+    return { db, store };
+  }
+  test("XP到達だけでは提案しない（練習日・完了率不足）", () => {
+    const { store } = boundaryReady();
+    expect(store.getSummary(T).proposal).toBeNull();
+  });
+  test("3条件成立で up 提案（根拠に実値）", () => {
+    const { db, store } = boundaryReady();
+    for (const d of ["2026-06-30", "2026-07-01", "2026-07-02", "2026-07-03", "2026-07-05"]) seedBlockXpDay(db, d);
+    for (let i = 0; i < 8; i++) seedAttempt(db, "2026-07-05", "warmup-reading", 1);
+    seedAttempt(db, "2026-07-05", "warmup-reading", 0);
+    const p = store.getSummary(T).proposal!;
+    expect(p.kind).toBe("up");
+    expect(p.toLevel).toBe(21);
+    expect(p.rationale).toMatchObject({ xpReached: true, practicedDays14: 6 }); // seed5日+addXpの当日
+    expect((p.rationale as { completionRate: number }).completionRate).toBeGreaterThanOrEqual(0.7);
+  });
+  test("却下から7日間は再提案しない・8日目に再提案", () => {
+    const { db, store } = boundaryReady();
+    for (const d of ["2026-06-30", "2026-07-01", "2026-07-02", "2026-07-03", "2026-07-05"]) seedBlockXpDay(db, d);
+    for (let i = 0; i < 10; i++) seedAttempt(db, "2026-07-05", "warmup-reading", 1);
+    expect(store.getSummary(T).proposal?.kind).toBe("up");
+    store.levelAction("decline", undefined, T);
+    expect(store.getSummary(T).proposal).toBeNull();
+    expect(store.getSummary("2026-07-12").proposal).toBeNull();  // 6日後
+    // 8日目: 14日窓に入る練習日を追加で確保
+    for (const d of ["2026-07-08", "2026-07-10", "2026-07-11", "2026-07-12", "2026-07-13"]) seedBlockXpDay(db, d);
+    expect(store.getSummary("2026-07-14").proposal?.kind).toBe("up");
+  });
+  test("承認で境界を越え、余剰XPで自動昇格も走る", () => {
+    const { db, store } = boundaryReady();
+    for (const d of ["2026-06-30", "2026-07-01", "2026-07-02", "2026-07-03", "2026-07-05"]) seedBlockXpDay(db, d);
+    for (let i = 0; i < 10; i++) seedAttempt(db, "2026-07-05", "warmup-reading", 1);
+    store.addXp("block", 30, {}, T); // into=55（境界で停止中）
+    const s = store.levelAction("accept", undefined, T)!;
+    expect(s.level).toBe(22); // 21へ昇格後、余剰30 ≥ need(21)=30 → 22
+    expect(s.xpIntoLevel).toBe(0);
+  });
+});
+
+describe("progress-store: 降格提案", () => {
+  test("直近7日の完了率<40%（試行5件以上）で down 提案", () => {
+    const { db, store } = freshStore();
+    store.levelAction("set", 23, T);
+    for (let i = 0; i < 5; i++) seedAttempt(db, "2026-07-04", "roleplay", i === 0 ? 1 : 0); // 1/5=20%
+    const p = store.getSummary(T).proposal!;
+    expect(p.kind).toBe("down");
+    expect(p.toLevel).toBe(20);
+  });
+  test("試行4件以下なら完了率条件では提案しない", () => {
+    const { db, store } = freshStore();
+    store.levelAction("set", 23, T);
+    for (let i = 0; i < 4; i++) seedAttempt(db, "2026-07-04", "roleplay", 0);
+    expect(store.getSummary(T).proposal).toBeNull();
+  });
+  test("直近5回の4/3/2中断が3回以上で down 提案", () => {
+    const { db, store } = freshStore();
+    store.levelAction("set", 23, T);
+    // 完了率条件を踏まないよう7日窓の外に置く
+    for (const c of [0, 0, 0, 1, 1] as const) seedAttempt(db, "2026-06-20", "four-three-two", c);
+    const p = store.getSummary(T).proposal!;
+    expect(p.kind).toBe("down");
+    expect((p.rationale as { fttAborts: number }).fttAborts).toBe(3);
+  });
+  test("stage1 では降格提案しない", () => {
+    const { db, store } = freshStore();
+    store.levelAction("set", 5, T);
+    for (let i = 0; i < 6; i++) seedAttempt(db, "2026-07-04", "roleplay", 0);
+    expect(store.getSummary(T).proposal).toBeNull();
+  });
+  test("承認で現ステージ最下端の1つ下へ・XPは減らない", () => {
+    const { db, store } = freshStore();
+    store.levelAction("set", 23, T);
+    store.addXp("block", 10, {}, T);
+    for (let i = 0; i < 5; i++) seedAttempt(db, "2026-07-04", "roleplay", 0);
+    const s = store.levelAction("accept", undefined, T)!;
+    expect(s.level).toBe(20);
+    expect(s.xp).toBe(10); // 累積XPは不変
+    expect(s.xpIntoLevel).toBe(0);
+  });
+  test("降格条件と昇格条件が同時成立したら降格を優先", () => {
+    const { db, store } = freshStore();
+    store.levelAction("set", 20, T);
+    store.addXp("block", 25, {}, T);
+    for (const d of ["2026-06-25", "2026-06-26", "2026-06-27", "2026-06-28", "2026-06-29"]) seedBlockXpDay(db, d);
+    // 20ブロック窓は高完了率、7日窓は低完了率
+    for (let i = 0; i < 15; i++) seedAttempt(db, "2026-06-25", "warmup-reading", 1);
+    for (let i = 0; i < 5; i++) seedAttempt(db, "2026-07-04", "roleplay", 0);
+    expect(store.getSummary(T).proposal?.kind).toBe("down");
+  });
+});
+
+describe("progress-store: levelAction", () => {
+  test("set はレベルを変更し xpIntoLevel を0にする（1未満・非整数は null）", () => {
+    const { store } = freshStore();
+    const s = store.levelAction("set", 40, T)!;
+    expect(s.level).toBe(40);
+    expect(s.xpIntoLevel).toBe(0);
+    expect(store.levelAction("set", 0, T)).toBeNull();
+    expect(store.levelAction("set", 2.5, T)).toBeNull();
+    expect(store.levelAction("set", undefined, T)).toBeNull();
+  });
+  test("提案がないときの accept / decline は null", () => {
+    const { store } = freshStore();
+    expect(store.levelAction("accept", undefined, T)).toBeNull();
+    expect(store.levelAction("decline", undefined, T)).toBeNull();
+  });
+});

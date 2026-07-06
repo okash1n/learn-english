@@ -11,6 +11,7 @@ import type { AeFeedback, Reflection, PrepPack } from "./coach";
 import type { Settings } from "./settings";
 import type { LibraryStore } from "./db";
 import type { Grade, SentenceStore } from "./sentences";
+import type { ProgressStore, XpKind } from "./progress-store";
 
 /**
  * HTTP ハンドラが依存する副作用を注入可能にする境界。
@@ -41,6 +42,8 @@ export type RouteDeps = {
   saveSettings: (s: Settings) => void;
   /** 暗記例文300の一覧・出題キュー・自己評価（実体は sentences.ts、テストはフェイク） */
   sentenceStore: SentenceStore;
+  /** レベル/XPの進行状態（実体は progress-store.ts、テストはフェイク） */
+  progressStore: ProgressStore;
 };
 
 function json(data: unknown, status = 200): Response {
@@ -205,6 +208,50 @@ async function handleSessionEnd(req: Request, deps: RouteDeps): Promise<Response
 
 const GRADES = ["good", "soso", "bad"] as const;
 
+const BLOCK_KINDS = ["chunk-placeholder", "warmup-reading", "four-three-two", "roleplay", "shadowing", "reflection"] as const;
+
+async function handleProgressXp(req: Request, deps: RouteDeps): Promise<Response> {
+  const parsed = await parseJsonBody<{ kind?: unknown; amount?: unknown; attemptId?: unknown }>(req);
+  if (!parsed.ok) return parsed.response;
+  const { kind, amount, attemptId } = parsed.body;
+  // HTTP経由で受けるのは block のみ（srs-grade はサーバ内部、placement は Phase C のサーバ内部付与）
+  if (kind !== "block") return json({ error: "kind must be \"block\"" }, 400);
+  if (typeof amount !== "number") return json({ error: "amount must be a number" }, 400);
+  if (attemptId !== undefined && !Number.isInteger(attemptId)) {
+    return json({ error: "attemptId must be an integer" }, 400);
+  }
+  const s = deps.progressStore.addXp(kind as XpKind, amount, attemptId !== undefined ? { attemptId } : {});
+  if (!s) return json({ error: "invalid amount for kind" }, 400);
+  return json(s);
+}
+
+async function handleProgressBlockStart(req: Request, deps: RouteDeps): Promise<Response> {
+  const parsed = await parseJsonBody<{ kind?: unknown }>(req);
+  if (!parsed.ok) return parsed.response;
+  const kind = parsed.body.kind;
+  if (typeof kind !== "string" || !(BLOCK_KINDS as readonly string[]).includes(kind)) {
+    return json({ error: `kind must be one of: ${BLOCK_KINDS.join(", ")}` }, 400);
+  }
+  return json(deps.progressStore.blockStart(kind));
+}
+
+const LEVEL_ACTIONS = ["accept", "decline", "set"] as const;
+
+async function handleProgressLevel(req: Request, deps: RouteDeps): Promise<Response> {
+  const parsed = await parseJsonBody<{ action?: unknown; level?: unknown }>(req);
+  if (!parsed.ok) return parsed.response;
+  const { action, level } = parsed.body;
+  if (!(LEVEL_ACTIONS as readonly string[]).includes(action as string)) {
+    return json({ error: `action must be one of: ${LEVEL_ACTIONS.join(", ")}` }, 400);
+  }
+  if (level !== undefined && typeof level !== "number") return json({ error: "level must be a number" }, 400);
+  const s = deps.progressStore.levelAction(action as "accept" | "decline" | "set", level as number | undefined);
+  if (!s) {
+    return json({ error: action === "set" ? "level must be an integer between 1 and 999" : "no active proposal" }, 400);
+  }
+  return json(s);
+}
+
 function handleSentenceQueue(url: URL, deps: RouteDeps): Response {
   const raw = url.searchParams.get("new") ?? "10";
   const n = Number(raw);
@@ -224,6 +271,12 @@ async function handleSentenceGrade(req: Request, deps: RouteDeps): Promise<Respo
   }
   const r = deps.sentenceStore.grade(no, grade as Grade);
   if (!r) return json({ error: `unknown sentence no: ${no}` }, 400);
+  // 自己評価1枚ごとの努力XP（good=2 / soso=1 / bad=1）。付与失敗で採点自体は失敗させない
+  try {
+    deps.progressStore.addXp("srs-grade", grade === "good" ? 2 : 1, { no });
+  } catch (err) {
+    console.warn("[progress] srs-grade xp failed, continuing:", String(err));
+  }
   return json(r);
 }
 
@@ -241,6 +294,10 @@ export function makeFetchHandler(deps: RouteDeps): (req: Request) => Promise<Res
       if (req.method === "GET" && url.pathname === "/api/menu/today") return handleMenuToday(url, deps);
       if (req.method === "GET" && url.pathname === "/api/menu/quick") return handleMenuQuick(url, deps);
       if (req.method === "GET" && url.pathname === "/api/progress/days") return json({ days: deps.practiceDays() });
+      if (req.method === "GET" && url.pathname === "/api/progress/summary") return json(deps.progressStore.getSummary());
+      if (req.method === "POST" && url.pathname === "/api/progress/xp") return await handleProgressXp(req, deps);
+      if (req.method === "POST" && url.pathname === "/api/progress/block-start") return await handleProgressBlockStart(req, deps);
+      if (req.method === "POST" && url.pathname === "/api/progress/level") return await handleProgressLevel(req, deps);
       if (req.method === "GET" && url.pathname === "/api/library/model-talks")
         return json({ entries: deps.libraryStore.listModelTalks() });
       if (req.method === "GET" && url.pathname === "/api/settings") return json(deps.getSettings());

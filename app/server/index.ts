@@ -10,6 +10,7 @@ import { readSettings, writeSettings } from "./settings";
 import { makeFetchHandler, type RouteDeps } from "./routes";
 import { makeLibraryStore, openDb } from "./db";
 import { loadSentences, makeSentenceStore } from "./sentences";
+import { makeProgressStore } from "./progress-store";
 
 ensureDirs();
 const PORT = 3111;
@@ -18,6 +19,7 @@ const HOSTNAME = "127.0.0.1";
 const db = openDb();
 const libraryStore = makeLibraryStore(db);
 const sentenceStore = makeSentenceStore(db, loadSentences());
+const progressStore = makeProgressStore(db);
 
 const realDeps: RouteDeps = {
   transcribe: transcribeAudio,
@@ -50,6 +52,7 @@ const realDeps: RouteDeps = {
   getSettings: () => readSettings(),
   saveSettings: (s) => writeSettings(s),
   sentenceStore,
+  progressStore,
 };
 
 Bun.serve({

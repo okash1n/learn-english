@@ -38,6 +38,27 @@ export function openDb(dbPath: string = DEFAULT_DB_PATH): Database {
     last_grade TEXT,
     reviews INTEGER NOT NULL DEFAULT 0
   )`);
+  db.run(`CREATE TABLE IF NOT EXISTS user_progress (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    level INTEGER NOT NULL,
+    xp INTEGER NOT NULL,
+    xp_into_level INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL
+  )`);
+  db.run(`CREATE TABLE IF NOT EXISTS xp_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts TEXT NOT NULL, ymd TEXT NOT NULL, kind TEXT NOT NULL, amount INTEGER NOT NULL, meta TEXT
+  )`);
+  db.run(`CREATE TABLE IF NOT EXISTS level_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts TEXT NOT NULL, ymd TEXT NOT NULL, kind TEXT NOT NULL,
+    from_level INTEGER NOT NULL, to_level INTEGER NOT NULL, rationale TEXT
+  )`);
+  db.run(`CREATE TABLE IF NOT EXISTS block_attempts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts TEXT NOT NULL, ymd TEXT NOT NULL, kind TEXT NOT NULL,
+    completed INTEGER NOT NULL DEFAULT 0
+  )`);
   return db;
 }
 
