@@ -10,6 +10,7 @@ import { readSettings, writeSettings } from "./settings";
 import { makeFetchHandler, type RouteDeps } from "./routes";
 import { makeLibraryStore, openDb } from "./db";
 import { loadSentences, makeSentenceStore } from "./sentences";
+import { makeChunkStore } from "./chunks";
 import { makeProgressStore } from "./progress-store";
 import { prepParams, stageOf } from "./progression";
 import { evaluatePlacement, makePlacementStore } from "./placement";
@@ -20,7 +21,9 @@ const HOSTNAME = "127.0.0.1";
 
 const db = openDb();
 const libraryStore = makeLibraryStore(db);
-const sentenceStore = makeSentenceStore(db, loadSentences());
+const sentences = loadSentences();
+const sentenceStore = makeSentenceStore(db, sentences);
+const chunkStore = makeChunkStore(db, sentences.map((s) => s.en));
 const progressStore = makeProgressStore(db);
 const placementStore = makePlacementStore(db);
 
@@ -56,6 +59,7 @@ const realDeps: RouteDeps = {
   getSettings: () => readSettings(),
   saveSettings: (s) => writeSettings(s),
   sentenceStore,
+  chunkStore,
   progressStore,
   invalidateMenuCache: () => invalidateTodayMenuCache(),
   placementStore,

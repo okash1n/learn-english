@@ -13,6 +13,7 @@ import type { LibraryStore } from "./db";
 import type { Grade, SentenceStore } from "./sentences";
 import type { ProgressStore, XpKind } from "./progress-store";
 import { PLACEMENT_TASKS, type PlacementEvaluation, type PlacementStore, type PlacementSubmission } from "./placement";
+import type { Chunk, ChunkStore, CollectCandidate } from "./chunks";
 
 /**
  * HTTP ハンドラが依存する副作用を注入可能にする境界。
@@ -51,6 +52,8 @@ export type RouteDeps = {
   placementStore: PlacementStore;
   /** 3タスクの評価。LLM出力が不正なら null（ルートは502で再試行を促す） */
   evaluatePlacement: (subs: PlacementSubmission[]) => Promise<PlacementEvaluation | null>;
+  /** 詰まった表現の収集チャンク（実体は chunks.ts、テストはフェイク） */
+  chunkStore: ChunkStore;
   /** 例文の詳しい解説を生成（キャッシュは sentenceStore 側。実体は coach.ts、テストはフェイク） */
   explainSentence: (s: { en: string; ja: string; note: string }) => Promise<{ text: string }>;
 };
@@ -138,7 +141,29 @@ async function handleAeFeedback(req: Request, deps: RouteDeps): Promise<Response
   if (!parsed.ok) return parsed.response;
   const { transcript, topicTitle } = parsed.body;
   if (!transcript?.trim()) return json({ error: "transcript is required" }, 400);
-  return json(await deps.aeFeedback({ transcript, topicTitle: topicTitle ?? "" }));
+  const fb = await deps.aeFeedback({ transcript, topicTitle: topicTitle ?? "" });
+  const cands: CollectCandidate[] = fb.items
+    .filter((i) => i.quote?.trim() && i.better?.trim())
+    .map((i) => ({ source: "ae" as const, promptText: i.quote, en: i.better, note: i.why_ja?.trim() || i.issue || "" }));
+  return json({ ...fb, collectedChunks: collectBestEffort(deps, cands) });
+}
+
+/** 収集はベストエフォート — 失敗しても親レスポンスを失敗させない（XP付与と同じ方針） */
+function collectBestEffort(deps: RouteDeps, cands: CollectCandidate[]): number {
+  try {
+    return deps.chunkStore.collect(cands);
+  } catch (err) {
+    console.warn("[chunks] collect failed, continuing:", String(err));
+    return 0;
+  }
+}
+
+async function handleReflection(deps: RouteDeps): Promise<Response> {
+  const refl = await deps.reflection();
+  const cands: CollectCandidate[] = refl.fixes
+    .filter((f) => f.original?.trim() && f.better?.trim())
+    .map((f) => ({ source: "reflection" as const, promptText: f.original, en: f.better, note: "" }));
+  return json({ ...refl, collectedChunks: collectBestEffort(deps, cands) });
 }
 
 async function handleModelTalk(req: Request, deps: RouteDeps): Promise<Response> {
@@ -336,7 +361,17 @@ function handleSentenceQueue(url: URL, deps: RouteDeps): Response {
   if (!Number.isInteger(n) || n < 0 || n > 50) {
     return json({ error: "new must be an integer between 0 and 50" }, 400);
   }
-  return json({ queue: deps.sentenceStore.queue(n) });
+  const sentences = deps.sentenceStore.queue(n).map((s) => ({ kind: "sentence" as const, ...s }));
+  // 期限到来チャンクは復習例文より先頭。読み取り失敗時は例文キューだけで継続
+  let chunks: Array<{ kind: "chunk" } & Omit<Chunk, "created" | "source">> = [];
+  try {
+    chunks = deps.chunkStore.dueChunks().map((c) => ({
+      kind: "chunk" as const, id: c.id, promptText: c.promptText, en: c.en, note: c.note, srs: c.srs,
+    }));
+  } catch (err) {
+    console.warn("[chunks] dueChunks failed, continuing with sentences only:", String(err));
+  }
+  return json({ queue: [...chunks, ...sentences] });
 }
 
 async function handleSentenceGrade(req: Request, deps: RouteDeps): Promise<Response> {
@@ -356,6 +391,32 @@ async function handleSentenceGrade(req: Request, deps: RouteDeps): Promise<Respo
     console.warn("[progress] srs-grade xp failed, continuing:", String(err));
   }
   return json(r);
+}
+
+async function handleChunkGrade(req: Request, deps: RouteDeps): Promise<Response> {
+  const parsed = await parseJsonBody<{ id?: unknown; grade?: unknown }>(req);
+  if (!parsed.ok) return parsed.response;
+  const { id, grade } = parsed.body;
+  if (typeof id !== "number" || !Number.isInteger(id)) return json({ error: "id must be an integer" }, 400);
+  if (!(GRADES as readonly string[]).includes(grade as string)) {
+    return json({ error: `grade must be one of: ${GRADES.join(", ")}` }, 400);
+  }
+  const r = deps.chunkStore.grade(id, grade as Grade);
+  if (!r) return json({ error: `unknown chunk id: ${id}` }, 400);
+  // 例文と同じ努力XP（good=2 / soso=1 / bad=1）。付与失敗で採点は失敗させない
+  try {
+    deps.progressStore.addXp("srs-grade", grade === "good" ? 2 : 1, { chunkId: id });
+  } catch (err) {
+    console.warn("[progress] srs-grade xp (chunk) failed, continuing:", String(err));
+  }
+  return json(r);
+}
+
+function handleChunkDelete(url: URL, deps: RouteDeps): Response {
+  const seg = url.pathname.slice("/api/chunks/".length);
+  const id = Number(seg);
+  if (!/^\d+$/.test(seg) || !Number.isInteger(id)) return json({ error: "id must be a positive integer" }, 400);
+  return deps.chunkStore.remove(id) ? json({ ok: true }) : json({ error: `unknown chunk id: ${id}` }, 404);
 }
 
 async function handleSentenceExplain(req: Request, deps: RouteDeps): Promise<Response> {
@@ -406,11 +467,14 @@ export function makeFetchHandler(deps: RouteDeps): (req: Request) => Promise<Res
       if (req.method === "POST" && url.pathname === "/api/feedback/ae") return await handleAeFeedback(req, deps);
       if (req.method === "POST" && url.pathname === "/api/coach/model-talk") return await handleModelTalk(req, deps);
       if (req.method === "POST" && url.pathname === "/api/coach/prep") return await handlePrep(req, deps);
-      if (req.method === "POST" && url.pathname === "/api/coach/reflection") return json(await deps.reflection());
+      if (req.method === "POST" && url.pathname === "/api/coach/reflection") return await handleReflection(deps);
       if (req.method === "POST" && url.pathname === "/api/session/event") return await handleSessionEvent(req, deps);
       if (req.method === "GET" && url.pathname === "/api/sentences") return json({ sentences: deps.sentenceStore.list() });
       if (req.method === "GET" && url.pathname === "/api/sentences/queue") return handleSentenceQueue(url, deps);
       if (req.method === "POST" && url.pathname === "/api/sentences/grade") return await handleSentenceGrade(req, deps);
+      if (req.method === "GET" && url.pathname === "/api/chunks") return json({ chunks: deps.chunkStore.list() });
+      if (req.method === "POST" && url.pathname === "/api/chunks/grade") return await handleChunkGrade(req, deps);
+      if (req.method === "DELETE" && url.pathname.startsWith("/api/chunks/")) return handleChunkDelete(url, deps);
       if (req.method === "POST" && url.pathname === "/api/sentences/explain") return await handleSentenceExplain(req, deps);
       return json({ error: "not found" }, 404);
     } catch (err) {
