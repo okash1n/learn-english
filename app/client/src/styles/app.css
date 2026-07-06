@@ -287,6 +287,19 @@ ul, ol { margin: 0 0 var(--sp-3); padding-left: var(--sp-5); }
   background: var(--accent-soft); border-radius: var(--radius-sm);
   padding: var(--sp-3) var(--sp-4); margin-top: var(--sp-2);
 }
+
+/* 月次レビュー */
+.report-text { white-space: pre-wrap; line-height: 1.7; margin: var(--sp-2) 0 var(--sp-3); }
+.mr-past { margin-top: var(--sp-3); border-top: 1px solid var(--border); padding-top: var(--sp-3); }
+.mr-past-list { list-style: none; padding: 0; margin: 0; }
+.mr-past-list li + li { margin-top: var(--sp-1); }
+.mr-past-item {
+  font: inherit; font-size: var(--fs-sm); color: var(--text);
+  background: none; border: none; padding: 2px 0; cursor: pointer; text-align: left; width: 100%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.mr-past-item:hover { color: var(--accent); }
+
 .sentences-toolbar { align-items: center; }
 .hide-note-toggle { display: inline-flex; align-items: center; gap: var(--sp-1); margin-left: auto; cursor: pointer; user-select: none; }
 .hide-note-toggle input { accent-color: var(--accent); }

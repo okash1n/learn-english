@@ -42,6 +42,11 @@ type Strings = {
     levelHistory: string; currentLevel: (n: number) => string;
     empty: string;
     loading: string; retry: string;
+    monthlyReview: string;
+    mrGenerate: string; mrGenerating: string;
+    mrEmpty: string; mrError: string;
+    mrPast: string;
+    mrDate: (ymd: string) => string;
   };
   placement: {
     cardTitleNew: string; cardBodyNew: string;
@@ -136,6 +141,13 @@ export const STR: Record<Lang, Strings> = {
       levelHistory: "Level history", currentLevel: (n) => `Now Lv ${n}`,
       empty: "Start speaking and your metrics will show up here.",
       loading: "Loading…", retry: "Retry",
+      monthlyReview: "Monthly review",
+      mrGenerate: "Write this month's review",
+      mrGenerating: "Writing your review…",
+      mrEmpty: "Once a month, a short written review of your speaking practice appears here.",
+      mrError: "Couldn't generate the review. Please try again.",
+      mrPast: "Past reviews",
+      mrDate: (ymd) => `Generated on ${ymd}`,
     },
     placement: {
       cardTitleNew: "Find your level (10 min)",
@@ -236,6 +248,13 @@ export const STR: Record<Lang, Strings> = {
       levelHistory: "レベル履歴", currentLevel: (n) => `現在 Lv ${n}`,
       empty: "話すと、ここに記録が貯まりはじめます。",
       loading: "読み込み中…", retry: "再試行",
+      monthlyReview: "月次レビュー",
+      mrGenerate: "今月のレビューを書いてもらう",
+      mrGenerating: "レビューを書いています…",
+      mrEmpty: "月に一度、スピーキング練習の振り返りレポートがここに表示されます。",
+      mrError: "レビューを生成できませんでした。もう一度お試しください。",
+      mrPast: "過去のレビュー",
+      mrDate: (ymd) => `${ymd} 生成`,
     },
     placement: {
       cardTitleNew: "レベル測定（10分）",

@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { fetchMetricsSummary, type MetricsSummary } from "../api";
+import {
+  fetchLatestMonthlyReport, fetchMetricsSummary, fetchMonthlyReportList, requestMonthlyReport,
+  type MetricsSummary, type MonthlyReport, type MonthlyReportPreview,
+} from "../api";
 import { STR, type Lang } from "../i18n";
 import { Banner } from "../ui/Banner";
 import { Button } from "../ui/Button";
@@ -65,6 +68,7 @@ export function ProgressScreen({ lang }: { lang: Lang }) {
       <div className="stack">
         <h2 className="screen-title">{t.title}</h2>
         <Card><p className="text-muted">{t.empty}</p></Card>
+        <MonthlyReview lang={lang} />
       </div>
     );
   }
@@ -135,6 +139,96 @@ export function ProgressScreen({ lang }: { lang: Lang }) {
           </ul>
         )}
       </Card>
+
+      <MonthlyReview lang={lang} />
     </div>
+  );
+}
+
+/** 月次レビュー: 最新の全文 + 生成導線 + 過去一覧。自己完結（メトリクス取得の失敗と独立） */
+function MonthlyReview({ lang }: { lang: Lang }) {
+  const t = STR[lang].progress;
+  const [report, setReport] = useState<MonthlyReport | null>(null);
+  const [past, setPast] = useState<MonthlyReportPreview[]>([]);
+  const [generating, setGenerating] = useState(false);
+  const [error, setError] = useState(false);
+  const [expandedId, setExpandedId] = useState<number | null>(null);
+  const aliveRef = useRef(true);
+  const fetchedRef = useRef(false);
+
+  useEffect(() => {
+    aliveRef.current = true;
+    if (!fetchedRef.current) {
+      fetchedRef.current = true;
+      load();
+    }
+    return () => { aliveRef.current = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function load() {
+    try {
+      const [latest, list] = await Promise.all([fetchLatestMonthlyReport(), fetchMonthlyReportList()]);
+      if (!aliveRef.current) return;
+      setReport(latest);
+      setPast(list.filter((r) => r.id !== latest?.id));
+    } catch (err) {
+      console.warn("monthly review load failed:", err);
+    }
+  }
+
+  async function generate() {
+    setGenerating(true);
+    setError(false);
+    try {
+      const { report: r } = await requestMonthlyReport();
+      if (!aliveRef.current) return;
+      setReport(r);
+      // 一覧は次回表示時に更新されれば十分だが、その場で整合させる
+      setPast((p) => p.filter((x) => x.id !== r.id));
+    } catch (err) {
+      console.warn("monthly review generate failed:", err);
+      if (aliveRef.current) setError(true);
+    } finally {
+      if (aliveRef.current) setGenerating(false);
+    }
+  }
+
+  const THIRTY_DAYS_MS = 30 * 86400000;
+  const canGenerate = !report || Date.now() - Date.parse(report.ts) >= THIRTY_DAYS_MS;
+
+  return (
+    <Card>
+      <div className="card-header"><h3>{t.monthlyReview}</h3></div>
+      {report ? (
+        <>
+          <p className="text-sm text-muted">{t.mrDate(report.ymd)}</p>
+          <p className="report-text">{report.text}</p>
+        </>
+      ) : (
+        <p className="text-muted">{t.mrEmpty}</p>
+      )}
+      {canGenerate && (
+        <Button variant="secondary" onClick={generate} loading={generating} disabled={generating}>
+          {generating ? t.mrGenerating : t.mrGenerate}
+        </Button>
+      )}
+      {error && <Banner kind="error">{t.mrError}</Banner>}
+      {past.length > 0 && (
+        <div className="mr-past">
+          <p className="text-sm text-muted">{t.mrPast}</p>
+          <ul className="mr-past-list">
+            {past.map((r) => (
+              <li key={r.id}>
+                <button className="mr-past-item" onClick={() => setExpandedId(expandedId === r.id ? null : r.id)}>
+                  <span className="text-muted">{r.ymd}</span> {expandedId === r.id ? "" : `${r.preview}…`}
+                </button>
+                {expandedId === r.id && <p className="report-text">{r.text}</p>}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </Card>
   );
 }
