@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { fetchPracticeDays, getHealth, sessionEnd, sessionEndKeepalive, sessionStart, type Health } from "./api";
+import { loadLang, saveLang, STR, type Lang } from "./i18n";
 import { FreeTalkScreen } from "./screens/FreeTalkScreen";
 import { LibraryScreen } from "./screens/LibraryScreen";
 import { SentencesScreen } from "./screens/SentencesScreen";
@@ -14,6 +15,12 @@ export function App() {
   const [health, setHealth] = useState<Health | null>(null);
   const [serverDown, setServerDown] = useState(false);
   const [mode, setMode] = useState<Mode>({ kind: "start" });
+  const [lang, setLang] = useState<Lang>(() => loadLang());
+  const t = STR[lang];
+  function switchLang(next: Lang) {
+    setLang(next);
+    saveLang(next);
+  }
   // このタブのセッションを識別するUUID。ライフサイクル/ブロック/ラウンドイベントは
   // モードに関わらずすべてこのIDで記録する（converse() が返す会話用sessionIdとは別概念。そちらは変更しない）
   const [sessionId] = useState(() => crypto.randomUUID());
@@ -44,10 +51,10 @@ export function App() {
   }
 
   const navItems: Array<{ key: string; icon: string; label: string; active: boolean; go: () => void }> = [
-    { key: "home", icon: "🏠", label: "Home", active: mode.kind === "start", go: () => setMode({ kind: "start" }) },
-    { key: "free", icon: "💬", label: "Free Talk", active: mode.kind === "free", go: () => setMode({ kind: "free" }) },
-    { key: "library", icon: "📚", label: "Library", active: mode.kind === "library", go: () => setMode({ kind: "library" }) },
-    { key: "sentences", icon: "📖", label: "300 Sentences", active: mode.kind === "sentences", go: () => setMode({ kind: "sentences" }) },
+    { key: "home", icon: "🏠", label: t.nav.home, active: mode.kind === "start", go: () => setMode({ kind: "start" }) },
+    { key: "free", icon: "💬", label: t.nav.free, active: mode.kind === "free", go: () => setMode({ kind: "free" }) },
+    { key: "library", icon: "📚", label: t.nav.library, active: mode.kind === "library", go: () => setMode({ kind: "library" }) },
+    { key: "sentences", icon: "📖", label: t.nav.sentences, active: mode.kind === "sentences", go: () => setMode({ kind: "sentences" }) },
   ];
 
   return (
@@ -66,7 +73,11 @@ export function App() {
           <Button variant="secondary" onClick={() => setMode({ kind: "start" })}>← メニューに戻る</Button>
         )}
         <div className="sidebar-spacer" />
-        <PracticeStat />
+        <div className="lang-toggle" role="group" aria-label="Language">
+          <button className={lang === "en" ? "is-active" : ""} onClick={() => switchLang("en")}>EN</button>
+          <button className={lang === "ja" ? "is-active" : ""} onClick={() => switchLang("ja")}>日本語</button>
+        </div>
+        <PracticeStat lang={lang} />
       </aside>
       <main className="app">
       {serverDown && (
@@ -78,15 +89,15 @@ export function App() {
       {!serverDown && health && health.ok && !health.ttsKey && (
         <Banner kind="warn">OPENAI_API_KEY 未設定のため TTS は say フォールバックです</Banner>
       )}
-      {mode.kind === "start" && <StartScreen onSelect={onSelect} />}
+      {mode.kind === "start" && <StartScreen onSelect={onSelect} lang={lang} />}
       {mode.kind === "session" && (
         <SessionRunner source={mode.source} sessionId={sessionId} onExit={() => setMode({ kind: "start" })} />
       )}
       {mode.kind === "free" && (
         <div className="stack">
           <div className="hero">
-            <h2 className="hero-title">自由会話</h2>
-            <p className="hero-date">英語でなんでも話しかけてください — 録音ボタンで開始・停止</p>
+            <h2 className="hero-title">{t.freeTalk.title}</h2>
+            <p className="hero-date">{t.freeTalk.desc}</p>
           </div>
           <FreeTalkScreen />
         </div>
@@ -99,7 +110,7 @@ export function App() {
 }
 
 /** サイドバー下部の練習実績（情報表示のみ — 連続日数・喪失演出は置かない） */
-function PracticeStat() {
+function PracticeStat({ lang }: { lang: Lang }) {
   const [days, setDays] = useState<string[]>([]);
   const fetchedRef = useRef(false);
   useEffect(() => {
@@ -107,6 +118,7 @@ function PracticeStat() {
     fetchedRef.current = true;
     fetchPracticeDays().then(setDays).catch(() => {});
   }, []);
+  const t = STR[lang];
   const now = new Date();
   const weekAgo = new Date(now);
   weekAgo.setDate(weekAgo.getDate() - 6);
@@ -115,9 +127,9 @@ function PracticeStat() {
   const thisWeek = days.filter((d) => d >= ymd(weekAgo) && d <= ymd(now)).length;
   return (
     <div className="stat-box">
-      <div className="stat-title">Practice log</div>
-      <div className="stat-main">{thisWeek}<span className="stat-unit">days this week</span></div>
-      <div className="stat-sub">{days.length} days total</div>
+      <div className="stat-title">{t.stat.title}</div>
+      <div className="stat-main">{thisWeek}<span className="stat-unit">{t.stat.thisWeekUnit}</span></div>
+      <div className="stat-sub">{t.stat.total(days.length)}</div>
     </div>
   );
 }

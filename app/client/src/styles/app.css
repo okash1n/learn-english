@@ -178,6 +178,14 @@ ul, ol { margin: 0 0 var(--sp-3); padding-left: var(--sp-5); }
 .side-item:hover { background: var(--bg); color: var(--text); }
 .side-item.is-active { background: var(--accent-soft); color: var(--accent); font-weight: 650; }
 .sidebar-spacer { flex: 1; }
+.lang-toggle { display: flex; gap: 2px; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 2px; }
+.lang-toggle button {
+  flex: 1; font: inherit; font-size: var(--fs-sm); font-weight: 550; color: var(--text-muted);
+  background: none; border: none; border-radius: calc(var(--radius-sm) - 2px);
+  padding: var(--sp-1) var(--sp-2); cursor: pointer; transition: background var(--ease), color var(--ease);
+}
+.lang-toggle button:hover { color: var(--text); }
+.lang-toggle button.is-active { background: var(--accent-soft); color: var(--accent); font-weight: 650; }
 .stat-box { border: 1px solid var(--border); border-radius: var(--radius-md); padding: var(--sp-3) var(--sp-4); }
 .stat-title { font-size: var(--fs-sm); color: var(--text-muted); margin-bottom: var(--sp-1); }
 .stat-main { font-size: 24px; font-weight: 750; letter-spacing: -0.02em; }
