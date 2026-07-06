@@ -124,7 +124,7 @@ describe("progress-store: 昇格提案（3条件すべて）", () => {
     for (const d of ["2026-06-30", "2026-07-01", "2026-07-02", "2026-07-03", "2026-07-05"]) seedBlockXpDay(db, d);
     for (let i = 0; i < 10; i++) seedAttempt(db, "2026-07-05", "warmup-reading", 1);
     expect(store.getSummary(T).proposal?.kind).toBe("up");
-    store.levelAction("decline", undefined, T);
+    expect(store.levelAction("decline", undefined, T)!.levelChanged).toBe(false); // 却下はレベル不変=無効化不要
     expect(store.getSummary(T).proposal).toBeNull();
     expect(store.getSummary("2026-07-12").proposal).toBeNull();  // 6日後
     // 8日目: 14日窓に入る練習日を追加で確保
@@ -139,6 +139,7 @@ describe("progress-store: 昇格提案（3条件すべて）", () => {
     const s = store.levelAction("accept", undefined, T)!;
     expect(s.summary.level).toBe(22); // 21へ昇格後、余剰30 ≥ need(21)=30 → 22
     expect(s.summary.xpIntoLevel).toBe(0);
+    expect(s.levelChanged).toBe(true); // メニューキャッシュ無効化の根拠（退行するとルート側フェイクでは検出できない）
   });
   test("回帰: accept-up のカスケード時、level_events の from は受諾前レベル（「最終-1」にならない）", () => {
     const { db, store } = boundaryReady(); // level 20
@@ -200,6 +201,7 @@ describe("progress-store: 降格提案", () => {
     expect(s.summary.level).toBe(20);
     expect(s.summary.xp).toBe(10); // 累積XPは不変
     expect(s.summary.xpIntoLevel).toBe(0);
+    expect(s.levelChanged).toBe(true);
   });
   test("回帰: accept-down の level_events は from=受諾前レベル・to=降格先（from==toにならない）", () => {
     const { db, store } = freshStore();
