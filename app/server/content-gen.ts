@@ -59,6 +59,8 @@ export type NewContentCandidate = {
   domain: string;
   level: [number, number];
   hints: string[];
+  /** scenario専用の3件の英語オープナー。topicは常に未設定（既存挙動を変えない） */
+  starters?: string[];
 };
 
 /** menu.ts の parseContentFile が読める markdown に整形する（ラウンドトリップをテストで保証） */
@@ -75,6 +77,7 @@ export function contentToMarkdown(c: NewContentCandidate): string {
     "---",
     heading,
     ...c.hints.map((h) => `- ${h}`),
+    ...(c.starters ? c.starters.map((s) => `> ${s}`) : []),
     "",
   ].join("\n");
 }
@@ -300,10 +303,14 @@ export const SCENARIO_BAND_PLAN: ReadonlyArray<{ domain: (typeof DOMAINS)[number
   { domain: "it", level: [1, 3], vocabStage: 1 },
 ];
 
-/** genScenarios 用の候補検証（domain/level はプラン固定なので検査しない — id/title/titleJa/hints のみ） */
+/**
+ * genScenarios 用の候補検証（domain/level はプラン固定なので検査しない — id/title/titleJa/hints/starters のみ）。
+ * hints/starters は roleplayPrompt（coach.ts）の Setup 注入と RoleplayScreen の表示が前提とする既存シナリオ形式
+ * （hints=英語のみのナラティブ、starters=英語オープナー3件）に合わせて検査する。
+ */
 function validateScenarioCandidate(
   parsed: unknown, existingIds: Set<string>, dir: string,
-): { id: string; title: string; titleJa: string; hints: string[] } | null {
+): { id: string; title: string; titleJa: string; hints: string[]; starters: string[] } | null {
   if (typeof parsed !== "object" || parsed === null) return null;
   const c = parsed as Partial<NewContentCandidate>;
   if (typeof c.id !== "string" || !/^[a-z0-9]+(-[a-z0-9]+)*$/.test(c.id)) return null;
@@ -312,7 +319,12 @@ function validateScenarioCandidate(
   if (typeof c.titleJa !== "string" || !c.titleJa.trim() || /[\n"]/.test(c.titleJa)) return null;
   if (!Array.isArray(c.hints) || c.hints.length === 0) return null;
   if (!c.hints.every((h) => typeof h === "string" && h.trim().length > 0)) return null;
-  return { id: c.id, title: c.title.trim(), titleJa: c.titleJa.trim(), hints: c.hints.map((h) => h.trim()) };
+  if (!Array.isArray(c.starters) || c.starters.length !== 3) return null;
+  if (!c.starters.every((s) => typeof s === "string" && s.trim().length > 0 && !s.includes("\n"))) return null;
+  return {
+    id: c.id, title: c.title.trim(), titleJa: c.titleJa.trim(),
+    hints: c.hints.map((h) => h.trim()), starters: c.starters.map((s) => s.trim()),
+  };
 }
 
 /**
@@ -329,13 +341,18 @@ export async function genScenarios(deps: GenScenariosDeps): Promise<void> {
     const vocabLine = vocab ? `${vocab}\n` : "";
     const domainDesc = p.domain === "daily" ? "everyday life" : p.domain === "business" ? "the workplace" : "software/IT work";
     const system = `You create one original roleplay SCENARIO for an English speaking practice app (Japanese learner, beginner difficulty stage ${p.level[0]}-${p.level[1]} of 6).
-Domain: ${domainDesc}. A scenario sets up a roleplay: who the AI plays, who the learner is, the goal, and useful moves.
-Each hint line: English phrase — 日本語の補足. Spoken register. Keep it approachable for a near-beginner. ${ORIGINALITY}
+Domain: ${domainDesc}. A scenario sets up a roleplay that an AI coach will run with the learner by voice.
+Write exactly 3 "hints" lines, English only (no Japanese, no translations), in this order:
+1. The learner's role or task in the scene (what they are doing / who they are).
+2. Who the AI plays, starting with "The AI plays ...".
+3. The goal of the roleplay, starting with "Goal: ...".
+Also write exactly 3 "starters": short English sentences the learner could say to open the roleplay.
+Spoken register. Keep vocabulary and sentence structure approachable for a near-beginner. ${ORIGINALITY}
 ${vocabLine}Do NOT reuse these existing ids: ${[...existingIds].join(", ") || "(none)"}
 Reply with STRICT JSON only:
-{"id":"kebab-case-id","title":"English title","titleJa":"日本語タイトル","hints":["English — 日本語", ...4 items]}
+{"id":"kebab-case-id","title":"English title","titleJa":"日本語タイトル","hints":["You ...","The AI plays ...","Goal: ..."],"starters":["Opener sentence 1.","Opener sentence 2.","Opener sentence 3."]}
 Do not use any tools — reply directly with text only.`;
-    let cand: { id: string; title: string; titleJa: string; hints: string[] } | null = null;
+    let cand: { id: string; title: string; titleJa: string; hints: string[]; starters: string[] } | null = null;
     for (let attempt = 1; attempt <= 2 && !cand; attempt++) {
       let text: string | undefined;
       try {
