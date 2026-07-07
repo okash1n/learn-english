@@ -7,6 +7,7 @@ import { extractJson } from "./coach";
 import type { ClaudeRunner } from "./converse";
 import { loadContent } from "./content";
 import { loadSentences, type Sentence } from "./sentences";
+import { vocabConstraint } from "./progression";
 import { categoryBadRates, pickWorstCategories } from "./srs-analytics";
 
 const ORIGINALITY = "All output must be completely original — do not copy or adapt sentences from existing textbooks or courses.";
@@ -121,6 +122,7 @@ export type GenSentencesDeps = {
   runner: ClaudeRunner;
   sentencesFile: string;
   db: Database;
+  stage: number;
   dry: boolean;
   log?: (s: string) => void;
 };
@@ -145,6 +147,7 @@ export async function genSentences(deps: GenSentencesDeps): Promise<void> {
     const system = `You write original English example sentences for a Japanese learner (CEFR B1-B2).
 Write exactly 4 spoken-register sentences practicing the grammar category "${w.category}".
 Domains: one "daily", one "business", one "it", and one of your choice. 6-14 words each. Contractions welcome.
+${vocabConstraint(deps.stage)}
 ${ORIGINALITY}
 Avoid these existing sentences (do not duplicate or closely paraphrase):
 ${inCategory.slice(0, 12).map((s) => `- ${s.en}`).join("\n")}
@@ -218,6 +221,7 @@ ${p.kind === "topic"
   ? "A topic gives 4 talking-point hints for a monologue."
   : "A scenario sets up a roleplay: who the AI plays, who the learner is, the goal, and useful moves."}
 Each hint line: English phrase — 日本語の補足. Spoken register. ${ORIGINALITY}
+${vocabConstraint(deps.stage)}
 Do NOT reuse these existing ids: ${existing}
 Reply with STRICT JSON only:
 {"id":"kebab-case-id","title":"English title","titleJa":"日本語タイトル","domain":"daily|business|it","level":[min,max],"hints":["English — 日本語", ...4 items]}
