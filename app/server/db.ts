@@ -10,6 +10,7 @@ import { ensureAssessmentSchema } from "./assessment";
 import { ensureListeningSchema } from "./listening-store";
 import { ensureFeedbackSchema } from "./feedback-store";
 import { ensureLlmSettingsSchema } from "./llm-settings-store";
+import { ensureTtsSettingsSchema } from "./tts-settings-store";
 import { ensureLlmRoleSettingsSchema } from "./llm-role-settings-store";
 
 /** 構造化された状態・履歴の置き場（ログはJSONLのまま）。data/ はローカル専用（gitignore済み）。 */
@@ -67,6 +68,7 @@ export function openDb(dbPath: string = DEFAULT_DB_PATH): Database {
   ensureListeningSchema(db);
   ensureFeedbackSchema(db);
   ensureLlmSettingsSchema(db);
+  ensureTtsSettingsSchema(db);
   ensureLlmRoleSettingsSchema(db);
   return db;
 }

@@ -43,4 +43,12 @@ describe("db / libraryStore", () => {
       .get("llm_role_settings");
     expect(row?.name).toBe("llm_role_settings");
   });
+
+  test("openDb: tts_settings テーブルを作成する", () => {
+    const db = openDb(":memory:");
+    const row = db
+      .query<{ name: string }, [string]>("SELECT name FROM sqlite_master WHERE type='table' AND name = ?")
+      .get("tts_settings");
+    expect(row?.name).toBe("tts_settings");
+  });
 });

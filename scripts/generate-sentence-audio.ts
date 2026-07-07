@@ -7,7 +7,7 @@
  */
 import { BUNDLED_AUDIO_DIR } from "../app/server/paths";
 import { loadSentences } from "../app/server/sentences";
-import { synthesize } from "../app/server/tts";
+import { synthesize, DEFAULT_TTS_BASE_URL, DEFAULT_TTS_MODEL, DEFAULT_TTS_VOICE } from "../app/server/tts";
 
 const limitArg = process.argv.indexOf("--limit");
 const limit = limitArg >= 0 ? Number(process.argv[limitArg + 1]) : Infinity;
@@ -33,8 +33,16 @@ let doneCount = 0;
 async function generateOne(s: { no: number; en: string }): Promise<void> {
   for (let attempt = 1; attempt <= 2; attempt++) {
     try {
-      // cacheDir と bundledDir を同梱先に揃える: 既存はスキップ・新規はバンドルへ直接書き込み
-      const result = await synthesize(s.en, { cacheDir: BUNDLED_AUDIO_DIR });
+      // 同梱バンドルは常に既定（OpenAI）で生成する。TTS_* env に引きずられるとキーがずれて
+      // アプリ既定のバンドルルックアップがミスするため、baseUrl/model/voice を既定に固定し env を無視する。
+      const result = await synthesize(s.en, {
+        cacheDir: BUNDLED_AUDIO_DIR,
+        baseUrl: DEFAULT_TTS_BASE_URL,
+        model: DEFAULT_TTS_MODEL,
+        voice: DEFAULT_TTS_VOICE,
+        apiKey: Bun.env.OPENAI_API_KEY,
+        env: {},
+      });
       // Check if actually using OpenAI (not the say fallback which is not cached)
       if (result.engine === "openai") {
         return;
