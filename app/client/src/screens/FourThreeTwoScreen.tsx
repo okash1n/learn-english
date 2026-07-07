@@ -189,6 +189,8 @@ export function FourThreeTwoScreen(props: {
       if (!aliveRef.current) return;
       const text = await sttUpload(blob);
       if (!aliveRef.current) return;
+      // 同一ラウンド内で失敗後に録り直して成功した場合、直前の失敗印を引きずらないよう解除する
+      sttFailedRef.current[roundIndex] = false;
       transcriptsRef.current[roundIndex] = [transcriptsRef.current[roundIndex], text]
         .filter(Boolean)
         .join(" ");
