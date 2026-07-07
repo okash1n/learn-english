@@ -12,6 +12,7 @@ import { Banner } from "../ui/Banner";
 import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
 import { ChunkList } from "../ui/ChunkList";
+import { ExplainBox } from "../ui/ExplainBox";
 import { TimerChip } from "../ui/TimerChip";
 import { getSupport, resolveSupport, showJaFromPrep, useSupport } from "../support";
 
@@ -414,14 +415,10 @@ function AeItemView({ item, lang }: { item: { quote: string; issue: string; bett
         </div>
       )}
       <div className="ae-why">{item.why_ja}</div>
-      {item.quote && item.better && state.status === "idle" && (
-        <Button variant="ghost" onClick={request}>{t.explainMore}</Button>
-      )}
-      {state.status === "loading" && <p className="text-sm text-muted">{t.explainLoading}</p>}
-      {state.status === "error" && (
-        <p className="text-sm text-muted">{t.explainError}<Button variant="ghost" onClick={request}>{t.retry}</Button></p>
-      )}
-      {state.status === "done" && <p className="sentence-explain text-sm">{state.text}</p>}
+      <ExplainBox
+        state={state} request={request} showIdleButton={Boolean(item.quote && item.better)}
+        labels={{ more: t.explainMore, loading: t.explainLoading, error: t.explainError, retry: t.retry }}
+      />
     </li>
   );
 }
