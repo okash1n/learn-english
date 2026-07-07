@@ -201,6 +201,7 @@ export function makeTestDeps(overrides: Partial<RouteDeps> = {}): {
     saveLlmRoleSettings: (_role, _s) => {},
     applyLlmSettings: (_s) => {},
     llmEnv: () => ({ provider: "claude", apiKeyConfigured: false }),
+    warmLlm: () => {},
     ...overrides,
   };
   return { deps, logFile, recordingsDir };

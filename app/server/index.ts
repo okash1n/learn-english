@@ -22,6 +22,7 @@ import { makeListeningStore } from "./listening-store";
 import { makeFeedbackStore } from "./feedback-store";
 import { makeLlmSettingsStore } from "./llm-settings-store";
 import { makeLlmRoleSettingsStore } from "./llm-role-settings-store";
+import { conversationWarmup } from "./llm-warmup";
 import { LLM_ROLES } from "./llm-provider";
 
 ensureDirs();
@@ -114,6 +115,7 @@ const realDeps: RouteDeps = {
     provider: (Bun.env.LLM_PROVIDER ?? "claude").trim().toLowerCase() || "claude",
     apiKeyConfigured: Boolean(Bun.env.OPENAI_COMPAT_API_KEY?.trim()),
   }),
+  warmLlm: () => conversationWarmup.maybeWarm(),
 };
 
 // 起動時: DB に LLM 設定（全体 or ロール別）があれば実行中プロセスへ適用する（fail-open）。

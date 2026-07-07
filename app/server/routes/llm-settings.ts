@@ -9,6 +9,8 @@ export type LlmSettingsRoutesDeps = {
   applyLlmSettings: (s: LlmSettings) => void;
   /** env 由来の情報。値そのものは返さず、APIキーは presence(boolean) のみ。 */
   llmEnv: () => { provider: string; apiKeyConfigured: boolean };
+  /** 受信入口の fire-and-forget フック（conversation が openai-compat のときローカルモデルを温める）。llm-settings ルート自体は使わない。 */
+  warmLlm: () => void;
 };
 
 const PROVIDERS = ["env", "claude", "openai-compat", "codex"] as const;

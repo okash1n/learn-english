@@ -3,6 +3,8 @@ import {
   selectRunner, settingsToEnv, roleSettingToSettings, isInheritRole, LLM_ROLES,
   type LlmSettings, type LlmRole, type LlmRoleSetting,
 } from "./llm-provider";
+import { conversationWarmup } from "./llm-warmup";
+import { openAICompatWarmTargetFromEnv } from "./providers/openai-compat";
 import { appendEvent, markErrorLogged } from "./session-log";
 import { sessionLogPath } from "./paths";
 import { vocabConstraint } from "./progression";
@@ -142,6 +144,9 @@ export function applyLlmRoleSettings(
       isInheritRole(rs) ? globalRunner : resolveRunner(settingsToEnv(roleSettingToSettings(rs), env)),
     );
   }
+  // conversation の解決先が openai-compat のときだけ warm 対象を更新する（inherit なら global を辿る）。
+  const convSetting = isInheritRole(roles.conversation) ? global : roleSettingToSettings(roles.conversation);
+  conversationWarmup.setTarget(openAICompatWarmTargetFromEnv(settingsToEnv(convSetting, env)));
 }
 
 /**
@@ -158,6 +163,10 @@ export function applyLlmSettings(
   ) as Record<LlmRole, LlmRoleSetting>;
   applyLlmRoleSettings(settings, allInherit, env);
 }
+
+// 起動時: env 由来 provider（DB 未設定で env が openai-compat を指す構成）も warm 対象にする。
+// 以後は applyLlmRoleSettings が呼ばれるたびに最新の conversation 解決先へ更新される。
+conversationWarmup.setTarget(openAICompatWarmTargetFromEnv(Bun.env));
 
 export async function converseTurn(args: {
   userText: string;
