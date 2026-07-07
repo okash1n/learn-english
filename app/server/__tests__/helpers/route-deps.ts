@@ -156,6 +156,7 @@ export function makeTestDeps(overrides: Partial<RouteDeps> = {}): {
     translate: async () => ({ text: "テスト訳" }),
     translationCache: makeFakeTalkExplainCache(),
     phraseHint: async () => ({ suggestions: [{ en: "Could you give me a moment?", ja: "少し時間をもらう言い方" }] }),
+    fixExplain: async () => ({ text: "なぜ better の言い方が自然かの日本語解説。" }),
     assessmentStore: makeFakeAssessmentStore(),
     assembleMonthData: () => ({ windowDays: 30 }) as ReturnType<RouteDeps["assembleMonthData"]>,
     generateMonthlyReport: async () => "今月の振り返りテキスト",

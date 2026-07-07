@@ -437,6 +437,17 @@ export async function fetchPhraseHints(
   return ((await res.json()) as { suggestions: PhraseHint[] }).suggestions;
 }
 
+/** 訂正（original→better）の詳しい日本語解説（キャッシュなし・ボタン起点のオンデマンド生成） */
+export async function fetchFixExplanation(original: string, better: string, note?: string): Promise<string> {
+  const res = await fetch("/api/coach/fix-explain", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ original, better, note }),
+  });
+  if (!res.ok) throw new Error(`fix explain failed: ${await extractErrorMessage(res)}`);
+  return ((await res.json()) as { text: string }).text;
+}
+
 export type PlacementTaskDef = {
   id: string; durationSec: number; instructionEn: string; instructionJa: string; promptText: string;
 };

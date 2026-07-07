@@ -127,6 +127,26 @@ export async function generatePhraseHints(
   return { suggestions: [{ en: text.trim(), ja: "" }] };
 }
 
+const FIX_EXPLAIN_SYSTEM = `You are an English coach for a Japanese learner (CEFR A2-B1).
+The learner said something that was corrected. You receive the original wording, the corrected ("better") version, and optionally a short note about the issue.
+Explain IN JAPANESE, plain text (no markdown, no headings), within 8 lines, in this order:
+1. なぜ better の言い方の方が自然・正しいのか（核心を1〜2文で）
+2. 使い回し例: 同じ直し方が効く別の英文を1つ、日本語訳付きで
+3. 覚え方のヒントを1文
+Write English example sentences in English; everything else in Japanese. Do not scold the learner.
+Do not use any tools — reply directly with text only.`;
+
+/** 訂正（original→better）の詳しい日本語解説を生成する（プレーンテキスト・キャッシュしない・ボタン起点） */
+export async function generateFixExplanation(
+  args: { original: string; better: string; note?: string },
+  runner: ClaudeRunner = defaultRunner,
+): Promise<{ text: string }> {
+  const noteLine = args.note?.trim() ? `\nIssue: ${args.note.trim()}` : "";
+  const prompt = `Original: ${args.original}\nBetter: ${args.better}${noteLine}`;
+  const { text } = await runner(prompt, undefined, { systemPrompt: FIX_EXPLAIN_SYSTEM });
+  return { text: text.trim() };
+}
+
 const MODEL_TALK_SYSTEM = `You produce a model monologue for an English learner (CEFR B1) to shadow.
 Rules: 120-150 words, spoken register, first person, plain high-frequency vocabulary, short sentences.
 No headings, no lists — just the monologue text.

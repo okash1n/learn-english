@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
-  extractJson, generateAeFeedback, generateModelTalk, generatePhraseHints, generatePrepPack, generateReflection, generateUtteranceTranslation, roleplayPrompt,
+  extractJson, generateAeFeedback, generateFixExplanation, generateModelTalk, generatePhraseHints, generatePrepPack, generateReflection, generateUtteranceTranslation, roleplayPrompt,
   type AeFeedback, type PrepPack,
 } from "../coach";
 import type { ClaudeRunner } from "../converse";
@@ -234,6 +234,24 @@ describe("generateUtteranceTranslation", () => {
     expect(result.text).toBe("私はたいていコーヒーで一日を始めます。");
     expect(seen[0].prompt).toBe("I usually start my day with coffee.");
     expect(seen[0].systemPrompt).toContain("translate");
+  });
+});
+
+describe("generateFixExplanation", () => {
+  test("original/better/note がプロンプトに入り、trim したテキストを返す", async () => {
+    const { runner, seen } = runnerReturning("  過去形は went。  ");
+    const result = await generateFixExplanation({ original: "I go", better: "I went", note: "past tense" }, runner);
+    expect(result.text).toBe("過去形は went。");
+    expect(seen[0].prompt).toContain("I go");
+    expect(seen[0].prompt).toContain("I went");
+    expect(seen[0].prompt).toContain("past tense");
+    expect(seen[0].systemPrompt).toContain("JAPANESE");
+  });
+
+  test("note 省略時は Issue 行を含めない", async () => {
+    const { runner, seen } = runnerReturning("x");
+    await generateFixExplanation({ original: "a", better: "b" }, runner);
+    expect(seen[0].prompt).not.toContain("Issue:");
   });
 });
 
