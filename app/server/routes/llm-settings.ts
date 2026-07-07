@@ -120,20 +120,17 @@ async function handlePutRoles(req: Request, deps: LlmSettingsRoutesDeps): Promis
   if (!parsed.ok) return parsed.response;
   const body = parsed.body;
 
-  // 任意: 全体設定も同時更新（プリセット「すべて既定に戻す」で env にリセットする用途）
+  // 第1パス: global・roles の全エントリを検証のみ行う（何も保存しない）。
+  // 1つでも NG なら 400 で即返す＝後続の保存パスに進めず、部分適用（前方だけ保存済み）を防ぐ。
+  let parsedGlobal: ParsedSettings | null = null;
   if (body.global !== undefined) {
     if (typeof body.global !== "object" || body.global === null) return json({ error: "global must be an object" }, 400);
     const g = parseSettingsInput(body.global as SettingsInput, PROVIDERS);
     if (!g.ok) return json({ error: g.error }, 400);
-    deps.saveLlmSettings({
-      provider: g.value.provider as LlmProvider,
-      baseUrl: g.value.baseUrl,
-      model: g.value.model,
-      codexModel: g.value.codexModel,
-    });
+    parsedGlobal = g.value;
   }
 
-  // ロール別上書き（各値は inherit|claude|openai-compat|codex）
+  const parsedRoles: Array<{ role: LlmRole; value: ParsedSettings }> = [];
   if (body.roles !== undefined) {
     if (typeof body.roles !== "object" || body.roles === null) return json({ error: "roles must be an object" }, 400);
     const rolesObj = body.roles as Record<string, unknown>;
@@ -143,13 +140,26 @@ async function handlePutRoles(req: Request, deps: LlmSettingsRoutesDeps): Promis
       if (typeof rv !== "object" || rv === null) return json({ error: `role ${role} must be an object` }, 400);
       const p = parseSettingsInput(rv as SettingsInput, ROLE_PROVIDERS);
       if (!p.ok) return json({ error: `${role}: ${p.error}` }, 400);
-      deps.saveLlmRoleSettings(role as LlmRole, {
-        provider: p.value.provider as LlmRoleProvider,
-        baseUrl: p.value.baseUrl,
-        model: p.value.model,
-        codexModel: p.value.codexModel,
-      });
+      parsedRoles.push({ role: role as LlmRole, value: p.value });
     }
+  }
+
+  // 第2パス: 全検証通過後にまとめて保存する。
+  if (parsedGlobal) {
+    deps.saveLlmSettings({
+      provider: parsedGlobal.provider as LlmProvider,
+      baseUrl: parsedGlobal.baseUrl,
+      model: parsedGlobal.model,
+      codexModel: parsedGlobal.codexModel,
+    });
+  }
+  for (const { role, value } of parsedRoles) {
+    deps.saveLlmRoleSettings(role, {
+      provider: value.provider as LlmRoleProvider,
+      baseUrl: value.baseUrl,
+      model: value.model,
+      codexModel: value.codexModel,
+    });
   }
 
   const { applied, error } = applyResolved(deps);

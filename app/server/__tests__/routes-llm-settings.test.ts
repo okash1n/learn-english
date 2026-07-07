@@ -178,4 +178,25 @@ describe("llm-settings roles API", () => {
     expect((await h(putJson("/api/llm-settings/roles", { roles: { coaching: { provider: "openai-compat", model: "m" } } }))).status).toBe(400);
     expect(saved).toHaveLength(0);
   });
+
+  test("PUT /roles 400: global+複数ロール一括で一部が不正なら何も保存しない（部分適用防止）", async () => {
+    const savedGlobals: LlmSettings[] = [];
+    const savedRoles: string[] = [];
+    const { deps } = makeTestDeps({
+      getLlmSettings: () => null,
+      saveLlmSettings: (s) => savedGlobals.push(s),
+      saveLlmRoleSettings: (role) => savedRoles.push(role),
+      llmEnv: () => ({ provider: "claude", apiKeyConfigured: false }),
+    });
+    const res = await makeFetchHandler(deps)(putJson("/api/llm-settings/roles", {
+      global: { provider: "claude" },
+      roles: {
+        conversation: { provider: "openai-compat", baseUrl: "http://localhost:11434/v1", model: "llama3" },
+        coaching: { provider: "bogus" },
+      },
+    }));
+    expect(res.status).toBe(400);
+    expect(savedGlobals).toHaveLength(0);
+    expect(savedRoles).toHaveLength(0);
+  });
 });
