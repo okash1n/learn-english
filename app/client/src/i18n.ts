@@ -103,6 +103,7 @@ type SentencesStrings = {
     heroTitle: string; heroDesc: string;
     tabPractice: string; tabBrowse: string;
     hideNoteLabel: string;
+    audioFirstLabel: string;
     loading: string; retry: string;
     remaining: (left: number, graded: number) => string;
     sayItFirst: string;
@@ -290,6 +291,7 @@ export const STR: Record<Lang, Strings> = {
       heroDesc: "Read the Japanese, say it out loud first — recalling is what builds memory",
       tabPractice: "Today's practice", tabBrowse: "Browse",
       hideNoteLabel: "Hide hints",
+      audioFirstLabel: "Start from audio",
       loading: "Loading…", retry: "Retry",
       remaining: (left, graded) => `${left} left (${graded} graded)`,
       sayItFirst: "↑ Say it in English out loud first",
@@ -501,6 +503,7 @@ export const STR: Record<Lang, Strings> = {
       heroDesc: "日本語を見て、まず声に出す — 思い出す練習が記憶を作ります",
       tabPractice: "今日の練習", tabBrowse: "一覧",
       hideNoteLabel: "ヒントを隠す",
+      audioFirstLabel: "音から始める",
       loading: "読み込み中…", retry: "再試行",
       remaining: (left, graded) => `残り ${left} 文（うち評価済み ${graded}）`,
       sayItFirst: "↑ を英語で、まず声に出して言ってみる",
