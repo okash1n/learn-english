@@ -19,6 +19,7 @@ import { makeMetricsSummary } from "./metrics-aggregate";
 import { generateMonthlyReport, makeAssembleMonthData, makeAssessmentStore } from "./assessment";
 import { loadListening, findListening } from "./listening";
 import { makeListeningStore } from "./listening-store";
+import { makeFeedbackStore } from "./feedback-store";
 
 ensureDirs();
 const PORT = 3111;
@@ -34,6 +35,7 @@ const placementStore = makePlacementStore(db);
 const metricsSummary = makeMetricsSummary({ db, currentLevel: () => progressStore.getLevel() });
 const assessmentStore = makeAssessmentStore(db);
 const listeningStore = makeListeningStore(db);
+const feedbackStore = makeFeedbackStore(db);
 const assembleMonthData = makeAssembleMonthData({
   db,
   sentences,
@@ -95,6 +97,7 @@ const realDeps: RouteDeps = {
   listListening: () => loadListening(LISTENING_DIR),
   findListening: (id) => findListening(id),
   listeningStore,
+  feedbackStore,
 };
 
 Bun.serve({
