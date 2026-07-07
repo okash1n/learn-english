@@ -94,6 +94,7 @@ export function SentencesScreen({ lang }: { lang: Lang }) {
           </>
         )}
       </div>
+      {tab === "practice" && <p className="text-sm text-muted">{t.newPerDayNote}</p>}
       {tab === "practice" ? <PracticeTab lang={lang} hideNote={hideNote} clozeDefault={clozeDefault} audioFirst={audioFirst} newPerDay={newPerDay} /> : <BrowseTab lang={lang} />}
     </div>
   );
