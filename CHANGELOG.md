@@ -2,6 +2,12 @@
 
 このプロジェクトの特筆すべき変更を記録します。形式は [Keep a Changelog](https://keepachangelog.com/ja/1.1.0/) に、バージョニングは [Semantic Versioning](https://semver.org/lang/ja/) に従います。
 
+## [0.17.2] - 2026-07-08
+
+### Changed
+
+- **Codex プロバイダで Fast（priority 配信）を既定に**: `service_tier="fast"` を既定で要求し、応答の配信速度を優先する（`CODEX_SERVICE_TIER` で変更可・非対応のアカウント/モデルでは黙って標準配信にフォールバック）。v0.17.1 の reasoning effort `medium` と合わせ、「Fast の medium」がアプリ経由の Codex の既定になった
+
 ## [0.17.1] - 2026-07-07
 
 ### Changed
