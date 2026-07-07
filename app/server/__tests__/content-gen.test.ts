@@ -7,7 +7,7 @@ import { loadContent, parseContentFile } from "../content";
 import { loadSentences, type Sentence } from "../sentences";
 import type { ClaudeRunner } from "../converse";
 import {
-  contentToMarkdown, genSentences, genTopics,
+  contentToMarkdown, genSentences, genTopics, genScenarios, SCENARIO_BAND_PLAN,
   validateNewSentences, validateTopicCandidate,
 } from "../content-gen";
 import { loadListening, parseListeningFile } from "../listening";
@@ -456,6 +456,33 @@ describe("content-gen / genTopics", () => {
     expect(seen[0].systemPrompt).not.toContain("word families");
     expect(seen[0].systemPrompt).not.toMatch(/\bnull\b/);
     cleanup(dirs);
+  });
+});
+
+describe("genScenarios（固定プラン・stage1帯）", () => {
+  test("プランは business/it の [1,3] を狙う", () => {
+    expect(SCENARIO_BAND_PLAN.map((p) => [p.domain, p.level])).toEqual([
+      ["business", [1, 3]], ["it", [1, 3]],
+    ]);
+  });
+
+  test("生成候補のdomain/levelはプランで固定され、検証通過分を全件書き込む", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "gen-sc-"));
+    let n = 0;
+    const runner = async () => {
+      n++;
+      return { text: JSON.stringify({
+        id: `stage1-sc-${n}`, title: `T${n}`, titleJa: `t${n}`,
+        domain: "daily", level: [4, 6], // モデルが誤った domain/level を返してもプランで上書きされる
+        hints: ["Ask a simple question — 簡単な質問をする"],
+      }) };
+    };
+    await genScenarios({ runner: runner as never, scenariosDir: dir, dry: false, log: () => {} });
+    const files = readdirSync(dir).filter((f) => f.endsWith(".md")).sort();
+    expect(files).toHaveLength(2);
+    const first = parseContentFile(readFileSync(path.join(dir, files[0]), "utf8"))!;
+    expect([first.domain, first.level[0]]).toEqual(["business", 1]); // プラン固定・stage1帯
+    rmSync(dir, { recursive: true, force: true });
   });
 });
 
