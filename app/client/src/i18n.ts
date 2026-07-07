@@ -24,10 +24,12 @@ type SessionStrings = {
     building: string; retry: string; timerNote: string;
     finish: string; next: string;
     noTopic: string; noScenario: string; unknownBlock: (kind: string) => string;
+    blockAria: (index: number, total: number) => string;
   };
 };
 
 type NavStrings = { nav: { home: string; placement: string; free: string; library: string; sentences: string; progress: string } };
+type AppShellStrings = { appShell: { backToMenu: string; textSize: string; language: string } };
 type UiScaleStrings = { uiScale: { small: string; medium: string; large: string; xlarge: string } };
 type SupportStrings = {
   support: {
@@ -35,6 +37,7 @@ type SupportStrings = {
     presetAuto: string; presetMore: string; presetLess: string;
     jaHint: string; modelTalk: string; cloze: string;
     optAuto: string; optOn: string; optOff: string;
+    helpPreset: string; helpJaHint: string; helpModelTalk: string; helpCloze: string;
   };
 };
 type StatStrings = { stat: { title: string; thisWeekUnit: string; total: (n: number) => string } };
@@ -165,7 +168,7 @@ type FreeTalkScreenStrings = { freeTalkScreen: {
 } };
 
 type Strings =
-  & NavStrings & UiScaleStrings & SupportStrings & StatStrings & HeroStrings
+  & NavStrings & UiScaleStrings & AppShellStrings & SupportStrings & StatStrings & HeroStrings
   & QuickStrings & IntensiveStrings & DrillsStrings & SessionCardStrings
   & CalendarStrings & FreeTalkHeaderStrings & ProgressStrings & PlacementStrings & SentencesStrings
   & MenuTitleStrings & SessionStrings
@@ -179,12 +182,17 @@ const WEEKDAYS_JA = ["日", "月", "火", "水", "木", "金", "土"];
 export const STR: Record<Lang, Strings> = {
   en: {
     nav: { home: "Home", placement: "Level Check", free: "Free Talk", library: "Library", sentences: "300 Sentences", progress: "Progress" },
+    appShell: { backToMenu: "← Back to menu", textSize: "Text size", language: "Language" },
     uiScale: { small: "A−", medium: "A", large: "A＋", xlarge: "A＋＋" },
     support: {
       title: "Support",
       presetAuto: "Auto", presetMore: "More", presetLess: "Less",
       jaHint: "Japanese hints", modelTalk: "Model talk", cloze: "Fill-in-the-blank",
       optAuto: "Auto", optOn: "On", optOff: "Off",
+      helpPreset: "Sets the defaults for the three items below. Auto: follows your level. More: show everything. Less: hide by default. Any item you set individually takes priority.",
+      helpJaHint: "Whether practice chunks show a Japanese gloss. Auto: shown at lower levels, hidden as you level up. You can change it here anytime.",
+      helpModelTalk: "Whether a model talk plays automatically during 4/3/2 preparation. Even when off, you can always play it with the button.",
+      helpCloze: "Whether sentence practice starts in fill-in-the-blank view. Auto: starts in normal view.",
     },
     stat: { title: "Practice log", thisWeekUnit: "days this week", total: (n) => `${n} days total` },
     hero: {
@@ -305,6 +313,7 @@ export const STR: Record<Lang, Strings> = {
       finish: "✅ Finish session", next: "Next block →",
       noTopic: "No topic available", noScenario: "No scenario available",
       unknownBlock: (kind) => `Unknown block: ${kind}`,
+      blockAria: (index, total) => `Block ${index + 1}/${total}`,
     },
     warmup: {
       intro: "Read these out loud (twice each). Tap 🔊 to hear a model. You'll use them in the 4/3/2 that follows.",
@@ -366,12 +375,17 @@ export const STR: Record<Lang, Strings> = {
   },
   ja: {
     nav: { home: "ホーム", placement: "レベル測定", free: "自由会話", library: "ライブラリ", sentences: "暗記例文300", progress: "進捗" },
+    appShell: { backToMenu: "← メニューに戻る", textSize: "文字サイズ", language: "言語" },
     uiScale: { small: "小", medium: "中", large: "大", xlarge: "特大" },
     support: {
       title: "サポート",
       presetAuto: "自動", presetMore: "多め", presetLess: "少なめ",
       jaHint: "日本語ヒント", modelTalk: "モデルトーク", cloze: "歯抜け既定",
       optAuto: "自動", optOn: "オン", optOff: "オフ",
+      helpPreset: "下の3項目のまとめ設定です。自動=レベルに応じた既定 / 多め=すべて表示側 / 少なめ=すべて非表示側。個別に変えた項目はそちらが優先されます。",
+      helpJaHint: "練習チャンクに日本語訳を添えるかどうか。自動=低いレベルでは表示し、上がると非表示になります。いつでもここで変更できます。",
+      helpModelTalk: "4/3/2 の準備でお手本トークを自動再生するかどうか。オフでもボタンでいつでも再生できます。",
+      helpCloze: "例文練習を歯抜け（穴埋め）表示から始めるかどうか。自動=通常表示から始まります。",
     },
     stat: { title: "練習記録", thisWeekUnit: "日（今週）", total: (n) => `累計 ${n}日` },
     hero: {
@@ -492,6 +506,7 @@ export const STR: Record<Lang, Strings> = {
       finish: "✅ セッションを終える", next: "次のブロックへ →",
       noTopic: "トピックがありません", noScenario: "シナリオがありません",
       unknownBlock: (kind) => `未知のブロック: ${kind}`,
+      blockAria: (index, total) => `ブロック ${index + 1}/${total}`,
     },
     warmup: {
       intro: "声に出して読みましょう（各フレーズ2回ずつ）。🔊でお手本を聞けます。このあとの 4/3/2 で実際に使います。",
