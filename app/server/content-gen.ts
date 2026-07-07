@@ -161,8 +161,10 @@ Do not use any tools — reply directly with text only.`;
       let text: string | undefined;
       try {
         ({ text } = await deps.runner(`Generate the 4 sentences for category: ${w.category}`, undefined, { systemPrompt: system }));
-      } catch {
-        // SDK呼び出し自体の一過性エラー（例: tool_use起因のmaxTurns超過）も検証NGと同様に1回だけ再試行する
+      } catch (err) {
+        // SDK呼び出し自体の一過性エラー（例: tool_use起因のmaxTurns超過）も検証NGと同様に1回だけ再試行する。
+        // 非一過性の障害（認証切れ等）が「検証NG」に化けて原因が消えないよう、実エラーは必ずログに残す
+        console.warn("[content-gen] runner error:", err instanceof Error ? err.message : String(err));
       }
       if (text !== undefined) {
         const parsed = extractJson<{ sentences?: unknown }>(text);
@@ -244,8 +246,10 @@ Do not use any tools — reply directly with text only.`;
       let text: string | undefined;
       try {
         ({ text } = await deps.runner(`Create the ${p.kind} now.`, undefined, { systemPrompt: system }));
-      } catch {
-        // SDK呼び出し自体の一過性エラー（例: tool_use起因のmaxTurns超過）も検証NGと同様に1回だけ再試行する
+      } catch (err) {
+        // SDK呼び出し自体の一過性エラー（例: tool_use起因のmaxTurns超過）も検証NGと同様に1回だけ再試行する。
+        // 非一過性の障害（認証切れ等）が「検証NG」に化けて原因が消えないよう、実エラーは必ずログに残す
+        console.warn("[content-gen] runner error:", err instanceof Error ? err.message : String(err));
       }
       if (text !== undefined) {
         const parsed = extractJson<NewContentCandidate>(text);
@@ -374,8 +378,10 @@ Do not use any tools — reply directly with text only.`;
       let text: string | undefined;
       try {
         ({ text } = await deps.runner(`Write the ${p.domain} listening script now.`, undefined, { systemPrompt: system }));
-      } catch {
-        // SDK呼び出し自体の一過性エラー（例: tool_use起因のmaxTurns超過）も検証NGと同様に1回だけ再試行する
+      } catch (err) {
+        // SDK呼び出し自体の一過性エラー（例: tool_use起因のmaxTurns超過）も検証NGと同様に1回だけ再試行する。
+        // 非一過性の障害（認証切れ等）が「検証NG」に化けて原因が消えないよう、実エラーは必ずログに残す
+        console.warn("[content-gen] runner error:", err instanceof Error ? err.message : String(err));
       }
       if (text !== undefined) {
         const parsed = extractJson<NewListeningCandidate>(text);
