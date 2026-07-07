@@ -2,6 +2,17 @@
 
 このプロジェクトの特筆すべき変更を記録します。形式は [Keep a Changelog](https://keepachangelog.com/ja/1.1.0/) に、バージョニングは [Semantic Versioning](https://semver.org/lang/ja/) に従います。
 
+## [0.20.0] - 2026-07-08
+
+### Added
+
+- **声のタイプ選択**: 設定画面の音声（TTS）に「女性 / 男性 / カスタム」プリセットを追加。現在の接続先（OpenAI / Kokoro）に合った実ボイス名をワンタップでセットできる（OpenAI: nova/onyx・Kokoro: af_heart/am_michael）
+- **ランディングページ**: GitHub Pages で公開する紹介ページ（`site/`）とデプロイワークフローを追加
+
+### Changed
+
+- **アプリ名を solo-eikaiwa に変更**: リポジトリ名・ブランド表示・ローカルホスト名（`https://solo-eikaiwa`）・LaunchAgent ラベル（`com.local.solo-eikaiwa.server`）を刷新。**学習データはそのまま**（DB ファイル名は互換のため据え置き）。旧リポジトリ URL は GitHub が自動リダイレクトする
+
 ## [0.19.0] - 2026-07-08
 
 ### Added
