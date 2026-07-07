@@ -364,6 +364,20 @@ describe("routes: 訂正の詳しい解説（fix-explain）", () => {
     expect(noBetter.status).toBe(400);
   });
 
+  test("POST /api/coach/fix-explain は original/better の過長テキストに 400", async () => {
+    const handler = makeFetchHandler(makeTestDeps().deps);
+    const longOriginal = await handler(new Request("http://x/api/coach/fix-explain", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ original: "a".repeat(2001), better: "b" }),
+    }));
+    expect(longOriginal.status).toBe(400);
+    const longBetter = await handler(new Request("http://x/api/coach/fix-explain", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ original: "a", better: "b".repeat(2001) }),
+    }));
+    expect(longBetter.status).toBe(400);
+  });
+
   test("POST /api/coach/fix-explain は note を500字に切り詰める", async () => {
     let receivedLen = -1;
     const { deps } = makeTestDeps({
