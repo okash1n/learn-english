@@ -2,7 +2,10 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { cacheKeyFor, synthesize } from "../tts";
+import {
+  cacheKeyFor, synthesize, resolveTtsConfig,
+  DEFAULT_TTS_BASE_URL, DEFAULT_TTS_MODEL, DEFAULT_TTS_VOICE,
+} from "../tts";
 
 /**
  * Bun.env.OPENAI_API_KEY を一時的に取り除いた状態で fn を実行し、
@@ -90,7 +93,7 @@ describe("tts", () => {
     await withNoApiKey(async () => {
       const cacheDir = mkdtempSync(path.join(tmpdir(), "tts-"));
       const spawned: string[][] = [];
-      const r = await synthesize("Hello", { apiKey: undefined, cacheDir, spawnFn: makeFakeSpawn(spawned) });
+      const r = await synthesize("Hello", { apiKey: undefined, cacheDir, spawnFn: makeFakeSpawn(spawned), env: {} });
       expect(r.engine).toBe("say");
       expect(spawned[0][0]).toBe("say");
       expect(spawned[1][0]).toBe("ffmpeg");
@@ -171,11 +174,101 @@ describe("tts", () => {
         return { exitCode: 0, stderr: "" };
       };
 
-      const r = await synthesize(text, { apiKey: undefined, cacheDir, spawnFn: fakeSpawn });
+      const r = await synthesize(text, { apiKey: undefined, cacheDir, spawnFn: fakeSpawn, env: {} });
       expect(r.engine).toBe("say");
       for (const arg of spawned[0]) {
         expect(arg).not.toBe(text);
       }
     });
+  });
+});
+
+describe("tts provider config", () => {
+  test("resolveTtsConfig: 未指定なら既定（OpenAI/gpt-4o-mini-tts/alloy）に解決し鍵は env フォールバック", () => {
+    const cfg = resolveTtsConfig({}, { OPENAI_API_KEY: "sk-openai" });
+    expect(cfg).toEqual({
+      baseUrl: DEFAULT_TTS_BASE_URL, model: DEFAULT_TTS_MODEL, voice: DEFAULT_TTS_VOICE, apiKey: "sk-openai",
+    });
+  });
+
+  test("resolveTtsConfig: opts > env > 既定 の優先順位で解決する", () => {
+    const cfg = resolveTtsConfig(
+      { baseUrl: "http://opts:8880/v1" },
+      { TTS_BASE_URL: "http://env:8880/v1", TTS_MODEL: "kokoro", TTS_VOICE: "af_sky", TTS_API_KEY: "sk-tts" },
+    );
+    expect(cfg).toEqual({ baseUrl: "http://opts:8880/v1", model: "kokoro", voice: "af_sky", apiKey: "sk-tts" });
+  });
+
+  test("resolveTtsConfig: TTS_API_KEY は OPENAI_API_KEY より優先する", () => {
+    const cfg = resolveTtsConfig({}, { TTS_API_KEY: "sk-tts", OPENAI_API_KEY: "sk-openai" });
+    expect(cfg.apiKey).toBe("sk-tts");
+  });
+
+  test("既定 + 鍵ありは https://api.openai.com/v1/audio/speech を gpt-4o-mini-tts/alloy/mp3 で叩く（現行不変）", async () => {
+    const cacheDir = mkdtempSync(path.join(tmpdir(), "tts-"));
+    let captured: { url: string; headers: Record<string, string>; body: unknown } | null = null;
+    const fakeFetch = (async (url: string, init: RequestInit) => {
+      captured = { url, headers: init.headers as Record<string, string>, body: JSON.parse(String(init.body)) };
+      return new Response(new Uint8Array([1, 2, 3]), { status: 200 });
+    }) as unknown as typeof fetch;
+    const r = await synthesize("Speak this", { apiKey: "sk-test", cacheDir, fetchFn: fakeFetch, env: {} });
+    expect(r.engine).toBe("openai");
+    expect(captured!.url).toBe("https://api.openai.com/v1/audio/speech");
+    expect(captured!.headers["Authorization"]).toBe("Bearer sk-test");
+    expect(captured!.body).toEqual({ model: "gpt-4o-mini-tts", voice: "alloy", input: "Speak this", response_format: "mp3" });
+  });
+
+  test("既定 + 鍵なしは HTTP 層を飛ばして say（fetch 未呼び出し）", async () => {
+    const cacheDir = mkdtempSync(path.join(tmpdir(), "tts-"));
+    let called = 0;
+    const fakeFetch = (async () => { called++; return new Response(new Uint8Array([1]), { status: 200 }); }) as unknown as typeof fetch;
+    const spawned: string[][] = [];
+    const r = await synthesize("Hello", { cacheDir, fetchFn: fakeFetch, spawnFn: makeFakeSpawn(spawned), env: {} });
+    expect(called).toBe(0);
+    expect(r.engine).toBe("say");
+  });
+
+  test("baseUrl がカスタムなら鍵なしでも HTTP を試す・Authorization は付けない", async () => {
+    const cacheDir = mkdtempSync(path.join(tmpdir(), "tts-"));
+    let captured: { url: string; headers: Record<string, string> } | null = null;
+    const fakeFetch = (async (url: string, init: RequestInit) => {
+      captured = { url, headers: init.headers as Record<string, string> };
+      return new Response(new Uint8Array([9, 9, 9]), { status: 200 });
+    }) as unknown as typeof fetch;
+    const r = await synthesize("Local voice", {
+      cacheDir, fetchFn: fakeFetch, env: { TTS_BASE_URL: "http://localhost:8880/v1", TTS_MODEL: "kokoro", TTS_VOICE: "af_sky" },
+    });
+    expect(r.engine).toBe("openai");
+    expect(captured!.url).toBe("http://localhost:8880/v1/audio/speech");
+    expect("Authorization" in captured!.headers).toBe(false);
+    expect(Array.from(r.audio)).toEqual([9, 9, 9]);
+  });
+
+  test("カスタム model/voice は cacheKeyFor が変わり同梱バンドルにヒットせず HTTP を叩く", async () => {
+    // 既定キーで bundled ファイルを置くが、カスタム voice では別キーになりミスする
+    const bundledDir = mkdtempSync(path.join(tmpdir(), "tts-bundle-"));
+    const cacheDir = mkdtempSync(path.join(tmpdir(), "tts-"));
+    const defaultKey = cacheKeyFor(DEFAULT_TTS_MODEL, DEFAULT_TTS_VOICE, "Shared text");
+    await Bun.write(path.join(bundledDir, `${defaultKey}.mp3`), new Uint8Array([7]));
+    let called = 0;
+    const fakeFetch = (async () => { called++; return new Response(new Uint8Array([2, 2]), { status: 200 }); }) as unknown as typeof fetch;
+    const r = await synthesize("Shared text", {
+      bundledDir, cacheDir, fetchFn: fakeFetch,
+      env: { TTS_BASE_URL: "http://localhost:8880/v1", TTS_MODEL: "kokoro", TTS_VOICE: "af_sky" },
+    });
+    expect(called).toBe(1); // バンドルはミス → HTTP を叩いた
+    expect(Array.from(r.audio)).toEqual([2, 2]);
+  });
+
+  test("カスタムエンドポイントでも HTTP 失敗時は say にフォールバックする", async () => {
+    const cacheDir = mkdtempSync(path.join(tmpdir(), "tts-"));
+    const fakeFetch = (async () => new Response("boom", { status: 500 })) as unknown as typeof fetch;
+    const spawned: string[][] = [];
+    const r = await synthesize("Hello", {
+      cacheDir, fetchFn: fakeFetch, spawnFn: makeFakeSpawn(spawned),
+      env: { TTS_BASE_URL: "http://localhost:8880/v1" },
+    });
+    expect(r.engine).toBe("say");
+    expect(Array.from(r.audio)).toEqual([9, 9]);
   });
 });
