@@ -106,6 +106,7 @@ type SentencesStrings = {
     loading: string; retry: string;
     remaining: (left: number, graded: number) => string;
     sayItFirst: string;
+    listenPrompt: string;
     showCloze: string; showAnswer: string;
     clozeHint: string;
     playAgain: string;
@@ -292,6 +293,7 @@ export const STR: Record<Lang, Strings> = {
       loading: "Loading…", retry: "Retry",
       remaining: (left, graded) => `${left} left (${graded} graded)`,
       sayItFirst: "↑ Say it in English out loud first",
+      listenPrompt: "🔊 Listen only — say what it means or repeat it",
       showCloze: "Show gaps", showAnswer: "Show answer",
       clozeHint: "Fill the gaps out loud, then check the answer",
       playAgain: "🔊 Play again",
@@ -502,6 +504,7 @@ export const STR: Record<Lang, Strings> = {
       loading: "読み込み中…", retry: "再試行",
       remaining: (left, graded) => `残り ${left} 文（うち評価済み ${graded}）`,
       sayItFirst: "↑ を英語で、まず声に出して言ってみる",
+      listenPrompt: "🔊 音だけを聞いて、意味を言う・繰り返してみましょう",
       showCloze: "歯抜けを見る", showAnswer: "答えを見る",
       clozeHint: "空欄を埋めながらもう一度声に出して、答え合わせへ",
       playAgain: "🔊 もう一度聞く",
