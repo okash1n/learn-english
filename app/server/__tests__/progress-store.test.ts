@@ -226,6 +226,30 @@ describe("progress-store: 降格提案", () => {
   });
 });
 
+describe("progress-store: 低産出シグナルによる降格", () => {
+  test("直近の4/3/2低産出ラウンドが閾値超で down 提案（rationaleにlowOutputRounds）", () => {
+    const db = openDb(":memory:");
+    const store = makeProgressStore(db, () => ({ lowRounds: 4, totalRounds: 6 }));
+    store.levelAction("set", 23, T);
+    const p = store.getSummary(T).proposal!;
+    expect(p.kind).toBe("down");
+    expect(p.toLevel).toBe(15);
+    expect((p.rationale as { lowOutputRounds: number }).lowOutputRounds).toBe(4);
+  });
+  test("観測ラウンドが窓未満（totalRounds<6）なら発火しない", () => {
+    const db = openDb(":memory:");
+    const store = makeProgressStore(db, () => ({ lowRounds: 4, totalRounds: 5 }));
+    store.levelAction("set", 23, T);
+    expect(store.getSummary(T).proposal).toBeNull();
+  });
+  test("stage1 では低産出でも降格提案しない", () => {
+    const db = openDb(":memory:");
+    const store = makeProgressStore(db, () => ({ lowRounds: 6, totalRounds: 6 }));
+    store.levelAction("set", 5, T);
+    expect(store.getSummary(T).proposal).toBeNull();
+  });
+});
+
 describe("progress-store: levelAction", () => {
   test("set はレベルを変更し xpIntoLevel を0にする（1未満・非整数は null）", () => {
     const { store } = freshStore();

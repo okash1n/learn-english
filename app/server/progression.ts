@@ -100,3 +100,7 @@ export function xpForGrade(grade: "good" | "soso" | "bad"): number {
 
 /** プレースメント測定完了の固定XP（スペック§4.1）。progress-store の XP_CAPS.placement と routes の二重定義を一元化 */
 export const PLACEMENT_XP = 10;
+
+/** 4/3/2「低産出ラウンド」判定: この秒数以上取り組んで（engaged）、語数がフロア未満なら苦戦とみなす。降格シグナル用 */
+export const FTT_ENGAGED_SEC = 20;
+export const FTT_WORDS_FLOOR = 8;

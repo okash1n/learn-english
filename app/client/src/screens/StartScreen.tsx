@@ -259,6 +259,7 @@ function ProposalCard(props: {
   if (typeof r.completionRate === "number") lines.push(t.completionRate(Math.round(r.completionRate * 100)));
   // 0回中断は根拠として提示する意味がないため、1回以上のときだけ表示する
   if (typeof r.fttAborts === "number" && r.fttAborts > 0 && proposal.kind === "down") lines.push(t.fttAborts(r.fttAborts));
+  if (typeof r.lowOutputRounds === "number" && r.lowOutputRounds > 0 && proposal.kind === "down") lines.push(t.lowOutput(r.lowOutputRounds));
   return (
     <div className="card proposal-card">
       <h3>{proposal.kind === "up" ? t.upTitle : t.downTitle}</h3>

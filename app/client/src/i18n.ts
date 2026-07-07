@@ -64,6 +64,7 @@ type ProgressStrings = {
     practicedDays: (n: number) => string;
     completionRate: (pct: number) => string;
     fttAborts: (n: number) => string;
+    lowOutput: (n: number) => string;
     acceptUp: string; acceptDown: string; decline: string;
     actionError: string;
     title: string;
@@ -248,6 +249,7 @@ export const STR: Record<Lang, Strings> = {
       practicedDays: (n) => `${n} practice days in the last 14`,
       completionRate: (pct) => `${pct}% of recent blocks completed`,
       fttAborts: (n) => `${n} of the last five 4/3/2 blocks were cut short`,
+      lowOutput: (n) => `${n} recent 4/3/2 rounds were very short on words`,
       acceptUp: "Level up", acceptDown: "Move down", decline: "Not now",
       actionError: "Couldn't apply. Refreshed the latest state.",
       title: "Progress",
@@ -469,6 +471,7 @@ export const STR: Record<Lang, Strings> = {
       practicedDays: (n) => `直近14日間の練習日 ${n}日`,
       completionRate: (pct) => `直近ブロックの完了率 ${pct}%`,
       fttAborts: (n) => `直近5回の4/3/2のうち${n}回が中断`,
+      lowOutput: (n) => `直近の4/3/2で発話が極端に短いラウンドが${n}回`,
       acceptUp: "レベルアップ", acceptDown: "レベルを下げる", decline: "今はしない",
       actionError: "適用できませんでした。最新の状態に更新しました",
       title: "進捗",
