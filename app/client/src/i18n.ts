@@ -83,6 +83,27 @@ type SettingsStrings = {
     roleDesc: Record<LlmRole, string>;
     optInherit: string;
     saveRoles: string;
+    presetSection: string;
+    presetAllLocal: string;
+    presetAllLocalDesc: string;
+    presetBalanced: string;
+    presetBalancedBadge: string;
+    presetBalancedDesc: string;
+    presetHighQuality: string;
+    presetHighQualityDesc: string;
+    presetLocalRequired: string;
+    connectionSection: string;
+    claudeNoSetup: string;
+    localConnTitle: string;
+    codexConnTitle: string;
+    roleAssignSection: string;
+    roleAssignDesc: string;
+    targetClaude: string;
+    targetLocal: string;
+    targetCodex: string;
+    targetLocalDisabled: string;
+    saveConnection: string;
+    saveAssignments: string;
     displaySection: string;
     ttsSection: string;
     ttsDesc: string;
@@ -334,6 +355,27 @@ export const STR: Record<Lang, Strings> = {
       },
       optInherit: "Follow overall",
       saveRoles: "Save per-role settings",
+      presetSection: "Presets",
+      presetAllLocal: "All local",
+      presetAllLocalDesc: "Every role uses your local model.",
+      presetBalanced: "Balanced",
+      presetBalancedBadge: "Recommended",
+      presetBalancedDesc: "Conversation and content generation run locally; coaching and assessment use Claude, where the quality gap is largest and the usage least frequent.",
+      presetHighQuality: "Best quality",
+      presetHighQualityDesc: "Every role uses Claude, the tested baseline.",
+      presetLocalRequired: "Add a local LLM connection below to enable the local presets.",
+      connectionSection: "Connections",
+      claudeNoSetup: "Claude needs no setup — it works with your Claude subscription.",
+      localConnTitle: "Local LLM (OpenAI-compatible)",
+      codexConnTitle: "Codex (optional)",
+      roleAssignSection: "Model per role",
+      roleAssignDesc: "Choose which model handles each role.",
+      targetClaude: "Claude",
+      targetLocal: "Local",
+      targetCodex: "Codex",
+      targetLocalDisabled: "Add a local LLM connection above to choose Local.",
+      saveConnection: "Save connections",
+      saveAssignments: "Save assignments",
       displaySection: "Display",
       ttsSection: "Voice (TTS)",
       ttsDesc: "Point speech synthesis at an OpenAI-compatible endpoint. Leave blank to use the default (OpenAI when a key is set, otherwise macOS say). A local server such as kokoro-fastapi needs no API key.",
@@ -642,6 +684,27 @@ export const STR: Record<Lang, Strings> = {
       },
       optInherit: "全体に従う",
       saveRoles: "用途別設定を保存",
+      presetSection: "プリセット",
+      presetAllLocal: "オールローカル",
+      presetAllLocalDesc: "すべての用途をローカルモデルで動かします。",
+      presetBalanced: "バランス",
+      presetBalancedBadge: "推奨",
+      presetBalancedDesc: "会話・教材生成はローカル、コーチング・測定は品質差が最も大きく実行頻度も低いため Claude を使います。",
+      presetHighQuality: "最高品質",
+      presetHighQualityDesc: "すべての用途を Claude（動作確認済みの基準）で動かします。",
+      presetLocalRequired: "下でローカル LLM の接続先を設定すると、ローカルを使うプリセットが選べます。",
+      connectionSection: "接続",
+      claudeNoSetup: "Claude は設定不要です（Claude のサブスクリプションで動作します）。",
+      localConnTitle: "ローカル LLM（OpenAI 互換）",
+      codexConnTitle: "Codex（任意）",
+      roleAssignSection: "用途ごとのモデル",
+      roleAssignDesc: "各用途をどのモデルに任せるか選びます。",
+      targetClaude: "Claude",
+      targetLocal: "ローカル",
+      targetCodex: "Codex",
+      targetLocalDisabled: "ローカルを選ぶには、上でローカル LLM の接続先を設定します。",
+      saveConnection: "接続を保存",
+      saveAssignments: "割当を保存",
       displaySection: "表示",
       ttsSection: "音声（TTS）",
       ttsDesc: "音声合成の向き先を OpenAI 互換エンドポイントに変更できます。空欄なら既定（キー設定時は OpenAI・無ければ macOS say）。kokoro-fastapi 等のローカルサーバは API キー不要です。",
