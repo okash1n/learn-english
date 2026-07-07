@@ -202,6 +202,9 @@ export function makeTestDeps(overrides: Partial<RouteDeps> = {}): {
     applyLlmSettings: (_s) => {},
     llmEnv: () => ({ provider: "claude", apiKeyConfigured: false }),
     warmLlm: () => {},
+    getTtsSettings: () => null,
+    saveTtsSettings: (_s) => {},
+    ttsEnv: () => ({ apiKeyConfigured: false }),
     ...overrides,
   };
   return { deps, logFile, recordingsDir };
