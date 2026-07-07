@@ -2,6 +2,17 @@
 
 このプロジェクトの特筆すべき変更を記録します。形式は [Keep a Changelog](https://keepachangelog.com/ja/1.1.0/) に、バージョニングは [Semantic Versioning](https://semver.org/lang/ja/) に従います。
 
+## [0.20.0] - 2026-07-08
+
+### Added
+
+- **声のタイプ選択**: 設定画面の音声（TTS）に「女性 / 男性 / カスタム」プリセットを追加。現在の接続先（OpenAI / Kokoro）に合った実ボイス名をワンタップでセットできる（OpenAI: nova/onyx・Kokoro: af_heart/am_michael）
+- **ランディングページ**: GitHub Pages で公開する紹介ページ（`site/`）とデプロイワークフローを追加
+
+### Changed
+
+- **アプリ名を solo-eikaiwa に変更**: リポジトリ名・ブランド表示・ローカルホスト名（`https://solo-eikaiwa`）・LaunchAgent ラベル（`com.local.solo-eikaiwa.server`）を刷新。**学習データはそのまま**（DB ファイル名は互換のため据え置き）。旧リポジトリ URL は GitHub が自動リダイレクトする
+
 ## [0.19.0] - 2026-07-08
 
 ### Added
@@ -271,16 +282,26 @@
 - 学習データ（録音・トランスクリプト・進捗・DB・キャッシュ）は `data/` のローカルファイルで、リポジトリにコミットされない
 - 音声データはマシン外に出ない（外部送信はテキストのみ: Claude への発話テキスト、OpenAI TTS への応答テキスト）
 
-[0.12.1]: https://github.com/okash1n/learn-english/compare/v0.12.0...v0.12.1
-[0.12.0]: https://github.com/okash1n/learn-english/compare/v0.11.0...v0.12.0
-[0.11.0]: https://github.com/okash1n/learn-english/compare/v0.10.0...v0.11.0
-[0.10.0]: https://github.com/okash1n/learn-english/compare/v0.9.0...v0.10.0
-[0.9.0]: https://github.com/okash1n/learn-english/compare/v0.8.0...v0.9.0
-[0.8.0]: https://github.com/okash1n/learn-english/compare/v0.7.0...v0.8.0
-[0.7.0]: https://github.com/okash1n/learn-english/compare/v0.6.0...v0.7.0
-[0.6.0]: https://github.com/okash1n/learn-english/compare/v0.5.0...v0.6.0
-[0.5.0]: https://github.com/okash1n/learn-english/compare/v0.4.0...v0.5.0
-[0.4.0]: https://github.com/okash1n/learn-english/compare/v0.3.0...v0.4.0
-[0.3.0]: https://github.com/okash1n/learn-english/compare/v0.2.0...v0.3.0
-[0.2.0]: https://github.com/okash1n/learn-english/compare/v0.1.0...v0.2.0
-[0.1.0]: https://github.com/okash1n/learn-english/releases/tag/v0.1.0
+[0.20.0]: https://github.com/okash1n/solo-eikaiwa/compare/v0.19.0...v0.20.0
+[0.19.0]: https://github.com/okash1n/solo-eikaiwa/compare/v0.18.0...v0.19.0
+[0.18.0]: https://github.com/okash1n/solo-eikaiwa/compare/v0.17.2...v0.18.0
+[0.17.2]: https://github.com/okash1n/solo-eikaiwa/compare/v0.17.1...v0.17.2
+[0.17.1]: https://github.com/okash1n/solo-eikaiwa/compare/v0.17.0...v0.17.1
+[0.17.0]: https://github.com/okash1n/solo-eikaiwa/compare/v0.16.0...v0.17.0
+[0.16.0]: https://github.com/okash1n/solo-eikaiwa/compare/v0.15.0...v0.16.0
+[0.15.0]: https://github.com/okash1n/solo-eikaiwa/compare/v0.14.0...v0.15.0
+[0.14.0]: https://github.com/okash1n/solo-eikaiwa/compare/v0.13.0...v0.14.0
+[0.13.0]: https://github.com/okash1n/solo-eikaiwa/compare/v0.12.1...v0.13.0
+[0.12.1]: https://github.com/okash1n/solo-eikaiwa/compare/v0.12.0...v0.12.1
+[0.12.0]: https://github.com/okash1n/solo-eikaiwa/compare/v0.11.0...v0.12.0
+[0.11.0]: https://github.com/okash1n/solo-eikaiwa/compare/v0.10.0...v0.11.0
+[0.10.0]: https://github.com/okash1n/solo-eikaiwa/compare/v0.9.0...v0.10.0
+[0.9.0]: https://github.com/okash1n/solo-eikaiwa/compare/v0.8.0...v0.9.0
+[0.8.0]: https://github.com/okash1n/solo-eikaiwa/compare/v0.7.0...v0.8.0
+[0.7.0]: https://github.com/okash1n/solo-eikaiwa/compare/v0.6.0...v0.7.0
+[0.6.0]: https://github.com/okash1n/solo-eikaiwa/compare/v0.5.0...v0.6.0
+[0.5.0]: https://github.com/okash1n/solo-eikaiwa/compare/v0.4.0...v0.5.0
+[0.4.0]: https://github.com/okash1n/solo-eikaiwa/compare/v0.3.0...v0.4.0
+[0.3.0]: https://github.com/okash1n/solo-eikaiwa/compare/v0.2.0...v0.3.0
+[0.2.0]: https://github.com/okash1n/solo-eikaiwa/compare/v0.1.0...v0.2.0
+[0.1.0]: https://github.com/okash1n/solo-eikaiwa/releases/tag/v0.1.0
