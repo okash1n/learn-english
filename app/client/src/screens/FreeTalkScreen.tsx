@@ -4,6 +4,7 @@ import { playBlob, Recorder, stopPlayback } from "../audio";
 import { STR, type Lang } from "../i18n";
 import { Banner } from "../ui/Banner";
 import { Button } from "../ui/Button";
+import { FeedbackRow } from "../ui/FeedbackRow";
 
 type Turn = { role: "you" | "ai"; text: string };
 type Status = "idle" | "recording" | "transcribing" | "thinking" | "speaking" | "error";
@@ -173,6 +174,9 @@ export function FreeTalkScreen(props: { scenarioId?: string; onSessionId?: (id: 
           </div>
         ))}
       </section>
+      {props.scenarioId === undefined && turns.length >= 2 && (
+        <FeedbackRow context={{ blockKind: "free-talk", refId: null }} lang={props.lang} />
+      )}
     </div>
   );
 }

@@ -10,6 +10,7 @@ import { useExplain } from "../useExplain";
 import { Banner } from "../ui/Banner";
 import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
+import { FeedbackRow } from "../ui/FeedbackRow";
 import { ExplainBox } from "../ui/ExplainBox";
 import { LevelChip } from "../ui/LevelChip";
 
@@ -121,6 +122,7 @@ function ListeningPlayback({ item, lang, onListened }: {
   const t = STR[lang].listeningScreen;
   const [playingIdx, setPlayingIdx] = useState<number | null>(null);
   const [showScript, setShowScript] = useState(false);
+  const [listened, setListened] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const aliveRef = useRef(true);
   const tokenRef = useRef(0);
@@ -156,7 +158,10 @@ function ListeningPlayback({ item, lang, onListened }: {
     // 通し再生の完了 → 聴取を記録（記録失敗は再生体験を妨げない）
     try {
       const { weeklyCount } = await logListening(item.id);
-      if (aliveRef.current && tokenRef.current === my) onListened(weeklyCount);
+      if (aliveRef.current && tokenRef.current === my) {
+        onListened(weeklyCount);
+        setListened(true);
+      }
     } catch (err) {
       console.warn("listening log failed:", err);
     }
@@ -191,6 +196,7 @@ function ListeningPlayback({ item, lang, onListened }: {
           />
         </>
       )}
+      {listened && <FeedbackRow context={{ blockKind: "listening", refId: item.id }} lang={lang} />}
     </div>
   );
 }

@@ -16,10 +16,17 @@ import { RoleplayScreen } from "./RoleplayScreen";
 import { ShadowingScreen } from "./ShadowingScreen";
 import { WarmupReadingScreen } from "./WarmupReadingScreen";
 import { blockTitle } from "./blockTitle";
+import { FeedbackRow } from "../ui/FeedbackRow";
 
 export type MenuSource =
   | { type: "daily"; minutes: 60 | 30 }
   | { type: "quick"; drill: QuickDrillKind; domain?: RoleplayDomain };
+
+/** セッション種別を feedback の refId に使う短い署名にする（例: daily-60 / quick-shadowing / quick-roleplay-daily）。 */
+function sourceSignature(src: MenuSource): string {
+  if (src.type === "daily") return `daily-${src.minutes}`;
+  return `quick-${src.drill}${src.domain ? `-${src.domain}` : ""}`;
+}
 
 /** メニューを取得し、ブロックを順番に進行させる。ブロックタイマーと進行イベント記録を持つ */
 export function SessionRunner(props: { source: MenuSource; sessionId: string; lang: Lang; onExit: () => void }) {
@@ -28,6 +35,8 @@ export function SessionRunner(props: { source: MenuSource; sessionId: string; la
   const [index, setIndex] = useState(0);
   const [errorMsg, setErrorMsg] = useState("");
   const timer = useCountdown(0);
+  // 最終ブロック完了後、即離脱せず完了パネル（フィードバック行）を出すためのフラグ
+  const [done, setDone] = useState(false);
   // StrictMode の開発時二重実行でメニュー取得/最初の block_start が重複しないようにする冪等ガード
   const initedRef = useRef(false);
   // block_start を送信済みで block_end 未送信のブロック（開いているブロック）を追跡する。
@@ -90,6 +99,17 @@ export function SessionRunner(props: { source: MenuSource; sessionId: string; la
   }
   if (!menu) return <p className="text-muted">{t.building}</p>;
 
+  if (done) {
+    return (
+      <div className="stack fade-in">
+        <FeedbackRow context={{ blockKind: "session", refId: sourceSignature(props.source) }} lang={props.lang} />
+        <div className="round-actions">
+          <Button variant="primary" size="lg" onClick={props.onExit}>{t.finish}</Button>
+        </div>
+      </div>
+    );
+  }
+
   const block = menu.blocks[index];
   const isLast = index === menu.blocks.length - 1;
 
@@ -101,7 +121,8 @@ export function SessionRunner(props: { source: MenuSource; sessionId: string; la
       .catch((err) => console.warn("xp post failed:", err));
     openBlockRef.current = null;
     if (isLast) {
-      props.onExit();
+      setDone(true);
+      advancingRef.current = false;
       return;
     }
     const next = menu!.blocks[index + 1];
