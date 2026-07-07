@@ -14,6 +14,7 @@ import { makePlacementRoutes, type PlacementRoutesDeps } from "./routes/placemen
 import { makeMetricsRoutes, type MetricsRoutesDeps } from "./routes/metrics";
 import { makeAssessmentRoutes, type AssessmentRoutesDeps } from "./routes/assessment";
 import { makeListeningRoutes, type ListeningRoutesDeps } from "./routes/listening";
+import { makeFeedbackRoutes, type FeedbackRoutesDeps } from "./routes/feedback";
 
 /**
  * HTTP ハンドラが依存する副作用の総体。各ドメインの狭い Deps 型の交差で構成する。
@@ -25,7 +26,7 @@ export type RouteDeps =
   SystemRoutesDeps & ConverseRoutesDeps & SessionRoutesDeps & MenuRoutesDeps &
   SettingsRoutesDeps & LibraryRoutesDeps & CoachRoutesDeps & SentenceRoutesDeps &
   ChunkRoutesDeps & ProgressRoutesDeps & PlacementRoutesDeps & MetricsRoutesDeps &
-  AssessmentRoutesDeps & ListeningRoutesDeps;
+  AssessmentRoutesDeps & ListeningRoutesDeps & FeedbackRoutesDeps;
 
 /** 現在の index.ts の全ルーティング・ハンドラをソケットを開かずにテストできる形に切り出したもの */
 export function makeFetchHandler(deps: RouteDeps): (req: Request) => Promise<Response> {
@@ -44,6 +45,7 @@ export function makeFetchHandler(deps: RouteDeps): (req: Request) => Promise<Res
     ...makeMetricsRoutes(deps),
     ...makeAssessmentRoutes(deps),
     ...makeListeningRoutes(deps),
+    ...makeFeedbackRoutes(deps),
   ];
   return async function fetch(req: Request): Promise<Response> {
     const url = new URL(req.url);

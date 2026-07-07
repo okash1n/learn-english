@@ -11,6 +11,7 @@ import type { AssessmentStore } from "../../assessment";
 import type { Menu, QuickKind } from "../../menu";
 import type { ListeningItem } from "../../listening";
 import type { ListeningStore } from "../../listening-store";
+import type { FeedbackStore } from "../../feedback-store";
 
 export const FAKE_HEALTH = { ok: true, whisper: true, ffmpeg: true, claude: true, ttsKey: true, modelFile: true };
 export const FAKE_MENU = {
@@ -115,6 +116,14 @@ export function makeFakeListeningStore(overrides: Partial<ListeningStore> = {}):
   } satisfies ListeningStore;
 }
 
+export function makeFakeFeedbackStore(overrides: Partial<FeedbackStore> = {}): FeedbackStore {
+  return {
+    save: (input) => ({ id: 1, ts: "2026-07-07T00:00:00.000Z", ...input }),
+    list: () => [],
+    ...overrides,
+  } satisfies FeedbackStore;
+}
+
 export function makeFakeTalkExplainCache(overrides: Partial<TalkExplainCache> = {}): TalkExplainCache {
   return {
     get: (_hash) => null,
@@ -179,6 +188,7 @@ export function makeTestDeps(overrides: Partial<RouteDeps> = {}): {
     listListening: () => [FAKE_LISTENING_ITEM],
     findListening: (id: string) => (id === "morning-routine" ? FAKE_LISTENING_ITEM : undefined),
     listeningStore: makeFakeListeningStore(),
+    feedbackStore: makeFakeFeedbackStore(),
     ...overrides,
   };
   return { deps, logFile, recordingsDir };
