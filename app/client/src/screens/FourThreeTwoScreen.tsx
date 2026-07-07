@@ -1,16 +1,19 @@
 import { useEffect, useRef, useState } from "react";
 import {
-  fetchAeFeedback, fetchFixExplanation, fetchPrepPack, playTtsCached, prefetchModelTalkAudio, sendSessionEvent, sttUpload,
+  fetchAeFeedback, fetchFixExplanation, fetchPrepPack, prefetchModelTalkAudio, sendSessionEvent, sttUpload,
   type AeFeedback, type ContentItem, type PrepPack,
 } from "../api";
 import { playBlob, Recorder, stopPlayback } from "../audio";
 import { formatMmSs, useCountdown } from "../useCountdown";
+import { usePlayRow } from "../usePlayRow";
+import { useExplain } from "../useExplain";
+import { STR, type Lang } from "../i18n";
 import { Banner } from "../ui/Banner";
 import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
 import { ChunkList } from "../ui/ChunkList";
 import { TimerChip } from "../ui/TimerChip";
-import { getSupport, resolveSupport, useSupport } from "../support";
+import { getSupport, resolveSupport, showJaFromPrep, useSupport } from "../support";
 
 /** メニュー params に roundsSec が無い場合（当日分の古いキャッシュ等）のフォールバック */
 const DEFAULT_ROUNDS_SEC = [120, 90, 60];
@@ -22,10 +25,10 @@ const LISTENERS = [
   "New listener: someone at a conference. Same story, shorter.",
 ] as const;
 
-/** 90 → "1.5分"、120 → "2分" のような表示 */
-function minLabel(seconds: number): string {
+/** 90 → "1.5"、120 → "2" のような数値文字列（単位は呼び出し側の辞書で付与） */
+function minNum(seconds: number): string {
   const m = seconds / 60;
-  return `${Number.isInteger(m) ? m : m.toFixed(1)}分`;
+  return `${Number.isInteger(m) ? m : m.toFixed(1)}`;
 }
 
 type Phase = { kind: "prep" } | { kind: "round"; index: number } | { kind: "ae" } | { kind: "done" };
@@ -39,8 +42,9 @@ type PrepState = "loading" | "ready" | "error";
  */
 export function FourThreeTwoScreen(props: {
   topic: ContentItem; sessionId: string; blockId: string; roundsSec?: number[];
-  modelTalkMode?: "auto" | "button";
+  modelTalkMode?: "auto" | "button"; lang: Lang;
 }) {
+  const t = STR[props.lang].ftt432;
   const support = useSupport();
   // モデルトーク自動再生の可否: 個別トグル → preset → メニューの stage 既定（auto か）で解決。
   // 初期 modelState と一度きりの prefetch effect が参照するため、マウント時に固定する。
@@ -67,7 +71,7 @@ export function FourThreeTwoScreen(props: {
   type ModelState = "idle" | "script" | "audio" | "ready" | "playing" | "error";
   const [modelState, setModelState] = useState<ModelState>(autoPlay ? "script" : "idle");
   const [modelText, setModelText] = useState("");
-  const [playingIdx, setPlayingIdx] = useState<number | null>(null);
+  const playRow = usePlayRow<number>();
   const prepFetchedRef = useRef(false); // StrictMode の二重マウントで prep を二重フェッチしない
   const prepTimer = useCountdown(PREP_SECONDS);
   const recorderRef = useRef(new Recorder());
@@ -156,19 +160,6 @@ export function FourThreeTwoScreen(props: {
     }
   }
 
-  async function playChunk(i: number, text: string) {
-    setErrorMsg("");
-    setPlayingIdx(i);
-    try {
-      await playTtsCached(text);
-    } catch (err) {
-      if (!aliveRef.current) return;
-      setErrorMsg(err instanceof Error ? err.message : String(err));
-    } finally {
-      if (aliveRef.current) setPlayingIdx(null);
-    }
-  }
-
   async function toggleRecording() {
     setErrorMsg("");
     if (recState === "idle") {
@@ -182,7 +173,7 @@ export function FourThreeTwoScreen(props: {
           sendSessionEvent("round_start", props.sessionId, { blockId: props.blockId, block: "four-three-two", round: roundIndex + 1 });
         }
       } catch (err) {
-        setErrorMsg(`マイクにアクセスできません: ${err instanceof Error ? err.message : String(err)}`);
+        setErrorMsg(t.micError(err instanceof Error ? err.message : String(err)));
       }
       return;
     }
@@ -255,34 +246,37 @@ export function FourThreeTwoScreen(props: {
   if (phase.kind === "prep") {
     return (
       <div className="stack">
-        <Card header={`準備 — ${props.topic.title}`}>
+        <Card header={t.prepTitle(props.topic.title)}>
           {props.topic.titleJa && <p className="text-muted">{props.topic.titleJa}</p>}
           <p className="text-muted">
-            これから同じ話を {roundsSec.map(minLabel).join("→")} で{roundsSec.length}回話します。まず使えそうな表現と骨組みを確認してください（目安 {minLabel(PREP_SECONDS)}）。
+            {t.prepIntro(roundsSec.map((s) => t.min(minNum(s))).join("→"), roundsSec.length, t.min(minNum(PREP_SECONDS)))}
           </p>
-          <TimerChip remaining={prepTimer.remaining} expired={prepTimer.expired} note="そろそろ始めましょう" />
+          <TimerChip remaining={prepTimer.remaining} expired={prepTimer.expired} note={t.prepTimerNote} />
         </Card>
         <ul className="text-muted">
           {props.topic.hints.map((h, i) => (
             <li key={i}>{h}</li>
           ))}
         </ul>
-        {prepState === "loading" && <p>コーチが表現チャンクを用意しています…</p>}
+        {prepState === "loading" && <p>{t.loading}</p>}
         {prepState === "error" && (
-          <Banner kind="error" action={<Button onClick={loadPrep}>再試行</Button>}>
+          <Banner kind="error" action={<Button onClick={loadPrep}>{t.retry}</Button>}>
             {errorMsg}
           </Banner>
         )}
         {prepState === "ready" && prep && (() => {
           const filteredChunks = prep.chunks.filter((c) => typeof c.en === "string" && c.en);
-          const showJa = resolveSupport(support.jaHint, support.preset, prep.hintDefault === "ja");
+          const showJa = showJaFromPrep(support, prep);
           return (
           <div className="stack">
             {filteredChunks.length > 0 && (
-              <ChunkList chunks={filteredChunks} playingIdx={playingIdx} onPlay={playChunk} showJa={showJa} />
+              <ChunkList
+                chunks={filteredChunks} playingIdx={playRow.playingKey} onPlay={(i, text) => playRow.play(i, text)} showJa={showJa}
+                playAria={(en) => STR[props.lang].chunkList.playAria(en)}
+              />
             )}
             {prep.outline.length > 0 && (
-              <Card header="話の骨組み">
+              <Card header={t.outlineTitle}>
                 <ol>
                   {prep.outline.map((o, i) => (
                     <li key={i}>{o}</li>
@@ -295,46 +289,46 @@ export function FourThreeTwoScreen(props: {
         })()}
         <div className="start-row">
           <Button onClick={playModelTalk} disabled={modelState === "script" || modelState === "audio" || modelState === "playing"}>
-            {modelState === "idle" && "🎧 モデルトークを聞く（任意）"}
-            {modelState === "script" && "✍ 原稿を作成中…"}
-            {modelState === "audio" && "🎙 音声を生成中…"}
-            {modelState === "ready" && "🎧 モデルトークを聞く（任意）"}
-            {modelState === "playing" && "🔊 再生中…"}
-            {modelState === "error" && "🎧 モデルトーク（再試行）"}
+            {modelState === "idle" && t.modelIdle}
+            {modelState === "script" && t.modelScript}
+            {modelState === "audio" && t.modelAudio}
+            {modelState === "ready" && t.modelIdle}
+            {modelState === "playing" && t.modelPlaying}
+            {modelState === "error" && t.modelRetry}
           </Button>
           <Button variant="primary" onClick={() => startRound(0)}>
-            Round 1 を始める（{minLabel(roundsSec[0])}）→
+            {t.startRound1(t.min(minNum(roundsSec[0])))}
           </Button>
         </div>
         {modelText && (
           <details open>
-            <summary className="text-muted">モデルトーク本文</summary>
+            <summary className="text-muted">{t.modelTranscript}</summary>
             <p className="reading-text">{modelText}</p>
           </details>
         )}
-        {prepState !== "error" && errorMsg && <Banner kind="error">{errorMsg}</Banner>}
+        {prepState !== "error" && (errorMsg || playRow.error) && <Banner kind="error">{errorMsg || playRow.error}</Banner>}
       </div>
     );
   }
 
   if (phase.kind === "ae") {
     return (
-      <Card header="フィードバック（読んだら Round 2 へ）">
-        {aeLoading && <p>コーチがフィードバックを書いています…</p>}
-        {aeSkippedNoRecording && <p>録音がなかったのでフィードバックはありません</p>}
+      <Card header={t.aeTitle}>
+        {aeLoading && <p>{t.aeLoading}</p>}
+        {aeSkippedNoRecording && <p>{t.aeNoRecording}</p>}
         {ae && (
           <div>
             {ae.praise && <Banner kind="info">👏 {ae.praise}</Banner>}
             <ul>
               {ae.items.map((item, i) => (
-                <AeItemView key={i} item={item} />
+                <AeItemView key={i} item={item} lang={props.lang} />
               ))}
             </ul>
           </div>
         )}
         {errorMsg && <Banner kind="error">{errorMsg}</Banner>}
         <Button variant="primary" onClick={() => startRound(1)} disabled={aeLoading}>
-          Round 2 を始める（{minLabel(roundsSec[1])}）
+          {t.startRound2(t.min(minNum(roundsSec[1])))}
         </Button>
       </Card>
     );
@@ -343,7 +337,7 @@ export function FourThreeTwoScreen(props: {
   if (phase.kind === "done") {
     return (
       <Card>
-        <p>4/3/2 完了！同じ話を{roundsSec.length}回、少しずつ速く話せました。</p>
+        <p>{t.doneBody(roundsSec.length)}</p>
       </Card>
     );
   }
@@ -351,7 +345,7 @@ export function FourThreeTwoScreen(props: {
   return (
     <div className="round-stage">
       <h3>
-        Round {roundIndex + 1}（{minLabel(roundsSec[roundIndex])}） — {props.topic.title}
+        {t.roundHeading(roundIndex + 1, t.min(minNum(roundsSec[roundIndex])), props.topic.title)}
       </h3>
       <p className="text-muted">{LISTENERS[roundIndex % LISTENERS.length]}</p>
       <ul className="text-sm text-muted">
@@ -360,7 +354,7 @@ export function FourThreeTwoScreen(props: {
         ))}
       </ul>
       <div className={`round-timer${timer.expired ? " is-expired" : ""}`}>
-        {formatMmSs(timer.remaining)} {timer.expired && <span className="text-sm">— 時間切れ！</span>}
+        {formatMmSs(timer.remaining)} {timer.expired && <span className="text-sm">{t.timeUp}</span>}
       </div>
       <div className="round-actions">
         <button
@@ -368,10 +362,10 @@ export function FourThreeTwoScreen(props: {
           onClick={toggleRecording}
           disabled={recState === "transcribing"}
         >
-          {recState === "recording" ? "⏹ 録音を止める" : recState === "transcribing" ? "📝 文字起こし中…" : "🎙 話し始める"}
+          {recState === "recording" ? t.recStop : recState === "transcribing" ? t.recTranscribing : t.recStart}
         </button>
         <Button onClick={finishRound} disabled={recState === "transcribing"}>
-          このラウンドを終える →
+          {t.roundFinish}
         </Button>
       </div>
       {errorMsg && <Banner kind="error">{errorMsg}</Banner>}
@@ -385,22 +379,9 @@ export function FourThreeTwoScreen(props: {
 }
 
 /** AE指摘1件。「もっと詳しく」で fetchFixExplanation を呼び、解説を自分の state に保持する */
-function AeItemView({ item }: { item: { quote: string; issue: string; better: string; why_ja: string } }) {
-  const aliveRef = useRef(true);
-  useEffect(() => { aliveRef.current = true; return () => { aliveRef.current = false; }; }, []);
-  // undefined=未取得, "loading"=生成中, "error"=取得失敗, それ以外=解説テキスト
-  const [explain, setExplain] = useState<string | undefined>(undefined);
-
-  async function explainFix() {
-    setExplain("loading");
-    try {
-      const text = await fetchFixExplanation(item.quote, item.better, item.issue);
-      if (aliveRef.current) setExplain(text);
-    } catch {
-      if (aliveRef.current) setExplain("error");
-    }
-  }
-
+function AeItemView({ item, lang }: { item: { quote: string; issue: string; better: string; why_ja: string }; lang: Lang }) {
+  const t = STR[lang].ftt432;
+  const { state, request } = useExplain(() => fetchFixExplanation(item.quote, item.better, item.issue));
   return (
     <li className="ae-item">
       {item.quote && (
@@ -409,19 +390,14 @@ function AeItemView({ item }: { item: { quote: string; issue: string; better: st
         </div>
       )}
       <div className="ae-why">{item.why_ja}</div>
-      {item.quote && item.better && explain === undefined && (
-        <Button variant="ghost" onClick={explainFix}>💡 もっと詳しく</Button>
+      {item.quote && item.better && state.status === "idle" && (
+        <Button variant="ghost" onClick={request}>{t.explainMore}</Button>
       )}
-      {explain === "loading" && <p className="text-sm text-muted">解説を書いています…</p>}
-      {explain === "error" && (
-        <p className="text-sm text-muted">
-          解説を取得できませんでした。
-          <Button variant="ghost" onClick={explainFix}>再試行</Button>
-        </p>
+      {state.status === "loading" && <p className="text-sm text-muted">{t.explainLoading}</p>}
+      {state.status === "error" && (
+        <p className="text-sm text-muted">{t.explainError}<Button variant="ghost" onClick={request}>{t.retry}</Button></p>
       )}
-      {explain !== undefined && explain !== "loading" && explain !== "error" && (
-        <p className="sentence-explain text-sm">{explain}</p>
-      )}
+      {state.status === "done" && <p className="sentence-explain text-sm">{state.text}</p>}
     </li>
   );
 }

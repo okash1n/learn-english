@@ -10,24 +10,45 @@ export function saveLang(lang: Lang): void {
   localStorage.setItem("lang", lang);
 }
 
-type Strings = {
-  nav: { home: string; placement: string; free: string; library: string; sentences: string; progress: string };
-  uiScale: { small: string; medium: string; large: string; xlarge: string };
+export type DrillKey =
+  | "warmup" | "ftt-mini" | "shadowing"
+  | "roleplay-daily" | "roleplay-business" | "roleplay-it";
+
+export type MenuTitleKey =
+  | "warmup" | "ftt" | "ftt-mini"
+  | "roleplay-daily" | "roleplay-business" | "roleplay-it"
+  | "shadowing" | "reflection";
+type MenuTitleStrings = { menuTitle: Record<MenuTitleKey, (topicTitle: string) => string> };
+type SessionStrings = {
+  session: {
+    building: string; retry: string; timerNote: string;
+    finish: string; next: string;
+    noTopic: string; noScenario: string; unknownBlock: (kind: string) => string;
+  };
+};
+
+type NavStrings = { nav: { home: string; placement: string; free: string; library: string; sentences: string; progress: string } };
+type UiScaleStrings = { uiScale: { small: string; medium: string; large: string; xlarge: string } };
+type SupportStrings = {
   support: {
     title: string;
     presetAuto: string; presetMore: string; presetLess: string;
     jaHint: string; modelTalk: string; cloze: string;
     optAuto: string; optOn: string; optOff: string;
   };
-  stat: { title: string; thisWeekUnit: string; total: (n: number) => string };
-  hero: { title: string; date: (d: Date) => string };
-  quick: { label: string; note: string };
-  intensive: { label: string; note: string };
-  drills: Record<string, { title: string; minutes: string; desc: string }>;
+};
+type StatStrings = { stat: { title: string; thisWeekUnit: string; total: (n: number) => string } };
+type HeroStrings = { hero: { title: string; date: (d: Date) => string } };
+type QuickStrings = { quick: { label: string; note: string } };
+type IntensiveStrings = { intensive: { label: string; note: string } };
+type DrillsStrings = { drills: Record<DrillKey, { title: string; minutes: string; desc: string }> };
+type SessionCardStrings = {
   fullSession: { title: string; minutes: string; desc: string };
   shortSession: { title: string; minutes: string; desc: string };
-  calendar: { title: string; practiced: string; notYet: string };
-  freeTalk: { title: string; desc: string };
+};
+type CalendarStrings = { calendar: { title: string; practiced: string; notYet: string } };
+type FreeTalkHeaderStrings = { freeTalk: { title: string; desc: string } };
+type ProgressStrings = {
   progress: {
     levelLabel: (n: number) => string;
     toNext: (xp: number) => string;
@@ -55,6 +76,8 @@ type Strings = {
     mrPast: string;
     mrDate: (ymd: string) => string;
   };
+};
+type PlacementStrings = {
   placement: {
     cardTitleNew: string; cardBodyNew: string;
     cardTitleMonthly: string; cardBodyMonthly: string;
@@ -70,6 +93,8 @@ type Strings = {
     xpNote: string;
     micError: (detail: string) => string;
   };
+};
+type SentencesStrings = {
   sentences: {
     heroTitle: string; heroDesc: string;
     tabPractice: string; tabBrowse: string;
@@ -97,6 +122,54 @@ type Strings = {
     playChunkAria: (id: number) => string;
   };
 };
+
+type WarmupStrings = { warmup: {
+  intro: string; loading: string; retry: string; fallbackTitle: string;
+  clozeStepButton: string; clozeStepTitle: string; clozeStepBody: string; outlineTitle: string;
+} };
+type Ftt432Strings = { ftt432: {
+  min: (v: string) => string;
+  prepTitle: (topic: string) => string;
+  prepIntro: (rounds: string, count: number, prep: string) => string;
+  prepTimerNote: string; loading: string; retry: string; outlineTitle: string;
+  modelIdle: string; modelScript: string; modelAudio: string; modelPlaying: string; modelRetry: string;
+  startRound1: (min: string) => string; modelTranscript: string;
+  aeTitle: string; aeLoading: string; aeNoRecording: string; startRound2: (min: string) => string;
+  doneBody: (count: number) => string;
+  roundHeading: (n: number, min: string, topic: string) => string;
+  timeUp: string; recStop: string; recTranscribing: string; recStart: string; roundFinish: string;
+  micError: (detail: string) => string;
+  explainMore: string; explainLoading: string; explainError: string;
+} };
+type ReflectionStrings = { reflection: {
+  loading: string; retry: string; goodPhrases: string; fixes: string; tomorrow: string;
+  explainMore: string; explainLoading: string; explainError: string;
+} };
+type ChunkListStrings = { chunkList: { playAria: (en: string) => string } };
+type ShadowingStrings = { shadowing: {
+  intro: string; writingScript: string; generatingAudio: string; retry: string;
+  playing: string; play: string; showScript: string;
+  explainMore: string; explainLoading: string; explainError: string;
+} };
+type LibraryStrings = { library: {
+  title: string; loading: string; retry: string; empty: string;
+  playAria: (title: string) => string; playing: string; transcript: string;
+} };
+type RoleplayStrings = { roleplay: { starters: string } };
+type FreeTalkScreenStrings = { freeTalkScreen: {
+  idle: string; recording: string; transcribing: string; thinking: string; speaking: string; errorLabel: string;
+  micError: (detail: string) => string; notHeard: string;
+  hintLabel: string; hintPlaceholder: string; hintButton: string; hintThinking: string; hintError: string; retry: string;
+  you: string; ai: string; translate: string; translating: string; translateError: string;
+} };
+
+type Strings =
+  & NavStrings & UiScaleStrings & SupportStrings & StatStrings & HeroStrings
+  & QuickStrings & IntensiveStrings & DrillsStrings & SessionCardStrings
+  & CalendarStrings & FreeTalkHeaderStrings & ProgressStrings & PlacementStrings & SentencesStrings
+  & MenuTitleStrings & SessionStrings
+  & WarmupStrings & Ftt432Strings & ReflectionStrings & ChunkListStrings
+  & ShadowingStrings & LibraryStrings & RoleplayStrings & FreeTalkScreenStrings;
 
 const WEEKDAYS_EN = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const MONTHS_EN = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -216,6 +289,77 @@ export const STR: Record<Lang, Strings> = {
       deleteAria: (id) => `Delete chunk ${id}`,
       playChunkAria: (id) => `Play chunk ${id}`,
     },
+    menuTitle: {
+      warmup: () => "Read-Aloud Warm-up",
+      ftt: (t) => `4/3/2: ${t}`,
+      "ftt-mini": (t) => `4/3/2 Mini: ${t}`,
+      "roleplay-daily": (t) => `Daily Role-play: ${t}`,
+      "roleplay-business": (t) => `Business Role-play: ${t}`,
+      "roleplay-it": (t) => `IT Role-play: ${t}`,
+      shadowing: (t) => `Shadowing: ${t}`,
+      reflection: () => "Reflection",
+    },
+    session: {
+      building: "Building today's menu…", retry: "Retry", timerNote: "Move on at a natural stopping point",
+      finish: "✅ Finish session", next: "Next block →",
+      noTopic: "No topic available", noScenario: "No scenario available",
+      unknownBlock: (kind) => `Unknown block: ${kind}`,
+    },
+    warmup: {
+      intro: "Read these out loud (twice each). Tap 🔊 to hear a model. You'll use them in the 4/3/2 that follows.",
+      loading: "Your coach is preparing phrases…", retry: "Retry",
+      fallbackTitle: "Read these out loud instead",
+      clozeStepButton: "🔡 Read with gaps (round 2 · optional)",
+      clozeStepTitle: "Read with gaps (optional)",
+      clozeStepBody: "This time fill the blanks yourself as you read aloud. The answers are in the list above.",
+      outlineTitle: "Today's story outline",
+    },
+    ftt432: {
+      min: (v) => `${v} min`,
+      prepTitle: (topic) => `Prep — ${topic}`,
+      prepIntro: (rounds, count, prep) => `You'll tell the same story ${count} times: ${rounds}. First, look over some phrases and an outline (about ${prep}).`,
+      prepTimerNote: "Time to get started", loading: "Your coach is preparing phrases…", retry: "Retry",
+      outlineTitle: "Story outline",
+      modelIdle: "🎧 Hear a model talk (optional)", modelScript: "✍ Writing the script…",
+      modelAudio: "🎙 Generating audio…", modelPlaying: "🔊 Playing…", modelRetry: "🎧 Model talk (retry)",
+      startRound1: (min) => `Start Round 1 (${min}) →`, modelTranscript: "Model talk transcript",
+      aeTitle: "Feedback (read it, then Round 2)", aeLoading: "Your coach is writing feedback…",
+      aeNoRecording: "No recording, so there's no feedback", startRound2: (min) => `Start Round 2 (${min})`,
+      doneBody: (count) => `4/3/2 done! You told the same story ${count} times, a little faster each round.`,
+      roundHeading: (n, min, topic) => `Round ${n} (${min}) — ${topic}`,
+      timeUp: "— Time's up!", recStop: "⏹ Stop recording", recTranscribing: "📝 Transcribing…",
+      recStart: "🎙 Start speaking", roundFinish: "End this round →",
+      micError: (detail) => `Can't access the microphone: ${detail}`,
+      explainMore: "💡 Explain more", explainLoading: "Writing an explanation…", explainError: "Couldn't load the explanation.",
+    },
+    reflection: {
+      loading: "Your coach is reviewing today's session…", retry: "Retry",
+      goodPhrases: "👏 What went well", fixes: "✏️ Worth polishing", tomorrow: "📝 For tomorrow",
+      explainMore: "💡 Explain more", explainLoading: "Writing an explanation…", explainError: "Couldn't load the explanation.",
+    },
+    chunkList: { playAria: (en) => `Play "${en}"` },
+    shadowing: {
+      intro: "First, without looking at the script, repeat the audio slightly behind it, layering your voice over it (shadowing). Even one listen is fine. Stuck? Tap 'Show script' to check.",
+      writingScript: "✍ Your coach is writing the model talk…", generatingAudio: "🎙 Generating audio…", retry: "Retry",
+      playing: "🔊 Playing…", play: "▶ Play (as many times as you like)", showScript: "📄 Show script",
+      explainMore: "💡 Translation & notes", explainLoading: "Writing the translation and notes…",
+      explainError: "Couldn't load the explanation. Please try again.",
+    },
+    library: {
+      title: "📚 Model Talk Library", loading: "Loading…", retry: "Retry",
+      empty: "Nothing yet. Model talks you generate in 4/3/2 prep or Shadowing will be saved here.",
+      playAria: (title) => `Play "${title}"`, playing: "🔊 Playing…", transcript: "Transcript",
+    },
+    roleplay: { starters: "You could open with:" },
+    freeTalkScreen: {
+      idle: "🎙 Speak (click to start recording)", recording: "⏹ Recording… (click to send)",
+      transcribing: "📝 Transcribing…", thinking: "🤔 Thinking…", speaking: "🔊 Playing…", errorLabel: "🎙 Speak again",
+      micError: (detail) => `Can't access the microphone: ${detail}`, notHeard: "Couldn't catch that. Please try again.",
+      hintLabel: "Stuck? Type what you want to say in Japanese and I'll suggest ways to say it in English",
+      hintPlaceholder: "e.g. その機能はまだ試していません", hintButton: "💡 Phrasing hint",
+      hintThinking: "Thinking of ways to say it…", hintError: "Couldn't get hints. Please try again.", retry: "Retry",
+      you: "You", ai: "AI", translate: "Translate", translating: "Translating…", translateError: "Couldn't load the translation.",
+    },
   },
   ja: {
     nav: { home: "ホーム", placement: "レベル測定", free: "自由会話", library: "ライブラリ", sentences: "暗記例文300", progress: "進捗" },
@@ -329,6 +473,77 @@ export const STR: Record<Lang, Strings> = {
       deleteConfirm: "削除する?",
       deleteAria: (id) => `チャンク${id}を削除`,
       playChunkAria: (id) => `チャンク${id}を再生`,
+    },
+    menuTitle: {
+      warmup: () => "音読ウォームアップ",
+      ftt: (t) => `4/3/2: ${t}`,
+      "ftt-mini": (t) => `4/3/2ミニ: ${t}`,
+      "roleplay-daily": (t) => `日常ロールプレイ: ${t}`,
+      "roleplay-business": (t) => `ビジネスロールプレイ: ${t}`,
+      "roleplay-it": (t) => `ITロールプレイ: ${t}`,
+      shadowing: (t) => `シャドーイング: ${t}`,
+      reflection: () => "振り返り",
+    },
+    session: {
+      building: "今日のメニューを組んでいます…", retry: "再試行", timerNote: "キリのいいところで次へ",
+      finish: "✅ セッションを終える", next: "次のブロックへ →",
+      noTopic: "トピックがありません", noScenario: "シナリオがありません",
+      unknownBlock: (kind) => `未知のブロック: ${kind}`,
+    },
+    warmup: {
+      intro: "声に出して読みましょう（各フレーズ2回ずつ）。🔊でお手本を聞けます。このあとの 4/3/2 で実際に使います。",
+      loading: "コーチが表現チャンクを用意しています…", retry: "再試行",
+      fallbackTitle: "代わりにこちらを声に出して読みましょう",
+      clozeStepButton: "🔡 歯抜けで音読（2周目・任意）",
+      clozeStepTitle: "歯抜けで音読（任意）",
+      clozeStepBody: "今度は空欄を自分で埋めながら声に出しましょう。答えは上の一覧で確認できます。",
+      outlineTitle: "今日の話の骨組み",
+    },
+    ftt432: {
+      min: (v) => `${v}分`,
+      prepTitle: (topic) => `準備 — ${topic}`,
+      prepIntro: (rounds, count, prep) => `これから同じ話を ${rounds} で${count}回話します。まず使えそうな表現と骨組みを確認してください（目安 ${prep}）。`,
+      prepTimerNote: "そろそろ始めましょう", loading: "コーチが表現チャンクを用意しています…", retry: "再試行",
+      outlineTitle: "話の骨組み",
+      modelIdle: "🎧 モデルトークを聞く（任意）", modelScript: "✍ 原稿を作成中…",
+      modelAudio: "🎙 音声を生成中…", modelPlaying: "🔊 再生中…", modelRetry: "🎧 モデルトーク（再試行）",
+      startRound1: (min) => `Round 1 を始める（${min}）→`, modelTranscript: "モデルトーク本文",
+      aeTitle: "フィードバック（読んだら Round 2 へ）", aeLoading: "コーチがフィードバックを書いています…",
+      aeNoRecording: "録音がなかったのでフィードバックはありません", startRound2: (min) => `Round 2 を始める（${min}）`,
+      doneBody: (count) => `4/3/2 完了！同じ話を${count}回、少しずつ速く話せました。`,
+      roundHeading: (n, min, topic) => `Round ${n}（${min}） — ${topic}`,
+      timeUp: "— 時間切れ！", recStop: "⏹ 録音を止める", recTranscribing: "📝 文字起こし中…",
+      recStart: "🎙 話し始める", roundFinish: "このラウンドを終える →",
+      micError: (detail) => `マイクにアクセスできません: ${detail}`,
+      explainMore: "💡 もっと詳しく", explainLoading: "解説を書いています…", explainError: "解説を取得できませんでした。",
+    },
+    reflection: {
+      loading: "コーチが今日のセッションを振り返っています…", retry: "再試行",
+      goodPhrases: "👏 良かった表現", fixes: "✏️ 直したい表現", tomorrow: "📝 明日へ",
+      explainMore: "💡 もっと詳しく", explainLoading: "解説を書いています…", explainError: "解説を取得できませんでした。",
+    },
+    chunkList: { playAria: (en) => `「${en}」を再生` },
+    shadowing: {
+      intro: "まずはスクリプトを見ずに、音声に少し遅れてかぶせるように声に出して繰り返します（シャドーイング）。1回聞くだけでもOK。行き詰まったら「スクリプトを表示」で確認できます。",
+      writingScript: "✍ コーチがモデルトークを書いています…", generatingAudio: "🎙 音声を生成しています…", retry: "再試行",
+      playing: "🔊 再生中…", play: "▶ 再生（何度でも）", showScript: "📄 スクリプトを表示",
+      explainMore: "💡 日本語訳と解説", explainLoading: "日本語訳と解説を書いています…",
+      explainError: "解説を取得できませんでした。もう一度お試しください。",
+    },
+    library: {
+      title: "📚 モデルトークライブラリ", loading: "読み込み中…", retry: "再試行",
+      empty: "まだありません。4/3/2 の準備やシャドーイングでモデルトークを生成すると、ここに残ります。",
+      playAria: (title) => `「${title}」を再生`, playing: "🔊 再生中…", transcript: "本文",
+    },
+    roleplay: { starters: "こう切り出せます:" },
+    freeTalkScreen: {
+      idle: "🎙 話す（クリックで録音開始）", recording: "⏹ 録音中…（クリックで送信）",
+      transcribing: "📝 文字起こし中…", thinking: "🤔 考え中…", speaking: "🔊 再生中…", errorLabel: "🎙 もう一度話す",
+      micError: (detail) => `マイクにアクセスできません: ${detail}`, notHeard: "音声を聞き取れませんでした。もう一度話してください。",
+      hintLabel: "うまく言えないときは、言いたいことを日本語で入力すると英語の言い方を提案します",
+      hintPlaceholder: "例: その機能はまだ試していません", hintButton: "💡 言い方のヒント",
+      hintThinking: "言い方を考えています…", hintError: "ヒントを取得できませんでした。もう一度お試しください。", retry: "再試行",
+      you: "あなた", ai: "AI", translate: "訳", translating: "訳しています…", translateError: "訳を取得できませんでした。",
     },
   },
 };

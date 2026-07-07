@@ -1,23 +1,20 @@
 import { useEffect, useRef, useState } from "react";
 import { converse, fetchPhraseHints, fetchUtteranceTranslation, sttUpload, ttsFetch, type PhraseHint } from "../api";
 import { playBlob, Recorder, stopPlayback } from "../audio";
+import { STR, type Lang } from "../i18n";
 import { Banner } from "../ui/Banner";
 import { Button } from "../ui/Button";
 
 type Turn = { role: "you" | "ai"; text: string };
 type Status = "idle" | "recording" | "transcribing" | "thinking" | "speaking" | "error";
 
-const LABELS: Record<Status, string> = {
-  idle: "🎙 話す（クリックで録音開始）",
-  recording: "⏹ 録音中…（クリックで送信）",
-  transcribing: "📝 文字起こし中…",
-  thinking: "🤔 考え中…",
-  speaking: "🔊 再生中…",
-  error: "🎙 もう一度話す",
-};
-
 /** 会話ループ画面。scenarioId を渡すとロールプレイモードになる（M1の自由会話UIを抽出したもの） */
-export function FreeTalkScreen(props: { scenarioId?: string; onSessionId?: (id: string) => void }) {
+export function FreeTalkScreen(props: { scenarioId?: string; onSessionId?: (id: string) => void; lang: Lang }) {
+  const t = STR[props.lang].freeTalkScreen;
+  const LABELS: Record<Status, string> = {
+    idle: t.idle, recording: t.recording, transcribing: t.transcribing,
+    thinking: t.thinking, speaking: t.speaking, error: t.errorLabel,
+  };
   const [status, setStatus] = useState<Status>("idle");
   const [turns, setTurns] = useState<Turn[]>([]);
   const [errorMsg, setErrorMsg] = useState("");
@@ -43,7 +40,7 @@ export function FreeTalkScreen(props: { scenarioId?: string; onSessionId?: (id: 
         await recorderRef.current.start();
         setStatus("recording");
       } catch (err) {
-        setErrorMsg(`マイクにアクセスできません: ${err instanceof Error ? err.message : String(err)}`);
+        setErrorMsg(t.micError(err instanceof Error ? err.message : String(err)));
         setStatus("error");
       }
       return;
@@ -56,7 +53,7 @@ export function FreeTalkScreen(props: { scenarioId?: string; onSessionId?: (id: 
       const text = await sttUpload(blob);
       if (!aliveRef.current) return;
       if (!text) {
-        setErrorMsg("音声を聞き取れませんでした。もう一度話してください。");
+        setErrorMsg(t.notHeard);
         setStatus("error");
         return;
       }
@@ -104,7 +101,7 @@ export function FreeTalkScreen(props: { scenarioId?: string; onSessionId?: (id: 
     } catch {
       if (aliveRef.current) {
         setHints(null);
-        setHintError("ヒントを取得できませんでした。もう一度お試しください。");
+        setHintError(t.hintError);
       }
     }
   }
@@ -122,23 +119,23 @@ export function FreeTalkScreen(props: { scenarioId?: string; onSessionId?: (id: 
       {errorMsg && <Banner kind="error">{errorMsg}</Banner>}
       <div className="phrase-hint stack">
         <label className="text-sm text-muted" htmlFor="phrase-hint-input">
-          うまく言えないときは、言いたいことを日本語で入力すると英語の言い方を提案します
+          {t.hintLabel}
         </label>
         <input
           id="phrase-hint-input"
           type="text"
           value={hintInput}
           onChange={(e) => setHintInput(e.target.value)}
-          placeholder="例: その機能はまだ試していません"
+          placeholder={t.hintPlaceholder}
         />
         <Button variant="secondary" onClick={requestHints} disabled={hints === "loading" || !hintInput.trim()}>
-          💡 言い方のヒント
+          {t.hintButton}
         </Button>
-        {hints === "loading" && <p className="text-sm text-muted">言い方を考えています…</p>}
+        {hints === "loading" && <p className="text-sm text-muted">{t.hintThinking}</p>}
         {hintError && (
           <p className="sentence-explain text-sm">
             {hintError}
-            <Button variant="ghost" onClick={requestHints} disabled={!hintInput.trim()}>再試行</Button>
+            <Button variant="ghost" onClick={requestHints} disabled={!hintInput.trim()}>{t.retry}</Button>
           </p>
         )}
         {Array.isArray(hints) && (
@@ -153,19 +150,19 @@ export function FreeTalkScreen(props: { scenarioId?: string; onSessionId?: (id: 
         )}
       </div>
       <section className="chat">
-        {turns.map((t, i) => (
-          <div key={i} className={`chat-row ${t.role === "you" ? "you" : "ai"}`}>
-            <div className={`bubble ${t.role === "you" ? "bubble-you" : "bubble-ai"}`} aria-label={t.role === "you" ? "あなた" : "AI"}>{t.text}</div>
-            {t.role === "ai" && (
+        {turns.map((turn, i) => (
+          <div key={i} className={`chat-row ${turn.role === "you" ? "you" : "ai"}`}>
+            <div className={`bubble ${turn.role === "you" ? "bubble-you" : "bubble-ai"}`} aria-label={turn.role === "you" ? t.you : t.ai}>{turn.text}</div>
+            {turn.role === "ai" && (
               <div className="chat-translate">
                 {translations[i] === undefined && (
-                  <Button variant="ghost" onClick={() => translateTurn(i, t.text)}>訳</Button>
+                  <Button variant="ghost" onClick={() => translateTurn(i, turn.text)}>{t.translate}</Button>
                 )}
-                {translations[i] === "loading" && <p className="text-sm text-muted">訳しています…</p>}
+                {translations[i] === "loading" && <p className="text-sm text-muted">{t.translating}</p>}
                 {translations[i] === "error" && (
                   <p className="text-sm text-muted">
-                    訳を取得できませんでした。
-                    <Button variant="ghost" onClick={() => translateTurn(i, t.text)}>再試行</Button>
+                    {t.translateError}
+                    <Button variant="ghost" onClick={() => translateTurn(i, turn.text)}>{t.retry}</Button>
                   </p>
                 )}
                 {translations[i] !== undefined && translations[i] !== "loading" && translations[i] !== "error" && (

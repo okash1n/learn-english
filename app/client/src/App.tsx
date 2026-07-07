@@ -116,7 +116,7 @@ export function App() {
       )}
       {mode.kind === "start" && <StartScreen onSelect={onSelect} lang={lang} />}
       {mode.kind === "session" && (
-        <SessionRunner source={mode.source} sessionId={sessionId} onExit={() => setMode({ kind: "start" })} />
+        <SessionRunner source={mode.source} sessionId={sessionId} lang={lang} onExit={() => setMode({ kind: "start" })} />
       )}
       {mode.kind === "free" && (
         <div className="stack">
@@ -124,10 +124,10 @@ export function App() {
             <h2 className="hero-title">{t.freeTalk.title}</h2>
             <p className="hero-date">{t.freeTalk.desc}</p>
           </div>
-          <FreeTalkScreen />
+          <FreeTalkScreen lang={lang} />
         </div>
       )}
-      {mode.kind === "library" && <LibraryScreen />}
+      {mode.kind === "library" && <LibraryScreen lang={lang} />}
       {mode.kind === "sentences" && <SentencesScreen lang={lang} />}
       {mode.kind === "placement" && <PlacementScreen lang={lang} onExit={() => setMode({ kind: "start" })} />}
       {mode.kind === "progress" && <ProgressScreen lang={lang} />}
