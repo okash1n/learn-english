@@ -157,9 +157,9 @@ function BlockBody({ block, sessionId, lang }: { block: MenuBlock; sessionId: st
         <p>{STR[lang].session.noTopic}</p>
       );
     case "roleplay":
-      return block.params.scenario ? <RoleplayScreen scenario={block.params.scenario} /> : <p>{STR[lang].session.noScenario}</p>;
+      return block.params.scenario ? <RoleplayScreen scenario={block.params.scenario} lang={lang} /> : <p>{STR[lang].session.noScenario}</p>;
     case "shadowing":
-      return block.params.topic ? <ShadowingScreen topic={block.params.topic} /> : <p>{STR[lang].session.noTopic}</p>;
+      return block.params.topic ? <ShadowingScreen topic={block.params.topic} lang={lang} /> : <p>{STR[lang].session.noTopic}</p>;
     case "reflection":
       return <ReflectionScreen lang={lang} />;
     default:

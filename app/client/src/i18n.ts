@@ -146,13 +146,30 @@ type ReflectionStrings = { reflection: {
   explainMore: string; explainLoading: string; explainError: string;
 } };
 type ChunkListStrings = { chunkList: { playAria: (en: string) => string } };
+type ShadowingStrings = { shadowing: {
+  intro: string; writingScript: string; generatingAudio: string; retry: string;
+  playing: string; play: string; showScript: string;
+  explainMore: string; explainLoading: string; explainError: string;
+} };
+type LibraryStrings = { library: {
+  title: string; loading: string; retry: string; empty: string;
+  playAria: (title: string) => string; playing: string; transcript: string;
+} };
+type RoleplayStrings = { roleplay: { starters: string } };
+type FreeTalkScreenStrings = { freeTalkScreen: {
+  idle: string; recording: string; transcribing: string; thinking: string; speaking: string; errorLabel: string;
+  micError: (detail: string) => string; notHeard: string;
+  hintLabel: string; hintPlaceholder: string; hintButton: string; hintThinking: string; hintError: string; retry: string;
+  you: string; ai: string; translate: string; translating: string; translateError: string;
+} };
 
 type Strings =
   & NavStrings & UiScaleStrings & SupportStrings & StatStrings & HeroStrings
   & QuickStrings & IntensiveStrings & DrillsStrings & SessionCardStrings
   & CalendarStrings & FreeTalkHeaderStrings & ProgressStrings & PlacementStrings & SentencesStrings
   & MenuTitleStrings & SessionStrings
-  & WarmupStrings & Ftt432Strings & ReflectionStrings & ChunkListStrings;
+  & WarmupStrings & Ftt432Strings & ReflectionStrings & ChunkListStrings
+  & ShadowingStrings & LibraryStrings & RoleplayStrings & FreeTalkScreenStrings;
 
 const WEEKDAYS_EN = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const MONTHS_EN = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -321,6 +338,28 @@ export const STR: Record<Lang, Strings> = {
       explainMore: "💡 Explain more", explainLoading: "Writing an explanation…", explainError: "Couldn't load the explanation.",
     },
     chunkList: { playAria: (en) => `Play "${en}"` },
+    shadowing: {
+      intro: "First, without looking at the script, repeat the audio slightly behind it, layering your voice over it (shadowing). Even one listen is fine. Stuck? Tap 'Show script' to check.",
+      writingScript: "✍ Your coach is writing the model talk…", generatingAudio: "🎙 Generating audio…", retry: "Retry",
+      playing: "🔊 Playing…", play: "▶ Play (as many times as you like)", showScript: "📄 Show script",
+      explainMore: "💡 Translation & notes", explainLoading: "Writing the translation and notes…",
+      explainError: "Couldn't load the explanation. Please try again.",
+    },
+    library: {
+      title: "📚 Model Talk Library", loading: "Loading…", retry: "Retry",
+      empty: "Nothing yet. Model talks you generate in 4/3/2 prep or Shadowing will be saved here.",
+      playAria: (title) => `Play "${title}"`, playing: "🔊 Playing…", transcript: "Transcript",
+    },
+    roleplay: { starters: "You could open with:" },
+    freeTalkScreen: {
+      idle: "🎙 Speak (click to start recording)", recording: "⏹ Recording… (click to send)",
+      transcribing: "📝 Transcribing…", thinking: "🤔 Thinking…", speaking: "🔊 Playing…", errorLabel: "🎙 Speak again",
+      micError: (detail) => `Can't access the microphone: ${detail}`, notHeard: "Couldn't catch that. Please try again.",
+      hintLabel: "Stuck? Type what you want to say in Japanese and I'll suggest ways to say it in English",
+      hintPlaceholder: "e.g. その機能はまだ試していません", hintButton: "💡 Phrasing hint",
+      hintThinking: "Thinking of ways to say it…", hintError: "Couldn't get hints. Please try again.", retry: "Retry",
+      you: "You", ai: "AI", translate: "Translate", translating: "Translating…", translateError: "Couldn't load the translation.",
+    },
   },
   ja: {
     nav: { home: "ホーム", placement: "レベル測定", free: "自由会話", library: "ライブラリ", sentences: "暗記例文300", progress: "進捗" },
@@ -484,5 +523,27 @@ export const STR: Record<Lang, Strings> = {
       explainMore: "💡 もっと詳しく", explainLoading: "解説を書いています…", explainError: "解説を取得できませんでした。",
     },
     chunkList: { playAria: (en) => `「${en}」を再生` },
+    shadowing: {
+      intro: "まずはスクリプトを見ずに、音声に少し遅れてかぶせるように声に出して繰り返します（シャドーイング）。1回聞くだけでもOK。行き詰まったら「スクリプトを表示」で確認できます。",
+      writingScript: "✍ コーチがモデルトークを書いています…", generatingAudio: "🎙 音声を生成しています…", retry: "再試行",
+      playing: "🔊 再生中…", play: "▶ 再生（何度でも）", showScript: "📄 スクリプトを表示",
+      explainMore: "💡 日本語訳と解説", explainLoading: "日本語訳と解説を書いています…",
+      explainError: "解説を取得できませんでした。もう一度お試しください。",
+    },
+    library: {
+      title: "📚 モデルトークライブラリ", loading: "読み込み中…", retry: "再試行",
+      empty: "まだありません。4/3/2 の準備やシャドーイングでモデルトークを生成すると、ここに残ります。",
+      playAria: (title) => `「${title}」を再生`, playing: "🔊 再生中…", transcript: "本文",
+    },
+    roleplay: { starters: "こう切り出せます:" },
+    freeTalkScreen: {
+      idle: "🎙 話す（クリックで録音開始）", recording: "⏹ 録音中…（クリックで送信）",
+      transcribing: "📝 文字起こし中…", thinking: "🤔 考え中…", speaking: "🔊 再生中…", errorLabel: "🎙 もう一度話す",
+      micError: (detail) => `マイクにアクセスできません: ${detail}`, notHeard: "音声を聞き取れませんでした。もう一度話してください。",
+      hintLabel: "うまく言えないときは、言いたいことを日本語で入力すると英語の言い方を提案します",
+      hintPlaceholder: "例: その機能はまだ試していません", hintButton: "💡 言い方のヒント",
+      hintThinking: "言い方を考えています…", hintError: "ヒントを取得できませんでした。もう一度お試しください。", retry: "再試行",
+      you: "あなた", ai: "AI", translate: "訳", translating: "訳しています…", translateError: "訳を取得できませんでした。",
+    },
   },
 };

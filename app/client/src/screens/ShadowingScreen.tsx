@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { fetchTalkExplanation, prefetchModelTalkAudio, type ContentItem } from "../api";
 import { playBlob, stopPlayback } from "../audio";
+import { STR, type Lang } from "../i18n";
 import { getSupport, resolveSupport } from "../support";
 import { useExplain } from "../useExplain";
 import { Banner } from "../ui/Banner";
@@ -10,7 +11,8 @@ import { Card } from "../ui/Card";
 type State = "script" | "audio" | "ready" | "playing" | "error";
 
 /** モデルトークをTTSで聞きながら重ねて音読するシャドーイングブロック（知覚ドリル）。既定はスクリプトを隠して聞く */
-export function ShadowingScreen(props: { topic: ContentItem }) {
+export function ShadowingScreen(props: { topic: ContentItem; lang: Lang }) {
+  const t = STR[props.lang].shadowing;
   const [state, setState] = useState<State>("script");
   const [text, setText] = useState("");
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
@@ -68,32 +70,32 @@ export function ShadowingScreen(props: { topic: ContentItem }) {
   return (
     <div className="stack">
       <p className="text-muted">
-        まずはスクリプトを見ずに、音声に少し遅れてかぶせるように声に出して繰り返します（シャドーイング）。1回聞くだけでもOK。行き詰まったら「スクリプトを表示」で確認できます。
+        {t.intro}
       </p>
-      {state === "script" && <p className="text-muted">✍ コーチがモデルトークを書いています…</p>}
-      {state === "audio" && <p className="text-muted">🎙 音声を生成しています…</p>}
+      {state === "script" && <p className="text-muted">{t.writingScript}</p>}
+      {state === "audio" && <p className="text-muted">{t.generatingAudio}</p>}
       {state === "error" && (
-        <Banner kind="error" action={<Button onClick={prepare}>再試行</Button>}>
+        <Banner kind="error" action={<Button onClick={prepare}>{t.retry}</Button>}>
           {errorMsg}
         </Banner>
       )}
       {(state === "ready" || state === "playing") && (
         <div className="stack">
           <Button variant="primary" onClick={play} disabled={state === "playing"}>
-            {state === "playing" ? "🔊 再生中…" : "▶ 再生（何度でも）"}
+            {state === "playing" ? t.playing : t.play}
           </Button>
           {!showScript && (
-            <Button variant="secondary" onClick={() => setShowScript(true)}>📄 スクリプトを表示</Button>
+            <Button variant="secondary" onClick={() => setShowScript(true)}>{t.showScript}</Button>
           )}
           {showScript && (
             <>
               <Card className="reading-text">{text}</Card>
               {explainer.state.status === "idle" && (
-                <Button variant="ghost" onClick={explainer.request}>💡 日本語訳と解説</Button>
+                <Button variant="ghost" onClick={explainer.request}>{t.explainMore}</Button>
               )}
-              {explainer.state.status === "loading" && <p className="text-sm text-muted">日本語訳と解説を書いています…</p>}
+              {explainer.state.status === "loading" && <p className="text-sm text-muted">{t.explainLoading}</p>}
               {explainer.state.status === "error" && (
-                <p className="text-sm text-muted">解説を取得できませんでした。もう一度お試しください。<Button variant="ghost" onClick={explainer.request}>再試行</Button></p>
+                <p className="text-sm text-muted">{t.explainError}<Button variant="ghost" onClick={explainer.request}>{t.retry}</Button></p>
               )}
               {explainer.state.status === "done" && <p className="sentence-explain text-sm">{explainer.state.text}</p>}
             </>

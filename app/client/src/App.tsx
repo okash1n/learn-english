@@ -124,10 +124,10 @@ export function App() {
             <h2 className="hero-title">{t.freeTalk.title}</h2>
             <p className="hero-date">{t.freeTalk.desc}</p>
           </div>
-          <FreeTalkScreen />
+          <FreeTalkScreen lang={lang} />
         </div>
       )}
-      {mode.kind === "library" && <LibraryScreen />}
+      {mode.kind === "library" && <LibraryScreen lang={lang} />}
       {mode.kind === "sentences" && <SentencesScreen lang={lang} />}
       {mode.kind === "placement" && <PlacementScreen lang={lang} onExit={() => setMode({ kind: "start" })} />}
       {mode.kind === "progress" && <ProgressScreen lang={lang} />}
