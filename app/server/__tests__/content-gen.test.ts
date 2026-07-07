@@ -7,7 +7,7 @@ import { loadContent, parseContentFile } from "../content";
 import { loadSentences, type Sentence } from "../sentences";
 import type { ClaudeRunner } from "../converse";
 import {
-  contentToMarkdown, genSentences, genTopics, genScenarios, SCENARIO_BAND_PLAN,
+  contentToMarkdown, genSentences, genTopics, genScenarios, genTopicsBand, SCENARIO_BAND_PLAN, TOPIC_BAND_PLAN,
   validateNewSentences, validateTopicCandidate,
 } from "../content-gen";
 import { loadListening, parseListeningFile } from "../listening";
@@ -583,6 +583,94 @@ describe("genScenarios（固定プラン・stage1帯）", () => {
       const parsed = parseContentFile(readFileSync(path.join(dir, f), "utf8"))!;
       expect(parsed.starters).toHaveLength(3);
     }
+    rmSync(dir, { recursive: true, force: true });
+  });
+});
+
+describe("genTopicsBand（固定プラン・stage1帯business/it補充）", () => {
+  test("プランは business x2 / it x2 の [1,3] を狙う", () => {
+    expect(TOPIC_BAND_PLAN.map((p) => [p.domain, p.level])).toEqual([
+      ["business", [1, 3]], ["business", [1, 3]], ["it", [1, 3]], ["it", [1, 3]],
+    ]);
+  });
+
+  test("生成候補のdomain/levelはプランで固定され、検証通過分を全件書き込む（hints=4件・English—日本語形式）", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "gen-tb-"));
+    let n = 0;
+    const runner = async () => {
+      n++;
+      return { text: JSON.stringify({
+        id: `stage1-tb-${n}`, title: `T${n}`, titleJa: `t${n}`,
+        domain: "daily", level: [4, 6], // モデルが誤った domain/level を返してもプランで上書きされる
+        hints: ["a — あ", "b — い", "c — う", "d — え"],
+      }) };
+    };
+    await genTopicsBand({ runner: runner as never, topicsDir: dir, dry: false, log: () => {} });
+    const files = readdirSync(dir).filter((f) => f.endsWith(".md")).sort();
+    expect(files).toHaveLength(4);
+    const first = parseContentFile(readFileSync(path.join(dir, files[0]), "utf8"))!;
+    expect([first.domain, first.level[0]]).toEqual(["business", 1]); // プラン固定・stage1帯
+    expect(first.hints).toHaveLength(4);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("hintsが4件でない候補は検証NGとして再生成される", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "gen-tb-bad-"));
+    let n = 0;
+    const runner = async () => {
+      n++;
+      const hints = n === 1 ? ["a — あ", "b — い", "c — う"] : ["a — あ", "b — い", "c — う", "d — え"];
+      return { text: JSON.stringify({ id: `stage1-tb-${n}`, title: `T${n}`, titleJa: `t${n}`, hints }) };
+    };
+    const logs: string[] = [];
+    await genTopicsBand({ runner: runner as never, topicsDir: dir, dry: false, log: (s) => logs.push(s) });
+    const files = readdirSync(dir).filter((f) => f.endsWith(".md")).sort();
+    expect(files).toHaveLength(4);
+    for (const f of files) {
+      const parsed = parseContentFile(readFileSync(path.join(dir, f), "utf8"))!;
+      expect(parsed.hints).toHaveLength(4);
+    }
+    expect(logs.some((l) => l.includes("検証NG"))).toBe(true);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("不正候補が2回続くと先に検証済みの候補も含めて書き込みゼロ（オーファン無し）", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "gen-tb-fail-"));
+    const bad = JSON.stringify({ id: "bad-topic", title: "T", titleJa: "t", hints: ["only one"] });
+    await expect(
+      genTopicsBand({ runner: (async () => ({ text: bad })) as never, topicsDir: dir, dry: false }),
+    ).rejects.toThrow();
+    expect(readdirSync(dir).filter((f) => f.endsWith(".md"))).toEqual([]);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("dry=trueは一切書かない", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "gen-tb-dry-"));
+    let n = 0;
+    const runner = async () => {
+      n++;
+      return { text: JSON.stringify({ id: `stage1-tb-${n}`, title: `T${n}`, titleJa: `t${n}`, hints: ["a — あ", "b — い", "c — う", "d — え"] }) };
+    };
+    const logs: string[] = [];
+    await genTopicsBand({ runner: runner as never, topicsDir: dir, dry: true, log: (s) => logs.push(s) });
+    expect(readdirSync(dir).filter((f) => f.endsWith(".md"))).toEqual([]);
+    expect(logs.some((l) => l.includes("--dry"))).toBe(true);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("systemPromptはvocabConstraint(1)とbeginner difficulty文言を含む", async () => {
+    const seen: Array<{ systemPrompt?: string }> = [];
+    let n = 0;
+    const runner: ClaudeRunner = async (_p, _r, opts) => {
+      seen.push({ systemPrompt: opts?.systemPrompt });
+      n++;
+      return { text: JSON.stringify({ id: `stage1-tb-${n}`, title: `T${n}`, titleJa: `t${n}`, hints: ["a — あ", "b — い", "c — う", "d — え"] }), sessionId: "fake" };
+    };
+    const dir = mkdtempSync(path.join(tmpdir(), "gen-tb-prompt-"));
+    await genTopicsBand({ runner, topicsDir: dir, dry: true });
+    expect(seen[0].systemPrompt).toContain("word families");
+    expect(seen[0].systemPrompt).toContain("beginner difficulty stage 1-3 of 6");
+    expect(seen[0].systemPrompt).toContain("own daily work life");
     rmSync(dir, { recursive: true, force: true });
   });
 });

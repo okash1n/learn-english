@@ -425,6 +425,106 @@ Do not use any tools — reply directly with text only.`;
   log(`完了: ${written.length} 本の stage1 シナリオを追加しました。`);
 }
 
+export type GenTopicsBandDeps = {
+  runner: ClaudeRunner;
+  topicsDir: string;
+  dry: boolean;
+  log?: (s: string) => void;
+};
+
+/** stage1 帯が枯渇しているドメイン(business/it)を補う固定プラン（domain/level を固定・語彙は stage1 レベリング） */
+export const TOPIC_BAND_PLAN: ReadonlyArray<{ domain: "business" | "it"; level: [number, number]; vocabStage: number }> = [
+  { domain: "business", level: [1, 3], vocabStage: 1 },
+  { domain: "business", level: [1, 3], vocabStage: 1 },
+  { domain: "it", level: [1, 3], vocabStage: 1 },
+  { domain: "it", level: [1, 3], vocabStage: 1 },
+];
+
+/**
+ * genTopicsBand 用の候補検証（domain/level はプラン固定なので検査しない — id/title/titleJa/hints のみ）。
+ * hints は genTopics の topic 分岐と同じ「English phrase — 日本語の補足」形式で4件ちょうどを要求する。
+ */
+function validateTopicBandCandidate(
+  parsed: unknown, existingIds: Set<string>, dir: string,
+): { id: string; title: string; titleJa: string; hints: string[] } | null {
+  if (typeof parsed !== "object" || parsed === null) return null;
+  const c = parsed as Partial<NewContentCandidate>;
+  if (typeof c.id !== "string" || !/^[a-z0-9]+(-[a-z0-9]+)*$/.test(c.id)) return null;
+  if (existingIds.has(c.id) || existsSync(path.join(dir, `${c.id}.md`))) return null;
+  if (typeof c.title !== "string" || !c.title.trim() || /[\n"]/.test(c.title)) return null;
+  if (typeof c.titleJa !== "string" || !c.titleJa.trim() || /[\n"]/.test(c.titleJa)) return null;
+  if (!Array.isArray(c.hints) || c.hints.length !== 4) return null;
+  if (!c.hints.every((h) => typeof h === "string" && h.trim().length > 0)) return null;
+  return {
+    id: c.id, title: c.title.trim(), titleJa: c.titleJa.trim(),
+    hints: c.hints.map((h) => h.trim()),
+  };
+}
+
+/**
+ * 固定プラン（TOPIC_BAND_PLAN）で stage1 帯の business/IT お題を補充する。domain/level はプランで固定し、
+ * 語彙制約は帯に連動（stage1）。全候補を検証してから一括書き込み（all-or-nothing）。
+ */
+export async function genTopicsBand(deps: GenTopicsBandDeps): Promise<void> {
+  const log = deps.log ?? console.log;
+  const existingIds = new Set(loadContent(deps.topicsDir).map((c) => c.id));
+  const candidates: NewContentCandidate[] = [];
+
+  for (const p of TOPIC_BAND_PLAN) {
+    const vocab = vocabConstraint(p.vocabStage);
+    const vocabLine = vocab ? `${vocab}\n` : "";
+    const domainDesc = p.domain === "business" ? "the workplace" : "software/IT work";
+    const system = `You create one original topic for an English speaking practice app (Japanese learner, beginner difficulty stage ${p.level[0]}-${p.level[1]} of 6).
+Domain: ${domainDesc}. A topic gives 4 talking-point hints for a monologue: a near-beginner can talk about it from their own daily work life (e.g., describing a workday, tools they use, asking for help — pick your own original angle).
+Each hint line: English phrase — 日本語の補足. Spoken register. ${ORIGINALITY}
+${vocabLine}Do NOT reuse these existing ids: ${[...existingIds].join(", ") || "(none)"}
+Reply with STRICT JSON only:
+{"id":"kebab-case-id","title":"English title","titleJa":"日本語タイトル","hints":["English — 日本語", ...4 items]}
+Do not use any tools — reply directly with text only.`;
+    let cand: { id: string; title: string; titleJa: string; hints: string[] } | null = null;
+    for (let attempt = 1; attempt <= 2 && !cand; attempt++) {
+      let text: string | undefined;
+      try {
+        ({ text } = await deps.runner(`Write the ${p.domain} beginner topic now.`, undefined, { systemPrompt: system }));
+      } catch (err) {
+        // SDK呼び出し自体の一過性エラー（例: tool_use起因のmaxTurns超過）も検証NGと同様に1回だけ再試行する。
+        // 非一過性の障害（認証切れ等）が「検証NG」に化けて原因が消えないよう、実エラーは必ずログに残す
+        console.warn("[content-gen] runner error:", err instanceof Error ? err.message : String(err));
+      }
+      if (text !== undefined) {
+        const parsed = extractJson<NewContentCandidate>(text);
+        cand = validateTopicBandCandidate(parsed, existingIds, deps.topicsDir);
+      }
+      if (!cand && attempt === 1) log(`  ${p.domain}/${p.level[0]}-${p.level[1]}: 検証NG — 再生成します`);
+    }
+    if (!cand) {
+      throw new Error(`エラー: ${p.domain}/${p.level[0]}-${p.level[1]} のお題が検証を通りませんでした。何も書き込みません。`);
+    }
+    existingIds.add(cand.id);
+    candidates.push({ ...cand, kind: "topic", domain: p.domain, level: p.level });
+    log(`  + topic: ${cand.id} [${p.domain}/${p.level[0]}-${p.level[1]}] ${cand.title}`);
+  }
+
+  if (deps.dry) {
+    log("--dry のため書き込みません");
+    return;
+  }
+
+  const written: string[] = [];
+  try {
+    for (const cand of candidates) {
+      const file = path.join(deps.topicsDir, `${cand.id}.md`);
+      if (existsSync(file)) throw new Error(`エラー: ${file} は既に存在します。中止します。`);
+      writeFileSync(file, contentToMarkdown(cand));
+      written.push(file);
+    }
+  } catch (err) {
+    for (const f of written) rmSync(f, { force: true });
+    throw err;
+  }
+  log(`完了: ${written.length} 本の stage1帯 business/IT お題を追加しました。`);
+}
+
 export type NewListeningCandidate = { id: string; title: string; titleJa: string; paragraphs: string[] };
 
 /** parseListeningFile が読める markdown に整形する（ラウンドトリップをテストで保証）。domain/level はプラン側で固定。 */
