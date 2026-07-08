@@ -71,6 +71,13 @@
 
 > 設計の正は spec §7。要件（binding）: ①しっかり選択できる ②現在何が使われているか明確 ③既定・推奨が一目で分かる。
 
+**実機カタログ所見（2026-07-08 コントローラ実測・Task 3 の実 fetcher で取得成功）— UI 実装はこの実形状を前提にする:**
+- claude 行は id に装飾がある（`opus[1m]`・`claude-fable-5[1m]`・`default` 等）→ **エイリアス（haiku/sonnet/opus）→カタログ行の対応は displayName の小文字一致で解決**（id 一致に頼らない）。`default` 行（CLI 自身の推奨・現在 opus 実体）は DD 選択肢から**除外**（本アプリの既定は sonnet コード定数であり混同を招くため）。resolvedModel 実例: sonnet→`claude-sonnet-5`・haiku→`claude-haiku-4-5-20251001`
+- **haiku は efforts フィールドなし**（effort 非対応）→ claude の effort DD はカタログに efforts が無いモデル選択中は「既定（SDK標準）」のみにする
+- **claude に effort `max` が存在**（opus/sonnet/fable）→ `app/server/routes/llm-settings.ts` の effort whitelist に `max` を追加（+テスト）。UI の effort 選択肢はカタログ由来に絞るため codex に max が出ることはない
+- **codex tier の実語彙**: カタログ serviceTiers は `["priority"]`（gpt-5.5 のみ・5.4-mini/5.3-spark は無し）。codex config の正式語彙は `fast`/`flex` で、`fast` の request 実体が `priority`。`standard` は正式値ではなく「指定なし」センチネルだが、codex-rs は未知値を `from_request_value` で黙って None（標準ルーティング）に倒すため現行の `standard` 送信は実害なし（実測・コード確認済み）。**保存語彙は {fast, standard} を維持**し、UI 表示: tiers を持つモデル =「標準」+「fast（優先配信）」、持たないモデル =「標準」のみ
+- codex は gpt-5.5 が `isDefault:true`・defaultEffort `medium`（コード既定 medium と一致）。local は `/v1/models` から取得成功（qwen3:30b-instruct）
+
 **Files:**
 - Create: `app/client/src/api/llm-models.ts`（+ `api/index.ts` バレル1行）
 - Modify: `app/client/src/screens/SettingsScreen.tsx`、`app/client/src/lib/llm-assignments.ts`（実効解決ヘルパ）、`app/client/src/i18n.ts`（EN/JA 同時）
