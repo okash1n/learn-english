@@ -70,7 +70,7 @@ export function SettingsScreen({ lang, uiScale, setUiScale, switchLang }: Props)
   const [llmResult, setLlmResult] = useState<string | null>(null);
   const [ttsResult, setTtsResult] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [tab, setTab] = useState<"conn" | "roles" | "voice" | "display">("conn");
+  const [tab, setTab] = useState<"conn" | "roles" | "display">("conn");
   const fetchedRef = useRef(false);
 
   // 接続の編集状態
@@ -180,7 +180,6 @@ export function SettingsScreen({ lang, uiScale, setUiScale, switchLang }: Props)
       <div className="lang-toggle settings-tabs" role="tablist" aria-label={s.settings.title}>
         <button role="tab" aria-selected={tab === "conn"} className={tab === "conn" ? "is-active" : ""} onClick={() => setTab("conn")}>{s.settings.connectionSection}</button>
         <button role="tab" aria-selected={tab === "roles"} className={tab === "roles" ? "is-active" : ""} onClick={() => setTab("roles")}>{s.settings.roleAssignSection}</button>
-        <button role="tab" aria-selected={tab === "voice"} className={tab === "voice" ? "is-active" : ""} onClick={() => setTab("voice")}>{s.settings.ttsSection}</button>
         <button role="tab" aria-selected={tab === "display"} className={tab === "display" ? "is-active" : ""} onClick={() => setTab("display")}>{s.settings.displaySection}</button>
       </div>
 
@@ -210,6 +209,37 @@ export function SettingsScreen({ lang, uiScale, setUiScale, switchLang }: Props)
           <div className="text-sm text-muted">{s.llm.help}</div>
           <Button variant="secondary" onClick={() => void persist(targets, conn)} disabled={saving || !view}>{saving ? s.llm.saving : s.settings.saveConnection}</Button>
           {llmResult && <div className="info-pop" role="status">{llmResult}</div>}
+
+          <div className="stat-title">{s.settings.ttsSection}</div>
+          <div className="text-sm text-muted">{s.settings.ttsDesc}</div>
+          <div className="llm-fields stack">
+            <label className="llm-field">
+              <span className="text-sm text-muted">{s.settings.ttsBaseUrlLabel}</span>
+              <input className="llm-input" value={ttsBaseUrl} placeholder={s.settings.ttsBaseUrlPlaceholder} onChange={(e) => setTtsBaseUrl(e.target.value)} />
+            </label>
+            <label className="llm-field">
+              <span className="text-sm text-muted">{s.settings.ttsModelLabel}</span>
+              <input className="llm-input" value={ttsModel} placeholder={s.settings.ttsModelPlaceholder} onChange={(e) => setTtsModel(e.target.value)} />
+            </label>
+            <div className="llm-field">
+              <span className="text-sm text-muted">{s.settings.ttsVoicePresetLabel}</span>
+              <div className="lang-toggle" role="group" aria-label={s.settings.ttsVoicePresetLabel}>
+                <button className={voicePreset === "female" ? "is-active" : ""} disabled={!ttsView} onClick={() => applyVoicePreset("female")}>{s.settings.ttsVoiceFemale}</button>
+                <button className={voicePreset === "male" ? "is-active" : ""} disabled={!ttsView} onClick={() => applyVoicePreset("male")}>{s.settings.ttsVoiceMale}</button>
+                <button className={voicePreset === "custom" ? "is-active" : ""} disabled={!ttsView}>{s.settings.ttsVoiceCustom}</button>
+              </div>
+              <span className="text-sm text-muted">{s.settings.ttsVoicePresetNote}</span>
+            </div>
+            <label className="llm-field">
+              <span className="text-sm text-muted">{s.settings.ttsVoiceLabel}</span>
+              <input className="llm-input" value={ttsVoice} placeholder={s.settings.ttsVoicePlaceholder} onChange={(e) => setTtsVoice(e.target.value)} />
+            </label>
+            <div className="text-sm text-muted">{ttsView?.apiKeyConfigured ? s.settings.ttsApiKeyConfigured : s.settings.ttsApiKeyOptional}</div>
+          </div>
+          <Button variant="secondary" onClick={onSaveTts} disabled={saving || !ttsView}>{saving ? s.llm.saving : s.llm.save}</Button>
+          <div className="text-sm text-muted">{s.settings.ttsResetDesc}</div>
+          <Button variant="secondary" onClick={onResetTts} disabled={saving || !ttsView}>{s.settings.ttsReset}</Button>
+          {ttsResult && <div className="info-pop" role="status">{ttsResult}</div>}
         </section>
       )}
 
@@ -267,41 +297,6 @@ export function SettingsScreen({ lang, uiScale, setUiScale, switchLang }: Props)
           </div>
 
           {llmResult && <div className="info-pop" role="status">{llmResult}</div>}
-        </section>
-      )}
-
-      {tab === "voice" && (
-        <section className="support-panel stack">
-          <div className="stat-title">{s.settings.ttsSection}</div>
-          <div className="text-sm text-muted">{s.settings.ttsDesc}</div>
-          <div className="llm-fields stack">
-            <label className="llm-field">
-              <span className="text-sm text-muted">{s.settings.ttsBaseUrlLabel}</span>
-              <input className="llm-input" value={ttsBaseUrl} placeholder={s.settings.ttsBaseUrlPlaceholder} onChange={(e) => setTtsBaseUrl(e.target.value)} />
-            </label>
-            <label className="llm-field">
-              <span className="text-sm text-muted">{s.settings.ttsModelLabel}</span>
-              <input className="llm-input" value={ttsModel} placeholder={s.settings.ttsModelPlaceholder} onChange={(e) => setTtsModel(e.target.value)} />
-            </label>
-            <div className="llm-field">
-              <span className="text-sm text-muted">{s.settings.ttsVoicePresetLabel}</span>
-              <div className="lang-toggle" role="group" aria-label={s.settings.ttsVoicePresetLabel}>
-                <button className={voicePreset === "female" ? "is-active" : ""} disabled={!ttsView} onClick={() => applyVoicePreset("female")}>{s.settings.ttsVoiceFemale}</button>
-                <button className={voicePreset === "male" ? "is-active" : ""} disabled={!ttsView} onClick={() => applyVoicePreset("male")}>{s.settings.ttsVoiceMale}</button>
-                <button className={voicePreset === "custom" ? "is-active" : ""} disabled={!ttsView}>{s.settings.ttsVoiceCustom}</button>
-              </div>
-              <span className="text-sm text-muted">{s.settings.ttsVoicePresetNote}</span>
-            </div>
-            <label className="llm-field">
-              <span className="text-sm text-muted">{s.settings.ttsVoiceLabel}</span>
-              <input className="llm-input" value={ttsVoice} placeholder={s.settings.ttsVoicePlaceholder} onChange={(e) => setTtsVoice(e.target.value)} />
-            </label>
-            <div className="text-sm text-muted">{ttsView?.apiKeyConfigured ? s.settings.ttsApiKeyConfigured : s.settings.ttsApiKeyOptional}</div>
-          </div>
-          <Button variant="secondary" onClick={onSaveTts} disabled={saving || !ttsView}>{saving ? s.llm.saving : s.llm.save}</Button>
-          <div className="text-sm text-muted">{s.settings.ttsResetDesc}</div>
-          <Button variant="secondary" onClick={onResetTts} disabled={saving || !ttsView}>{s.settings.ttsReset}</Button>
-          {ttsResult && <div className="info-pop" role="status">{ttsResult}</div>}
         </section>
       )}
 
