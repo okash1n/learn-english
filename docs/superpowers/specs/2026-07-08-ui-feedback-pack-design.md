@@ -66,7 +66,9 @@
 | conversation | 推奨: ローカル — 応答が最も速いため。品質が物足りなければ Claude や Codex へ。 | Recommended: local — fastest responses. Switch to Claude or Codex if quality falls short. |
 | coaching | 推奨: Claude / Codex — 速度より文章の品質が重要なため。 | Recommended: Claude or Codex — writing quality matters more than speed. |
 | generation | 推奨: ローカル — 出力が定型的で要求性能は低め。品質を上げたいときは Claude へ。 | Recommended: local — fairly templated output with modest quality demands. Switch to Claude for higher quality. |
-| assessment | 推奨: Claude — 実行頻度が低く、質の高さが最優先のため。 | Recommended: Claude — runs infrequently and quality matters most. |
+| assessment | 推奨: Claude / Codex — 実行頻度が低く、質の高さが最優先のため。 | Recommended: Claude or Codex — runs infrequently and quality matters most. |
+
+（2026-07-08 追記: 測定の推奨に Codex を追加 — Codex アダプタは read-only のテキスト実行で測定に機能制約が無く、GPT-5.5 級の性能は Opus と大差ないというユーザー判断。既定 reasoning effort=medium 上書きの注意は README に記載）
 
 - README: ロール表（153–158行）に「推奨」列を追加し、「使い分けの目安」（192行）を同内容に更新。Codex は「プリセットには含まれず手動割当のみ・プロンプトは Claude 向け調整という品質の前提あり」の但し書きを維持
 - ユーザー発言中の「Codex（※Typeless）」は意味が確認できなかったため文言に含めない（確認待ち事項）
