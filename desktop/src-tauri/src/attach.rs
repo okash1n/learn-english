@@ -14,12 +14,25 @@ const POLL_ATTEMPTS: u32 = 5;
 const POLL_INTERVAL: Duration = Duration::from_secs(1);
 const MAIN_WINDOW_LABEL: &str = "main";
 
-/// Task 3（録音→STT PoC）専用のdevフック: 起動時に環境変数 `SOLO_EIKAIWA_POC=stt` が
-/// 設定されていれば通常の `/` ではなく dev専用PoCページ（`?poc=stt`）へ向ける。
-/// `open` はプロセスにenvを引き渡さないため、`.app`内バイナリを直接起動する必要がある
-/// （detached試作機用。本番の起動導線・既定URLは変更しない）。
+/// Task 3（録音→STT PoC）専用のdevフック: 環境変数 `SOLO_EIKAIWA_POC=stt` または
+/// CLI引数 `--poc=stt` のどちらかが指定されていれば通常の `/` ではなく dev専用PoCページ
+/// （`?poc=stt`）へ向ける。
+///
+/// 2経路ある理由: 直接exec（`.app`内バイナリを直接起動）はenvを引き継ぐがTCC
+/// （マイク権限ダイアログ）の請求元が起動元のターミナルに誤帰属することが実機検証で判明した。
+/// `open -na App --args --poc=stt` はLaunchServices経由の起動のためTCCの請求元が正しく
+/// アプリ本体に帰属する一方、envは引き継がない。そのため argv 経由を正規の起動手段とし、
+/// env var は（デバッグ時の直接exec向けに）互換性のため残す。
+fn args_have_poc_stt_flag(mut args: impl Iterator<Item = String>) -> bool {
+    args.any(|a| a == "--poc=stt")
+}
+
+fn poc_stt_requested() -> bool {
+    args_have_poc_stt_flag(std::env::args()) || std::env::var("SOLO_EIKAIWA_POC").as_deref() == Ok("stt")
+}
+
 fn target_url() -> String {
-    if std::env::var("SOLO_EIKAIWA_POC").as_deref() == Ok("stt") {
+    if poc_stt_requested() {
         format!("{SERVER_URL}?poc=stt")
     } else {
         SERVER_URL.to_string()
@@ -76,7 +89,7 @@ pub fn retry_attach(app: AppHandle) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{is_healthy, target_url, SERVER_URL};
+    use super::{args_have_poc_stt_flag, is_healthy, target_url, SERVER_URL};
     use std::io::{Read, Write};
     use std::net::TcpListener;
 
@@ -93,6 +106,15 @@ mod tests {
         assert_eq!(target_url(), SERVER_URL);
 
         std::env::remove_var("SOLO_EIKAIWA_POC");
+    }
+
+    #[test]
+    fn args_have_poc_stt_flag_detects_the_flag_anywhere_in_argv() {
+        let args = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>().into_iter();
+        assert!(args_have_poc_stt_flag(args(&["bin", "--poc=stt"])));
+        assert!(args_have_poc_stt_flag(args(&["bin", "--foo", "--poc=stt"])));
+        assert!(!args_have_poc_stt_flag(args(&["bin"])));
+        assert!(!args_have_poc_stt_flag(args(&["bin", "--poc=other"])));
     }
 
     /// ローカルに1回だけ「HTTP/1.1 200 OK」を返す使い捨てサーバを立て、そのURLを渡す。

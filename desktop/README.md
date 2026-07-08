@@ -74,4 +74,35 @@ WKWebView上の `navigator.mediaDevices.getUserMedia` がmacOSで動くために
 検証済み: `cargo tauri build --bundles app` で生成した `.app` に対して
 `codesign -d --entitlements :-` を実行し、`com.apple.security.device.audio-input` が
 実際に署名へ埋め込まれていることを確認済み（`flags=0x10002(adhoc,runtime)`）。
-実機でのマイク許可ダイアログ表示・録音成功までは未確認（Task 3のスコープ）。
+
+## マイク許可ダイアログは必ずFinderから起動して行うこと（重要・実測済みの制限）
+
+Task 3の実機PoCで、`.app`内バイナリをターミナルから直接exec（`SOLO_EIKAIWA_POC=stt ./…/app`）した場合、
+**さらに`open -na <app> --args --poc=stt`（LaunchServices経由の起動＋argv伝達）に変更した場合でも**、
+macOSのマイク許可ダイアログの請求元表示が `solo-eikaiwa` ではなく起動系譜のターミナルアプリ
+（実測では `Ghostty`）になる現象を確認した。`ps`でプロセス階層を追跡しても、LaunchServices経由で
+起動したGUIアプリ・XPCサービスは即座にlaunchd（PID1）へ再親化されるため単純な親子関係では
+判別できず、`codesign -dv`で本アプリが `Signature=adhoc` / `TeamIdentifier=not set`
+（Developer ID未署名）であることも合わせて確認した。これらから、**TCCの「責任プロセス」解決が
+Team ID無し署名のバイナリに対しては起動系譜のターミナルへフォールバックしている可能性が高い**
+と推測している（確証ではなく推論。ad-hoc署名を卒業し正式なDeveloper ID署名にすれば解消する見込み）。
+
+この状態で誤ってダイアログの「許可」を押すと、solo-eikaiwaではなく起動元のターミナルアプリに
+永続的なマイクアクセス権が付与されてしまう（TCC.dbはクライアントのbundle-idに紐づくため）。
+**そのため、初回のマイク許可は必ず Finder から `solo-eikaiwa.app` をダブルクリックして起動し、
+実際の録音ボタン操作（→getUserMedia呼び出し）で表示されるダイアログに対して行うこと。**
+このとき請求元が正しく「solo-eikaiwa」と表示されることを確認してから「許可」を押す。
+ターミナル経由（`open`含む）で起動して表示されたダイアログの請求元が `solo-eikaiwa` 以外
+（ターミナルアプリ名など）になっている場合は、絶対に「許可」を押さないこと
+（`許可しない`を選ぶか、ウィンドウを閉じる。必要なら「システム設定を開く」から
+プライバシーとセキュリティ＞マイクの一覧を直接確認する）。
+
+Finderから起動して一度マイクを許可した後は、この`.app`（bundle-id: `com.local.solo-eikaiwa.desktop`）に
+対する許可はTCC.dbに保存されるため、以後は通常の録音フロー（アプリ内の録音ボタン→許可済みなら
+ダイアログ無しで即録音）がそのままE2E検証になる。対応mimeType一覧などのサポート行列も見たい場合は、
+許可後に以下でPoCページを起動すると `data/logs/poc-stt.jsonl` へ自動記録される
+（この2回目以降の起動はターミナル経由でも、bundle-id単位で既に許可済みのため問題ない）:
+
+```bash
+open -na desktop/src-tauri/target/release/bundle/macos/solo-eikaiwa.app --args --poc=stt
+```
