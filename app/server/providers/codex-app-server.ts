@@ -544,30 +544,24 @@ function buildRunner(
 }
 
 // ---------------------------------------------------------------------------
-// registry 層: 接続設定（model/reasoningEffort/serviceTier）単位で常駐プロセス（client）を共有する
+// registry 層: 単一の常駐プロセス（client）を全ロールで共有する（model/reasoningEffort/serviceTier は
+// per-thread パラメータへ移行済み・Task 8）
 // ---------------------------------------------------------------------------
 
 /**
- * 前提（binding）: このレジストリは「単一の正準接続」を1スロットだけ保持する設計である。
- * 現在の唯一の呼び出し経路（llm-provider.ts の selectRunner ← converse.ts の
- * applyLlmRoleSettings、ロールごとに呼ばれる）は、ロールごとに異なる codexModel を理論上は
- * 渡せる形をしているが、クライアント側の buildRolesPayload（app/client/src/lib/llm-assignments.ts）
- * が「接続は常に1つ・codex を選んだ全ロールへ同じ codexModel を配る」形でしか payload を組み立てない
- * ため、出荷済み UI からは常に単一の接続設定に収束する。この前提が保証されている限り、
- * applyLlmRoleSettings が4ロール分 resolveRunner を呼んでも connectionKey は毎回同一になり、
- * このスロットは1つの client を使い回し続ける。
+ * 前提（binding・Task 8 でプロセス1本化）: このレジストリは「単一の正準接続」を1スロットだけ保持する
+ * 設計である。model/reasoningEffort/serviceTier は spawn 引数ではなく thread/start・thread/resume の
+ * リクエストパラメータであることが判明したため（codex CLI 実測）、これらは connectionKey から外し、
+ * 呼び出しごとの cfg として `threadParams()`（下記 buildRunner 内）へ per-thread に反映する形にした。
+ * これにより、ロールごとに異なる model/effort/tier を選んでも常駐プロセスは1本のまま共有され続け、
+ * 以前あった「ロール解決のたびに connectionKey が入れ替わり旧 client を kill して再spawnする
+ * eviction ping-pong」（設定保存のたびに複数ロールを順に再解決する applyLlmRoleSettings の構造に起因）
+ * が構造的に解消されている。同一 client を共有する複数ロールの runner は、それぞれが自分の呼び出し時点の
+ * cfg（buildRunner のクロージャ引数）を保持するため、同じプロセス上でもスレッドごとに異なる
+ * model/effort/tier で thread/start・thread/resume できる（下記の交互切替テスト参照）。
  *
- * もし将来 UI を経由しない直接 API 呼び出し等でロールごとに異なる codexModel を保存する経路が
- * 導入されると、この前提が崩れる。その場合 applyLlmRoleSettings がロールを順に解決するたびに
- * connectionKey が入れ替わり、この唯一のスロットが呼び出しのたびに evict される
- * 「eviction ping-pong」が起きる（Fix 4 の交互切替回帰テスト参照）。旧 client は都度 kill() される
- * ため無制限のプロセスリークにはならないが、kill 済みプロセスの自己修復（再spawn）が
- * 追跡されないまま繰り返し起き、想定外の頻度でプロセスが生成/破棄され続けることになる。
- *
- * per-role に独立した常駐接続を許可する設計へ発展させる場合は、この単一スロットのままではなく
- * 接続キーで引く `Map<string, CodexAppServerRegistryEntry>` へ拡張し、キーごとの生成・破棄タイミング
- * （どのロールがどのキーを使っているか、いつ evict してよいか）を明示的に設計し直す必要がある。
- * 本 fix はこの前提を明文化するのみで、挙動・enforcement は変えない。
+ * connectionKey は現時点では実質定数（区別する接続属性が無い）。Plan B で API キー認証の隔離
+ * CODEX_HOME 等、プロセスの起動条件そのものを分ける属性が入れば、その時点で改めてキーに含める。
  */
 type CodexAppServerRegistryEntry = {
   key: string;
@@ -582,19 +576,23 @@ type CodexAppServerRegistryEntry = {
  * を再実行しても、接続設定が変わらない限り既存プロセスを使い回すための唯一の保持場所。 */
 let registry: CodexAppServerRegistryEntry | null = null;
 
-/** 接続設定（プロセスの起動条件そのもの）だけをキーにする。defaultSystemPrompt/spawn は
- * ロール設定の変更では変わらない値、またはプロセス寿命に無関係な値なのでキーに含めない。
- * JSON.stringify は値が undefined のキーを省略するため、未指定と明示 undefined は同じキーになる（正規化）。 */
-function connectionKey(cfg: CodexAppServerConfig): string {
-  return JSON.stringify({ model: cfg.model, reasoningEffort: cfg.reasoningEffort, serviceTier: cfg.serviceTier });
+/** 接続識別用のキー。Task 8 時点では model/reasoningEffort/serviceTier が per-thread パラメータへ
+ * 移行したため接続の同一性には関与せず、区別すべき接続属性が他に無いので実質定数を返す
+ * （Plan B で API キー認証の隔離 CODEX_HOME 等が入れば、その時点でキーに含める）。 */
+function connectionKey(_cfg: CodexAppServerConfig): string {
+  return "default";
 }
 
 /**
- * codex app-server 常駐プロセスを接続設定単位でデデュープする ClaudeRunner ファクトリ。
- * - 同一キー（同一 model/reasoningEffort/serviceTier）で呼ばれた場合、既存の client と threads/transcript
+ * codex app-server 常駐プロセスを接続単位でデデュープする ClaudeRunner ファクトリ。
+ * - 通常呼び出しでは常に同一キー（実質定数）になるため、既存の client と threads/transcript
  *   （=既に spawn 済みかもしれない常駐プロセスと、そのセッション記憶）をそのまま使う新しい runner を返す
  *   （新規プロセスは spawn されず、設定保存のたびの再解決でも保険トランスクリプトはリセットされない。Fix 1）。
- * - キーが変わった場合は旧 client を kill() し、threads/transcript も新規の空 Map から作り直す。
+ *   ロールごとに異なる model/reasoningEffort/serviceTier を渡しても、この共有は維持される
+ *   （各呼び出しの cfg は buildRunner のクロージャに個別に残るため、thread/start・thread/resume には
+ *   呼び出し元の cfg がそのまま per-thread に反映される。プロセス自体は1本のまま＝Task 8）。
+ * - __resetCodexAppServerRegistry() 呼び出し後や、将来キーが接続属性を持つようになった場合のみ
+ *   旧 client を kill() し、threads/transcript も新規の空 Map から作り直す。
  * - defaultSystemPrompt は呼び出しごとの cfg をそのまま使う（値は実運用では固定だが、
  *   仮に変わっても次回呼び出しの runner に反映される）。
  */

@@ -53,12 +53,45 @@ export type SelectRunnerArgs = {
   defaultSystemPrompt: string;
   /** テスト用の注入 seam。既定は Bun.env */
   env?: Record<string, string | undefined>;
+  /**
+   * ロール別チューニング上書き（codex 用。優先順位: tuning > env > 既定）。
+   * claude 経路では使わない（claude のロール別チューニングは converse.ts の resolveClaudeRunner が
+   * 別途担う — circular import 回避のため selectRunner はここに関与しない）。openai-compat 経路も
+   * 対応する設定項目が無いため無視する。
+   */
+  tuning?: { effort?: string; serviceTier?: string };
 };
 
 function requireEnv(env: Record<string, string | undefined>, key: string): string {
   const v = env[key];
   if (!v || !v.trim()) throw new Error(`${key} is required when LLM_PROVIDER=openai-compat`);
   return v.trim();
+}
+
+/** env から実効プロバイダキーを取り出す（未設定/空白は "claude" 扱い）。selectRunner と
+ * ロール解決側（converse.ts の resolveRoleRunner）で共有する単一の判定ロジック。 */
+export function resolveProviderKey(env: Record<string, string | undefined>): string {
+  return (env.LLM_PROVIDER ?? "claude").trim().toLowerCase();
+}
+
+/**
+ * codex 接続設定を組み立てる純関数（優先順位・binding）:
+ * tuning.effort > env.CODEX_REASONING_EFFORT > "medium" / tuning.serviceTier > env.CODEX_SERVICE_TIER > "fast"。
+ * selectRunner と単体テストで共有する（実プロセスに依存しないため直接テスト可能）。
+ */
+export function resolveCodexConn(
+  env: Record<string, string | undefined>,
+  defaultSystemPrompt: string,
+  tuning?: { effort?: string; serviceTier?: string },
+): { model?: string; reasoningEffort: string; serviceTier: string; defaultSystemPrompt: string } {
+  return {
+    model: env.CODEX_MODEL?.trim() || undefined,
+    // 会話用途では xhigh 級の長考がレイテンシに直撃するため、既定を medium に固定（tuning/env で変更可）
+    reasoningEffort: tuning?.effort ?? (env.CODEX_REASONING_EFFORT?.trim() || "medium"),
+    // Fast サービスティアを既定に（無効な環境ではサーバ側で黙って無視されるため安全）
+    serviceTier: tuning?.serviceTier ?? (env.CODEX_SERVICE_TIER?.trim() || "fast"),
+    defaultSystemPrompt,
+  };
 }
 
 /**
@@ -68,13 +101,13 @@ function requireEnv(env: Record<string, string | undefined>, key: string): strin
  */
 export function selectRunner(args: SelectRunnerArgs): ClaudeRunner {
   const env = args.env ?? Bun.env;
-  const provider = (env.LLM_PROVIDER ?? "claude").trim().toLowerCase();
+  const provider = resolveProviderKey(env);
 
   switch (provider) {
     case "":
     case "claude":
-      // タスク境界（Task 5 では触らない）: claude 経路への withFallback/withTimeout 合成は
-      // Task 8 の resolveClaudeRunner に集約する。ここで先に配線すると二重改変になる。
+      // タスク境界: claude 経路への withFallback/withTimeout 合成・ロール別チューニングは
+      // converse.ts の resolveClaudeRunner に集約する（circular import 回避のためここでは行わない）。
       return args.claudeRunner;
 
     case "openai-compat":
@@ -94,14 +127,7 @@ export function selectRunner(args: SelectRunnerArgs): ClaudeRunner {
       // transport 障害（TransportError）時のみ withFallback で codex exec（ワンショット）へ委譲する。
       // 接続設定（model/reasoningEffort/serviceTier）はどちらの経路でも同一値を渡す
       // （conn オブジェクトを1箇所で組み立てて両方へ展開する＝設定ドリフト防止）。
-      const conn = {
-        model: env.CODEX_MODEL?.trim() || undefined,
-        // 会話用途では xhigh 級の長考がレイテンシに直撃するため、既定を medium に固定（env で変更可）
-        reasoningEffort: env.CODEX_REASONING_EFFORT?.trim() || "medium",
-        // Fast サービスティアを既定に（無効な環境ではサーバ側で黙って無視されるため安全）
-        serviceTier: env.CODEX_SERVICE_TIER?.trim() || "fast",
-        defaultSystemPrompt: args.defaultSystemPrompt,
-      };
+      const conn = resolveCodexConn(env, args.defaultSystemPrompt, args.tuning);
       return withFallback(withTimeout(getCodexAppServerRunner(conn)), makeCodexRunner(conn));
     }
 

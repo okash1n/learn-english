@@ -114,8 +114,9 @@ const realDeps: RouteDeps = {
   saveLlmRoleSettings: (role, s) => llmRoleSettingsStore.save(role, s),
   getLlmRoleTuning: () => llmRoleTuningStore.getAll(),
   saveLlmRoleTuning: (t) => llmRoleTuningStore.setAll(t),
-  // 「現在の全体設定 + 保存済みロール」で一括再解決する（PUT /api/llm-settings, /api/llm-settings/roles の共通経路）。
-  applyLlmSettings: (s) => applyLlmRoleSettings(s, llmRoleSettingsStore.getAll()),
+  // 「現在の全体設定 + 保存済みロール + 保存済みチューニング」で一括再解決する
+  // （PUT /api/llm-settings, /api/llm-settings/roles の共通経路）。
+  applyLlmSettings: (s) => applyLlmRoleSettings(s, llmRoleSettingsStore.getAll(), Bun.env, llmRoleTuningStore.getAll()),
   // env 由来情報。APIキーは有無のみ（値は絶対に返さない）。
   llmEnv: () => ({
     provider: (Bun.env.LLM_PROVIDER ?? "claude").trim().toLowerCase() || "claude",
@@ -134,10 +135,20 @@ const realDeps: RouteDeps = {
 // crash-loop を起こさないため、失敗は warn してフォールバックする（プロセスは落とさない）。
 const savedLlm = llmSettingsStore.get();
 const savedRoles = llmRoleSettingsStore.getAll();
+const savedTuning = llmRoleTuningStore.getAll();
 const hasRoleOverride = LLM_ROLES.some((r) => savedRoles[r].provider !== "inherit");
-if (savedLlm || hasRoleOverride) {
+const hasTuningOverride = LLM_ROLES.some((r) => {
+  const t = savedTuning[r];
+  return t.claudeModel !== null || t.effort !== null || t.serviceTier !== null;
+});
+if (savedLlm || hasRoleOverride || hasTuningOverride) {
   try {
-    applyLlmRoleSettings(savedLlm ?? { provider: "env", baseUrl: null, model: null, codexModel: null }, savedRoles);
+    applyLlmRoleSettings(
+      savedLlm ?? { provider: "env", baseUrl: null, model: null, codexModel: null },
+      savedRoles,
+      Bun.env,
+      savedTuning,
+    );
   } catch (err) {
     console.warn(`[llm] failed to apply saved settings, falling back to environment/claude: ${String(err)}`);
   }

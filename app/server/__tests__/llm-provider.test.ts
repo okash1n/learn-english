@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { selectRunner, settingsToEnv, LLM_ROLES, isInheritRole, roleSettingToSettings } from "../llm-provider";
+import {
+  selectRunner, settingsToEnv, LLM_ROLES, isInheritRole, roleSettingToSettings,
+  resolveProviderKey, resolveCodexConn,
+} from "../llm-provider";
 import type { ClaudeRunner } from "../converse";
 import type { LlmSettings, LlmRoleSetting } from "../llm-provider";
 import { __resetCodexAppServerRegistry } from "../providers/codex-app-server";
@@ -106,6 +109,48 @@ describe("settingsToEnv", () => {
     });
     expect(r).not.toBe(sentinel);
     expect(typeof r).toBe("function");
+  });
+});
+
+describe("resolveProviderKey", () => {
+  test("未設定は claude 扱い", () => {
+    expect(resolveProviderKey({})).toBe("claude");
+  });
+
+  test("大文字・前後空白を許容して小文字化する", () => {
+    expect(resolveProviderKey({ LLM_PROVIDER: "  Codex  " })).toBe("codex");
+  });
+});
+
+describe("resolveCodexConn（優先順位・binding: tuning > env > 既定）", () => {
+  test("tuning・envとも未指定はeffort=medium/serviceTier=fastの既定", () => {
+    expect(resolveCodexConn({}, "SYS")).toEqual({
+      model: undefined, reasoningEffort: "medium", serviceTier: "fast", defaultSystemPrompt: "SYS",
+    });
+  });
+
+  test("tuning.effort が env.CODEX_REASONING_EFFORT より優先される", () => {
+    expect(
+      resolveCodexConn({ CODEX_REASONING_EFFORT: "high" }, "SYS", { effort: "low" }).reasoningEffort,
+    ).toBe("low");
+  });
+
+  test("tuning.effort未指定はenv.CODEX_REASONING_EFFORTへフォールバック", () => {
+    expect(resolveCodexConn({ CODEX_REASONING_EFFORT: "high" }, "SYS").reasoningEffort).toBe("high");
+  });
+
+  test("tuning.serviceTier が env.CODEX_SERVICE_TIER より優先される", () => {
+    expect(
+      resolveCodexConn({ CODEX_SERVICE_TIER: "standard" }, "SYS", { serviceTier: "fast" }).serviceTier,
+    ).toBe("fast");
+  });
+
+  test("tuning.serviceTier未指定はenv.CODEX_SERVICE_TIERへフォールバック", () => {
+    expect(resolveCodexConn({ CODEX_SERVICE_TIER: "standard" }, "SYS").serviceTier).toBe("standard");
+  });
+
+  test("CODEX_MODELはenv由来のまま（tuningにmodelは無い＝全ロール単一モデル方針）", () => {
+    expect(resolveCodexConn({ CODEX_MODEL: "gpt-5.5" }, "SYS").model).toBe("gpt-5.5");
   });
 });
 

@@ -2,7 +2,10 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { converseTurn, makeClaudeRunner, PARTNER_SYSTEM_PROMPT, partnerSystemPrompt } from "../converse";
+import {
+  converseTurn, makeClaudeRunner, PARTNER_SYSTEM_PROMPT, partnerSystemPrompt,
+  resolveClaudeRunner, resolveClaudeTuning, claudeRunner,
+} from "../converse";
 import { isErrorLogged, readEvents } from "../session-log";
 import { TransportError } from "../providers/errors";
 import type { query } from "@anthropic-ai/claude-agent-sdk";
@@ -210,6 +213,96 @@ describe("makeClaudeRunner: SDK呼び出し引数のパススルー", () => {
     const runner = makeClaudeRunner(fakeQuery);
     await runner("second turn", "sess-x");
     expect(calls[0].options).toMatchObject({ resume: "sess-x" });
+  });
+
+  test("第2引数cfg.model/cfg.effort が options.model/options.effort として渡る", async () => {
+    const { calls, fakeQuery } = capturingQuery();
+    const runner = makeClaudeRunner(fakeQuery, { model: "haiku", effort: "low" });
+    await runner("hi");
+    expect(calls[0].options).toMatchObject({ model: "haiku", effort: "low" });
+  });
+
+  test("cfg省略時はmodelが既定sonnet・effortキーは付かない", async () => {
+    const { calls, fakeQuery } = capturingQuery();
+    const runner = makeClaudeRunner(fakeQuery);
+    await runner("hi");
+    expect(calls[0].options).toMatchObject({ model: "sonnet" });
+    expect(calls[0].options).not.toHaveProperty("effort");
+  });
+
+  test("cfg.modelのみ指定時はeffortキーが付かない", async () => {
+    const { calls, fakeQuery } = capturingQuery();
+    const runner = makeClaudeRunner(fakeQuery, { model: "opus" });
+    await runner("hi");
+    expect(calls[0].options).toMatchObject({ model: "opus" });
+    expect(calls[0].options).not.toHaveProperty("effort");
+  });
+});
+
+describe("resolveClaudeRunner（tuning が空なら module-level claudeRunner の単一参照）", () => {
+  test("tuning未指定は claudeRunner と同一参照を返す", () => {
+    expect(resolveClaudeRunner(undefined)).toBe(claudeRunner);
+  });
+
+  test("model/effortとも未指定のtuningオブジェクトも同一参照を返す（正規化）", () => {
+    expect(resolveClaudeRunner({ model: undefined, effort: undefined })).toBe(claudeRunner);
+  });
+
+  test("複数回呼んでも同一参照（安定した単一参照＝回帰基準）", () => {
+    expect(resolveClaudeRunner()).toBe(resolveClaudeRunner());
+  });
+
+  test("model/effortいずれかを指定すると claudeRunner とは別の新規合成runnerを返す", () => {
+    const r = resolveClaudeRunner({ model: "haiku", effort: "low" });
+    expect(r).not.toBe(claudeRunner);
+    expect(typeof r).toBe("function");
+  });
+
+  test("effortのみ指定でもclaudeRunnerとは別参照になる", () => {
+    const r = resolveClaudeRunner({ effort: "xhigh" });
+    expect(r).not.toBe(claudeRunner);
+  });
+});
+
+describe("resolveClaudeTuning（優先順位: tuning.claudeModel/effort > env.CLAUDE_MODEL/CLAUDE_EFFORT > 既定）", () => {
+  test("claudeModel/effortとも null（未カスタマイズ）なら undefined（resolveClaudeRunnerの単一参照トリガー）", () => {
+    expect(resolveClaudeTuning({ claudeModel: null, effort: null, serviceTier: null }, {})).toBeUndefined();
+  });
+
+  test("tuning.claudeModel が env.CLAUDE_MODEL より優先される", () => {
+    expect(
+      resolveClaudeTuning({ claudeModel: "haiku", effort: null, serviceTier: null }, { CLAUDE_MODEL: "opus" }),
+    ).toEqual({ model: "haiku", effort: undefined });
+  });
+
+  test("tuning.claudeModel未指定はenv.CLAUDE_MODELへフォールバック", () => {
+    expect(
+      resolveClaudeTuning({ claudeModel: null, effort: "high", serviceTier: null }, { CLAUDE_MODEL: "opus" }),
+    ).toEqual({ model: "opus", effort: "high" });
+  });
+
+  test("tuning・envともmodel未指定はsonnet既定", () => {
+    expect(
+      resolveClaudeTuning({ claudeModel: null, effort: "high", serviceTier: null }, {}),
+    ).toEqual({ model: "sonnet", effort: "high" });
+  });
+
+  test("tuning.effort が env.CLAUDE_EFFORT より優先される", () => {
+    expect(
+      resolveClaudeTuning({ claudeModel: "haiku", effort: "low", serviceTier: null }, { CLAUDE_EFFORT: "xhigh" }),
+    ).toEqual({ model: "haiku", effort: "low" });
+  });
+
+  test("tuning.effort未指定はenv.CLAUDE_EFFORTへフォールバック", () => {
+    expect(
+      resolveClaudeTuning({ claudeModel: "haiku", effort: null, serviceTier: null }, { CLAUDE_EFFORT: "xhigh" }),
+    ).toEqual({ model: "haiku", effort: "xhigh" });
+  });
+
+  test("tuning・envともeffort未指定は未指定(undefined)のまま", () => {
+    expect(
+      resolveClaudeTuning({ claudeModel: "haiku", effort: null, serviceTier: null }, {}),
+    ).toEqual({ model: "haiku", effort: undefined });
   });
 });
 
