@@ -1,9 +1,10 @@
 import { tmpdir } from "node:os";
 import type { ClaudeRunner } from "../converse";
 import { composeCodexPrompt, type CodexMsg } from "./codex";
+import { TransportError } from "./errors";
 
-/** transport 層（spawn/handshake/exit/timeout）で発生したエラー。モデル起因のエラー（turn failed 等）とは区別するために使う。 */
-export class TransportError extends Error {}
+// 既存の import 元（このモジュールから TransportError を import しているテスト等）との互換のため re-export する。
+export { TransportError };
 
 /** codex app-server プロセスとの1行JSONメッセージの送受信を抽象化した transport seam。 */
 export type AppServerProc = {
