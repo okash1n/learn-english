@@ -12,7 +12,11 @@ export const SPOKEN_STYLE_BLOCK =
   "Do not use bullet points, numbered lists, or headings inside the spoken text — write it as continuous natural speech.";
 
 const LENGTH_CAP_BY_BAND: Record<SpokenBand, string> = {
-  beginner: "Keep sentences short and simple: mostly 6-10 words, one idea per sentence.",
+  beginner:
+    "Keep sentences short and simple: mostly 6-10 words, one idea per sentence. " +
+    "Simple vocabulary does NOT mean formal style: contractions (I'm, it's, don't, that's, we've) are mandatory even at this level — " +
+    'writing "I am" / "do not" / "it is" throughout turns this into a textbook, not natural speech. ' +
+    "Use a contraction in at least one of every three sentences (aim for one in every two).",
   intermediate: "Keep sentences short: mostly 9-13 words per sentence.",
   advanced:
     "Even at this level, keep sentences short for natural speech: mostly 10-15 words — split a long idea into two short sentences instead of chaining clauses with commas.",
