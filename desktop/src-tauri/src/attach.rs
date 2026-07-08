@@ -46,10 +46,11 @@ fn try_attach(app: &AppHandle) -> bool {
 /// 全滅した場合は同梱のフォールバックページ（案内+再試行ボタン）が表示されたままになる。
 pub fn spawn_initial_attach(app: AppHandle) {
     std::thread::spawn(move || {
-        for _ in 0..POLL_ATTEMPTS {
+        for attempt in 1..=POLL_ATTEMPTS {
             if try_attach(&app) {
                 return;
             }
+            log::warn!("attach: server not reachable yet (attempt {attempt}/{POLL_ATTEMPTS})");
             std::thread::sleep(POLL_INTERVAL);
         }
     });

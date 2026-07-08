@@ -7,7 +7,7 @@
     "frontendDist": "../fallback"
   },
   "app": {
-    "withGlobalTauri": true,
+    "withGlobalTauri": false,
     "windows": [
       {
         "title": "solo-eikaiwa",
@@ -19,7 +19,10 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": {
+        "default-src": "'self'",
+        "connect-src": "ipc: http://ipc.localhost"
+      }
     }
   },
   "bundle": {
