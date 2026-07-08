@@ -208,6 +208,14 @@ function parseRoleTuning(
  * global が "env"（未設定含む）なら、実行時 env の実効プロバイダ（deps.llmEnv().provider・resolveProviderKey(Bun.env)
  * と同じロジックの結果）まで解決する。codex 以外（claude・openai-compat・未知値）は全て EFFORTS（"max" 込み）を許容する
  * — openai-compat は effort 自体を使わないため実害が無く、codex だけが実際に "max" で失敗するため。
+ *
+ * assist→coaching 連鎖（binding）: converse.ts の applyLlmRoleSettings（コメント参照: converse.ts:280-286）が、
+ * assist の設定行が inherit の間は assist を独自解決せず coaching の解決結果（プロバイダ・チューニングとも）を
+ * そのまま使う規則を持つ（client 側の resolveEffective〔llm-assignments.ts〕も同じ連鎖を再現している）。
+ * ここでの effort 検証も実行時に実際に適用されるプロバイダに合わせる必要があるため、assist が inherit のときは
+ * assist ではなく coaching の実効プロバイダで判定する（coaching 自身が inherit ならさらに下の global 分岐へ）。
+ * 3箇所（converse.ts / llm-assignments.ts の resolveEffective / ここ）はそれぞれ入力の形（保存後の Record・
+ * GET応答のview・このリクエスト内override+保存済みの2段解決）が異なるため個別実装だが、セマンティクスは一致させる。
  */
 function resolveEffortWhitelist(
   role: LlmRole,
@@ -217,7 +225,9 @@ function resolveEffortWhitelist(
   storedGlobal: LlmSettings | null,
   deps: LlmSettingsRoutesDeps,
 ): readonly string[] {
-  const roleProvider = parsedRoles.find((r) => r.role === role)?.value.provider ?? storedRoles[role].provider;
+  const providerOf = (r: LlmRole): string => parsedRoles.find((p) => p.role === r)?.value.provider ?? storedRoles[r].provider;
+  const chainRole: LlmRole = role === "assist" && providerOf("assist") === "inherit" ? "coaching" : role;
+  const roleProvider = providerOf(chainRole);
   if (roleProvider !== "inherit") return roleProvider === "codex" ? CODEX_EFFORTS : EFFORTS;
   const globalProvider = parsedGlobal?.provider ?? storedGlobal?.provider ?? "env";
   const resolvedGlobal = globalProvider === "env" ? deps.llmEnv().provider : globalProvider;
