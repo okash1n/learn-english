@@ -10,6 +10,7 @@ import { loadListening } from "./listening";
 import { loadSentences, type Sentence } from "./sentences";
 import { vocabConstraint } from "./progression";
 import { categoryBadRates, pickWorstCategories } from "./srs-analytics";
+import { spokenStyleFor, type SpokenBand } from "./spoken-style";
 
 const ORIGINALITY = "All output must be completely original — do not copy or adapt sentences from existing textbooks or courses.";
 
@@ -584,13 +585,13 @@ export type GenListeningDeps = {
  * 語彙制約は帯に連動（下帯は vocabConstraint あり・上帯は無し）。全候補を検証してから一括書き込み（all-or-nothing）。
  * いずれかが2回とも検証NGなら何も書き込まず throw する。
  */
-const LISTENING_PLAN: ReadonlyArray<{ domain: (typeof DOMAINS)[number]; level: [number, number]; vocabStage: number }> = [
-  { domain: "daily", level: [1, 3], vocabStage: 2 },
-  { domain: "business", level: [1, 3], vocabStage: 2 },
-  { domain: "it", level: [1, 3], vocabStage: 2 },
-  { domain: "daily", level: [4, 6], vocabStage: 5 },
-  { domain: "business", level: [4, 6], vocabStage: 5 },
-  { domain: "it", level: [4, 6], vocabStage: 5 },
+const LISTENING_PLAN: ReadonlyArray<{ domain: (typeof DOMAINS)[number]; level: [number, number]; vocabStage: number; band: SpokenBand }> = [
+  { domain: "daily", level: [1, 3], vocabStage: 2, band: "beginner" },
+  { domain: "business", level: [1, 3], vocabStage: 2, band: "beginner" },
+  { domain: "it", level: [1, 3], vocabStage: 2, band: "beginner" },
+  { domain: "daily", level: [4, 6], vocabStage: 5, band: "advanced" },
+  { domain: "business", level: [4, 6], vocabStage: 5, band: "advanced" },
+  { domain: "it", level: [4, 6], vocabStage: 5, band: "advanced" },
 ];
 
 export async function genListening(deps: GenListeningDeps): Promise<void> {
@@ -606,6 +607,7 @@ export async function genListening(deps: GenListeningDeps): Promise<void> {
     const system = `You write an original short LISTENING script for a Japanese learner of English to listen to (about 2-4 minutes when read aloud, roughly 250-450 words).
 Topic domain: ${domainDesc}. Difficulty: aim at CEFR level band for learner stage ${p.level[0]}-${p.level[1]} of 6.
 Write natural spoken-style prose (first or third person) in 3-5 short paragraphs. No headings, no bullet lists, no dialogue markers, no speaker labels.
+${spokenStyleFor(p.band)}
 ${vocabLine}${ORIGINALITY}
 Do NOT reuse these existing ids: ${[...existingIds].join(", ") || "(none)"}
 Reply with STRICT JSON only — no markdown fences:

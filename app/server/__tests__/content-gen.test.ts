@@ -15,6 +15,7 @@ import {
   genListening, listeningToMarkdown, validateListeningCandidate,
 } from "../content-gen";
 import { pickWorstCategories, type CategoryRate } from "../srs-analytics";
+import { SPOKEN_STYLE_BLOCK, spokenStyleFor } from "../spoken-style";
 
 /** 呼び出し順にレスポンスを返す fake ClaudeRunner（実Claude呼び出し・実content/への書き込みは一切しない） */
 function makeRunner(responses: string[]): ClaudeRunner {
@@ -788,6 +789,19 @@ describe("content-gen / genListening", () => {
     expect(seen[0].systemPrompt).toContain("word families");
     expect(seen[3].systemPrompt).not.toContain("word families");
     expect(seen[3].systemPrompt).not.toMatch(/\bnull\b/);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("下帯・上帯とも systemPrompt に口語スタイルブロックを含み、帯別の文長ガイドが異なる", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "gen-listen-spoken-"));
+    const { runner, seen } = makeCapturingRunner(SIX);
+    await genListening({ runner, listeningDir: dir, dry: true });
+    // 下帯(seen[0])はbeginner、上帯(seen[3])はadvancedの文長ガイド付きで注入される
+    expect(seen[0].systemPrompt).toContain(SPOKEN_STYLE_BLOCK);
+    expect(seen[3].systemPrompt).toContain(SPOKEN_STYLE_BLOCK);
+    expect(seen[0].systemPrompt).toContain(spokenStyleFor("beginner"));
+    expect(seen[3].systemPrompt).toContain(spokenStyleFor("advanced"));
+    expect(seen[0].systemPrompt).not.toContain(spokenStyleFor("advanced"));
     rmSync(dir, { recursive: true, force: true });
   });
 
