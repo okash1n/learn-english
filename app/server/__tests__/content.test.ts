@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { DOMAINS, loadContent } from "../content";
+import { DOMAINS, loadContent, parseContentFile } from "../content";
 import { SCENARIOS_DIR, TOPICS_DIR } from "../paths";
 
 /** リポジトリ実コンテンツの整合性（frontmatter タグの網羅チェック） */
@@ -34,5 +34,44 @@ describe("content integrity", () => {
       expect(tPool.length).toBeGreaterThanOrEqual(3);
       expect(sPool.length).toBeGreaterThanOrEqual(3);
     }
+  });
+});
+
+/**
+ * v0.26 content-ladder wave1: topic の「完全に既知」アンカー(experienceAnchor/memoryCue/commonObjectsOrActions)
+ * を frontmatter に comma区切りの1行フィールドとして追加パース対象にする(既存フィールドの挙動は不変・追加のみ)。
+ */
+describe("content: 完全に既知アンカーのfrontmatterパース(追加のみ・既存挙動不変)", () => {
+  const MD = `---
+id: coffee-routine
+kind: topic
+title: "My morning coffee"
+title_ja: "朝のコーヒー"
+domain: daily
+level: [5, 6]
+experience_anchor: "誰もが経験する朝のルーティンに接地している"
+memory_cue: "毎朝コーヒーを淹れる自分の姿を思い浮かべる"
+common_objects_or_actions: "coffee maker, mug, kettle"
+---
+Talk about:
+- What you drink — 何を飲むか
+`;
+
+  test("3フィールドがパースされる(commonObjectsOrActionsはカンマ区切りをtrimした配列)", () => {
+    const parsed = parseContentFile(MD)!;
+    expect(parsed.experienceAnchor).toBe("誰もが経験する朝のルーティンに接地している");
+    expect(parsed.memoryCue).toBe("毎朝コーヒーを淹れる自分の姿を思い浮かべる");
+    expect(parsed.commonObjectsOrActions).toEqual(["coffee maker", "mug", "kettle"]);
+  });
+
+  test("フィールドが無い既存ファイル形式はundefinedのまま(後方互換)", () => {
+    const withoutAnchor = MD
+      .replace(/experience_anchor:.*\n/, "")
+      .replace(/memory_cue:.*\n/, "")
+      .replace(/common_objects_or_actions:.*\n/, "");
+    const parsed = parseContentFile(withoutAnchor)!;
+    expect(parsed.experienceAnchor).toBeUndefined();
+    expect(parsed.memoryCue).toBeUndefined();
+    expect(parsed.commonObjectsOrActions).toBeUndefined();
   });
 });

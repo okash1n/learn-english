@@ -5,12 +5,15 @@ import path from "node:path";
 import { normalizeEn } from "./chunks";
 import { extractJson } from "./coach";
 import type { ClaudeRunner } from "./converse";
-import { loadContent } from "./content";
+import { loadContent, type Domain } from "./content";
 import { loadListening } from "./listening";
 import { loadSentences, type Sentence } from "./sentences";
 import { vocabConstraint } from "./progression";
 import { categoryBadRates, pickWorstCategories } from "./srs-analytics";
 import { spokenStyleFor, type SpokenBand } from "./spoken-style";
+import { BAND_STAGE_RANGE, type Band } from "./content-coverage";
+import { checkTopicAnchor } from "./topic-anchor-check";
+import { checkScenarioStarter } from "./spoken-register-check";
 
 const ORIGINALITY = "All output must be completely original — do not copy or adapt sentences from existing textbooks or courses.";
 
@@ -62,6 +65,13 @@ export type NewContentCandidate = {
   hints: string[];
   /** scenario専用の3件の英語オープナー。topicは常に未設定（既存挙動を変えない） */
   starters?: string[];
+  /**
+   * v0.26 content-ladder wave1: topicの「完全に既知」アンカー（topic-anchor-check対象・省略可）。
+   * 省略時はcontentToMarkdownがフィールド自体を出力しない（既存テスト・既存挙動を変えない）。
+   */
+  experienceAnchor?: string;
+  memoryCue?: string;
+  commonObjectsOrActions?: string[];
 };
 
 /** menu.ts の parseContentFile が読める markdown に整形する（ラウンドトリップをテストで保証） */
@@ -75,6 +85,9 @@ export function contentToMarkdown(c: NewContentCandidate): string {
     `title_ja: "${c.titleJa}"`,
     `domain: ${c.domain}`,
     `level: [${c.level[0]}, ${c.level[1]}]`,
+    ...(c.experienceAnchor ? [`experience_anchor: "${c.experienceAnchor}"`] : []),
+    ...(c.memoryCue ? [`memory_cue: "${c.memoryCue}"`] : []),
+    ...(c.commonObjectsOrActions ? [`common_objects_or_actions: "${c.commonObjectsOrActions.join(", ")}"`] : []),
     "---",
     heading,
     ...c.hints.map((h) => `- ${h}`),
@@ -667,4 +680,256 @@ Do not use any tools — reply directly with text only.`;
     throw err;
   }
   log(`完了: ${written.length} 本の多聴素材を追加しました。`);
+}
+
+const DOMAIN_DESC: Record<Domain, string> = {
+  daily: "everyday life", business: "the workplace", it: "software/IT work",
+};
+
+/**
+ * 「完全に既知」条項（Nation条件近似・設計doc§5）をプロンプトへ埋め込む共通ブロック。
+ * topic-anchor-check.ts の禁止カテゴリ（abstract/specialist/current-affairs/rare-hobby/personal-info-required）
+ * と対応する語（abstract/specialist・academic/current affairs・news/rare/niche hobbies/sensitive personal
+ * identifiers）を明示し、モデルが禁止カテゴリを自己回避しやすくする。checkTopicAnchor はこれとは独立した
+ * 機械検証であり、本文言はあくまで一次予防（生成側の歩留まり向上）。
+ */
+const KNOWN_INFORMATION_RULE =
+  'CRITICAL grounding rule (Nation\'s "known information" principle): the topic MUST be something the learner can already talk about from their own real, lived experience — no new knowledge required. Ground it in a concrete, near-universal routine or situation. ' +
+  "Do NOT write about: abstract or philosophical topics, specialist or academic subjects, current affairs or news, rare or niche hobbies, or anything requiring the learner to reveal sensitive personal identifiers (SSN, passport number, bank details, etc).";
+
+type TopicTargetCandidate = {
+  id: string; title: string; titleJa: string; hints: string[];
+  experienceAnchor: string; memoryCue: string; commonObjectsOrActions: string[];
+};
+
+/** frontmatterの単一行シリアライズ(comma区切り)を壊す文字（改行・二重引用符・カンマ）を含まないか */
+function safeInlineField(s: string): boolean {
+  return !/[\n",]/.test(s);
+}
+
+/**
+ * genTopicsForTarget 用の候補検証。domain/level はターゲット指定で固定するため検査しない。
+ * hints は genTopicsBand と同じ4件形式に加え、experienceAnchor/memoryCue/commonObjectsOrActions の
+ * frontmatter安全性（改行・二重引用符・カンマ不可 — commonObjectsOrActionsはカンマ区切りで結合するため要素にカンマ不可）と、
+ * topic-anchor-check.checkTopicAnchor（「完全に既知」条項の機械検証）の両方を通過することを要求する。
+ */
+function validateTopicTargetCandidate(
+  parsed: unknown, existingIds: Set<string>, dir: string,
+): TopicTargetCandidate | null {
+  if (typeof parsed !== "object" || parsed === null) return null;
+  const c = parsed as Partial<NewContentCandidate>;
+  if (typeof c.id !== "string" || !/^[a-z0-9]+(-[a-z0-9]+)*$/.test(c.id)) return null;
+  if (existingIds.has(c.id) || existsSync(path.join(dir, `${c.id}.md`))) return null;
+  if (typeof c.title !== "string" || !c.title.trim() || /[\n"]/.test(c.title)) return null;
+  if (typeof c.titleJa !== "string" || !c.titleJa.trim() || /[\n"]/.test(c.titleJa)) return null;
+  if (!Array.isArray(c.hints) || c.hints.length !== 4) return null;
+  if (!c.hints.every((h) => typeof h === "string" && h.trim().length > 0)) return null;
+  if (typeof c.experienceAnchor !== "string" || !c.experienceAnchor.trim() || !safeInlineField(c.experienceAnchor)) return null;
+  if (typeof c.memoryCue !== "string" || !c.memoryCue.trim() || !safeInlineField(c.memoryCue)) return null;
+  if (
+    !Array.isArray(c.commonObjectsOrActions) || c.commonObjectsOrActions.length === 0 ||
+    !c.commonObjectsOrActions.every((x) => typeof x === "string" && x.trim().length > 0 && safeInlineField(x))
+  ) {
+    return null;
+  }
+  const anchor = checkTopicAnchor({
+    title: c.title, experienceAnchor: c.experienceAnchor, memoryCue: c.memoryCue,
+    commonObjectsOrActions: c.commonObjectsOrActions,
+  });
+  if (!anchor.pass) return null;
+  return {
+    id: c.id, title: c.title.trim(), titleJa: c.titleJa.trim(), hints: c.hints.map((h) => h.trim()),
+    experienceAnchor: c.experienceAnchor.trim(), memoryCue: c.memoryCue.trim(),
+    commonObjectsOrActions: c.commonObjectsOrActions.map((x) => x.trim()),
+  };
+}
+
+export type GenTopicsForTargetDeps = {
+  runner: ClaudeRunner;
+  topicsDir: string;
+  domain: Domain;
+  band: Band;
+  count: number;
+  dry: boolean;
+  log?: (s: string) => void;
+};
+
+/**
+ * --fill-coverage の生成本体（topic側）。指定した帯([1,2]|[3,4]|[5,6]と対応するband名)×domain×countで
+ * quota適合教材（level=帯範囲そのもの）をcount本生成する。TOPIC_BAND_PLAN等の固定プランとは異なり、
+ * domain/band/countを呼び出し側が指定する（--fill-coverageのセル駆動生成に対応）。
+ * 各アイテムは3ラウンド規律（attempt<=3）で検証NGなら再生成し、3回とも失敗した時点でエラーにする
+ * （既存gen*系の2ラウンドより1ラウンド厚くし、experienceAnchor必須化による歩留まり低下を吸収する）。
+ * 全アイテム検証済み後に一括書き込み（all-or-nothing・オーファン無し）。
+ */
+export async function genTopicsForTarget(deps: GenTopicsForTargetDeps): Promise<void> {
+  const log = deps.log ?? console.log;
+  const existingIds = new Set(loadContent(deps.topicsDir).map((c) => c.id));
+  const [lo, hi] = BAND_STAGE_RANGE[deps.band];
+  const vocab = vocabConstraint(lo);
+  const vocabLine = vocab ? `${vocab}\n` : "";
+  const domainDesc = DOMAIN_DESC[deps.domain];
+  const candidates: NewContentCandidate[] = [];
+
+  for (let i = 0; i < deps.count; i++) {
+    const system = `You create one original topic for an English speaking practice app (Japanese learner, difficulty stage ${lo}-${hi} of 6).
+Domain: ${domainDesc}.
+${KNOWN_INFORMATION_RULE}
+A topic gives 4 talking-point hints for a monologue.
+Each hint line: English phrase — 日本語の補足. Spoken register. ${ORIGINALITY}
+${vocabLine}Do NOT reuse these existing ids: ${[...existingIds].join(", ") || "(none)"}
+Reply with STRICT JSON only:
+{"id":"kebab-case-id","title":"English title","titleJa":"日本語タイトル","hints":["English — 日本語", ...4 items],
+"experienceAnchor":"日本語1文: なぜ学習者が新知識なしで自分の経験から話せるか","memoryCue":"日本語1文: 学習者が思い出せる具体的な場面や記憶","commonObjectsOrActions":["具体的なモノ/行動を英語で3-5件（カンマ・引用符・改行は使わないこと）"]}
+Do not use any tools — reply directly with text only.`;
+    let cand: TopicTargetCandidate | null = null;
+    for (let attempt = 1; attempt <= 3 && !cand; attempt++) {
+      let text: string | undefined;
+      try {
+        ({ text } = await deps.runner(
+          `Write the ${deps.domain} topic (band ${deps.band}, item ${i + 1}/${deps.count}) now.`, undefined, { systemPrompt: system },
+        ));
+      } catch (err) {
+        // SDK呼び出し自体の一過性エラー（例: tool_use起因のmaxTurns超過）も検証NGと同様に再試行する。
+        // 非一過性の障害（認証切れ等）が「検証NG」に化けて原因が消えないよう、実エラーは必ずログに残す
+        console.warn("[content-gen] runner error:", err instanceof Error ? err.message : String(err));
+      }
+      if (text !== undefined) {
+        const parsed = extractJson<NewContentCandidate>(text);
+        cand = validateTopicTargetCandidate(parsed, existingIds, deps.topicsDir);
+      }
+      if (!cand && attempt < 3) log(`  ${deps.domain}/${deps.band}: 検証NG — 再生成します(${attempt}/3)`);
+    }
+    if (!cand) {
+      throw new Error(`エラー: ${deps.domain}/${deps.band} の topic (${i + 1}/${deps.count}) が3回とも検証を通りませんでした。何も書き込みません。`);
+    }
+    existingIds.add(cand.id);
+    candidates.push({ ...cand, kind: "topic", domain: deps.domain, level: [lo, hi] });
+    log(`  + topic: ${cand.id} [${deps.domain}/${lo}-${hi}] ${cand.title}`);
+  }
+
+  if (deps.dry) {
+    log("--dry のため書き込みません");
+    return;
+  }
+
+  const written: string[] = [];
+  try {
+    for (const cand of candidates) {
+      const file = path.join(deps.topicsDir, `${cand.id}.md`);
+      if (existsSync(file)) throw new Error(`エラー: ${file} は既に存在します。中止します。`);
+      writeFileSync(file, contentToMarkdown(cand));
+      written.push(file);
+    }
+  } catch (err) {
+    for (const f of written) rmSync(f, { force: true });
+    throw err;
+  }
+  log(`完了: ${written.length} 本の ${deps.domain}/${deps.band} topic を追加しました。`);
+}
+
+type ScenarioTargetCandidate = { id: string; title: string; titleJa: string; hints: string[]; starters: string[] };
+
+/**
+ * genScenariosForTarget 用の候補検証。domain/level はターゲット指定で固定するため検査しない。
+ * hints/starters の形式は既存 validateScenarioCandidate と同一だが、加えて starters の3件すべてが
+ * spoken-register-check.checkScenarioStarter（starter単体の口語検証）をPASSすることを要求する
+ * （設計doc§5: 「scenarios: starters（冒頭セリフ）のみ口語検証」）。
+ */
+function validateScenarioTargetCandidate(
+  parsed: unknown, existingIds: Set<string>, dir: string,
+): ScenarioTargetCandidate | null {
+  if (typeof parsed !== "object" || parsed === null) return null;
+  const c = parsed as Partial<NewContentCandidate>;
+  if (typeof c.id !== "string" || !/^[a-z0-9]+(-[a-z0-9]+)*$/.test(c.id)) return null;
+  if (existingIds.has(c.id) || existsSync(path.join(dir, `${c.id}.md`))) return null;
+  if (typeof c.title !== "string" || !c.title.trim() || /[\n"]/.test(c.title)) return null;
+  if (typeof c.titleJa !== "string" || !c.titleJa.trim() || /[\n"]/.test(c.titleJa)) return null;
+  if (!Array.isArray(c.hints) || c.hints.length === 0) return null;
+  if (!c.hints.every((h) => typeof h === "string" && h.trim().length > 0)) return null;
+  const starters = validateStarters(c.starters);
+  if (!starters) return null;
+  if (!starters.every((s) => checkScenarioStarter(s).pass)) return null;
+  return { id: c.id, title: c.title.trim(), titleJa: c.titleJa.trim(), hints: c.hints.map((h) => h.trim()), starters };
+}
+
+export type GenScenariosForTargetDeps = {
+  runner: ClaudeRunner;
+  scenariosDir: string;
+  domain: Domain;
+  band: Band;
+  count: number;
+  dry: boolean;
+  log?: (s: string) => void;
+};
+
+/**
+ * --fill-coverage の生成本体（scenario側）。genTopicsForTarget と対をなす。starter口語検証
+ * （checkScenarioStarter）で不合格ならそのアイテムは3ラウンド規律で再生成する。all-or-nothing書き込み。
+ */
+export async function genScenariosForTarget(deps: GenScenariosForTargetDeps): Promise<void> {
+  const log = deps.log ?? console.log;
+  const existingIds = new Set(loadContent(deps.scenariosDir).map((c) => c.id));
+  const [lo, hi] = BAND_STAGE_RANGE[deps.band];
+  const vocab = vocabConstraint(lo);
+  const vocabLine = vocab ? `${vocab}\n` : "";
+  const domainDesc = DOMAIN_DESC[deps.domain];
+  const candidates: NewContentCandidate[] = [];
+
+  for (let i = 0; i < deps.count; i++) {
+    const system = `You create one original roleplay SCENARIO for an English speaking practice app (Japanese learner, difficulty stage ${lo}-${hi} of 6).
+Domain: ${domainDesc}. A scenario sets up a roleplay that an AI coach will run with the learner by voice.
+Grounding rule: ground the scene in something concrete and near-universal (an everyday routine or common situation the learner has almost certainly experienced or can easily imagine) — avoid rare, specialist, or current-affairs settings.
+Write exactly 3 "hints" lines, English only (no Japanese, no translations), in this order:
+1. The learner's role or task in the scene (what they are doing / who they are).
+2. Who the AI plays, starting with "The AI plays ...".
+3. The goal of the roleplay, starting with "Goal: ...".
+Also write exactly 3 "starters": short English sentences the learner could say to open the roleplay.
+Spoken register. ${ORIGINALITY}
+${vocabLine}Do NOT reuse these existing ids: ${[...existingIds].join(", ") || "(none)"}
+Reply with STRICT JSON only:
+{"id":"kebab-case-id","title":"English title","titleJa":"日本語タイトル","hints":["You ...","The AI plays ...","Goal: ..."],"starters":["Opener sentence 1.","Opener sentence 2.","Opener sentence 3."]}
+Do not use any tools — reply directly with text only.`;
+    let cand: ScenarioTargetCandidate | null = null;
+    for (let attempt = 1; attempt <= 3 && !cand; attempt++) {
+      let text: string | undefined;
+      try {
+        ({ text } = await deps.runner(
+          `Write the ${deps.domain} scenario (band ${deps.band}, item ${i + 1}/${deps.count}) now.`, undefined, { systemPrompt: system },
+        ));
+      } catch (err) {
+        console.warn("[content-gen] runner error:", err instanceof Error ? err.message : String(err));
+      }
+      if (text !== undefined) {
+        const parsed = extractJson<NewContentCandidate>(text);
+        cand = validateScenarioTargetCandidate(parsed, existingIds, deps.scenariosDir);
+      }
+      if (!cand && attempt < 3) log(`  ${deps.domain}/${deps.band}: 検証NG — 再生成します(${attempt}/3)`);
+    }
+    if (!cand) {
+      throw new Error(`エラー: ${deps.domain}/${deps.band} の scenario (${i + 1}/${deps.count}) が3回とも検証を通りませんでした。何も書き込みません。`);
+    }
+    existingIds.add(cand.id);
+    candidates.push({ ...cand, kind: "scenario", domain: deps.domain, level: [lo, hi] });
+    log(`  + scenario: ${cand.id} [${deps.domain}/${lo}-${hi}] ${cand.title}`);
+  }
+
+  if (deps.dry) {
+    log("--dry のため書き込みません");
+    return;
+  }
+
+  const written: string[] = [];
+  try {
+    for (const cand of candidates) {
+      const file = path.join(deps.scenariosDir, `${cand.id}.md`);
+      if (existsSync(file)) throw new Error(`エラー: ${file} は既に存在します。中止します。`);
+      writeFileSync(file, contentToMarkdown(cand));
+      written.push(file);
+    }
+  } catch (err) {
+    for (const f of written) rmSync(f, { force: true });
+    throw err;
+  }
+  log(`完了: ${written.length} 本の ${deps.domain}/${deps.band} scenario を追加しました。`);
 }

@@ -9,6 +9,7 @@ import type { ClaudeRunner } from "../converse";
 import {
   contentToMarkdown, genSentences, genTopics, genScenarios, genTopicsBand, SCENARIO_BAND_PLAN, TOPIC_BAND_PLAN,
   validateNewSentences, validateTopicCandidate,
+  genTopicsForTarget, genScenariosForTarget,
 } from "../content-gen";
 import { loadListening, parseListeningFile } from "../listening";
 import {
@@ -845,6 +846,187 @@ describe("content-gen / genListening", () => {
       genListening({ runner: makeRunner([SIX[0], SIX[1], bad, bad]), listeningDir: dir, dry: false }),
     ).rejects.toThrow();
     expect(loadListening(dir)).toHaveLength(0); // 先に検証を通った候補も書かれない
+    rmSync(dir, { recursive: true, force: true });
+  });
+});
+
+// v0.26 content-ladder wave1: 帯([1,2]|[3,4]|[5,6])×domain×count指定の生成（--fill-coverageの生成本体）。
+// topicはexperienceAnchor/memoryCue/commonObjectsOrActions必須(topic-anchor-checkで検証)、
+// scenarioはstarter3件すべてcheckScenarioStarter PASS必須。
+describe("genTopicsForTarget（帯×domain×count・experienceAnchor必須）", () => {
+  function topicTargetJson(id: string, overrides: Record<string, unknown> = {}) {
+    return JSON.stringify({
+      id, title: `Morning routine ${id}`, titleJa: `朝の習慣${id}`,
+      hints: ["a — あ", "b — い", "c — う", "d — え"],
+      experienceAnchor: "誰もが経験する日常のルーティンに接地している",
+      memoryCue: "自分の朝の様子を思い浮かべる",
+      commonObjectsOrActions: ["coffee mug", "toothbrush", "alarm clock"],
+      ...overrides,
+    });
+  }
+
+  test("正常系: count本がlevel=帯範囲ちょうど・domain固定で書かれ、anchorフィールドがfrontmatterに残る", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "gen-tt-"));
+    const logs: string[] = [];
+    await genTopicsForTarget({
+      runner: makeRunner([topicTargetJson("morning-1"), topicTargetJson("morning-2")]),
+      topicsDir: dir, domain: "daily", band: "fluency", count: 2, dry: false, log: (s) => logs.push(s),
+    });
+    const items = loadContent(dir);
+    expect(items).toHaveLength(2);
+    expect(items.every((i) => i.domain === "daily" && i.level[0] === 5 && i.level[1] === 6)).toBe(true);
+    expect(items[0].experienceAnchor).toBe("誰もが経験する日常のルーティンに接地している");
+    expect(items[0].commonObjectsOrActions).toEqual(["coffee mug", "toothbrush", "alarm clock"]);
+    expect(logs.some((l) => l.startsWith("完了:"))).toBe(true);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("experienceAnchor欠落は検証NGとして再生成される", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "gen-tt-noanchor-"));
+    const logs: string[] = [];
+    await genTopicsForTarget({
+      runner: makeRunner([topicTargetJson("bad-1", { experienceAnchor: "" }), topicTargetJson("good-1")]),
+      topicsDir: dir, domain: "it", band: "foundation", count: 1, dry: false, log: (s) => logs.push(s),
+    });
+    const items = loadContent(dir);
+    expect(items).toHaveLength(1);
+    expect(items[0].id).toBe("good-1");
+    expect(logs.some((l) => l.includes("検証NG"))).toBe(true);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("禁止カテゴリに該当するタイトルはtopic-anchor-checkでFAILし再生成される", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "gen-tt-banned-"));
+    const bannedCand = topicTargetJson("bad-quantum", { title: "Quantum mechanics for beginners" });
+    await genTopicsForTarget({
+      runner: makeRunner([bannedCand, topicTargetJson("good-2")]),
+      topicsDir: dir, domain: "it", band: "foundation", count: 1, dry: false, log: () => {},
+    });
+    const items = loadContent(dir);
+    expect(items).toHaveLength(1);
+    expect(items[0].id).toBe("good-2");
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("3回とも検証NGなら書き込みゼロでthrow（3ラウンド規律）", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "gen-tt-3fail-"));
+    const bad = topicTargetJson("bad", { experienceAnchor: "" });
+    await expect(
+      genTopicsForTarget({
+        runner: makeRunner([bad, bad, bad]),
+        topicsDir: dir, domain: "daily", band: "fluency", count: 1, dry: false,
+      }),
+    ).rejects.toThrow();
+    expect(readdirSync(dir).filter((f) => f.endsWith(".md"))).toEqual([]);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("dry=trueは一切書かない", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "gen-tt-dry-"));
+    await genTopicsForTarget({
+      runner: makeRunner([topicTargetJson("morning-1")]),
+      topicsDir: dir, domain: "daily", band: "fluency", count: 1, dry: true,
+    });
+    expect(readdirSync(dir).filter((f) => f.endsWith(".md"))).toEqual([]);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("foundation帯はsystemPromptにword families制約が入り、fluency帯には入らない", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "gen-tt-vocab-"));
+    const seen: Array<{ systemPrompt?: string }> = [];
+    const runner: ClaudeRunner = async (_p, _r, opts) => {
+      seen.push({ systemPrompt: opts?.systemPrompt });
+      return { text: topicTargetJson(`t-${seen.length}`), sessionId: "fake" };
+    };
+    await genTopicsForTarget({ runner, topicsDir: dir, domain: "business", band: "foundation", count: 1, dry: true });
+    await genTopicsForTarget({ runner, topicsDir: dir, domain: "business", band: "fluency", count: 1, dry: true });
+    expect(seen[0].systemPrompt).toContain("word families");
+    expect(seen[1].systemPrompt).not.toContain("word families");
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("systemPromptに「完全に既知」接地ルールと禁止カテゴリの明示が含まれる", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "gen-tt-prompt-"));
+    const { runner, seen } = ((): { runner: ClaudeRunner; seen: Array<{ systemPrompt?: string }> } => {
+      const seen: Array<{ systemPrompt?: string }> = [];
+      const runner: ClaudeRunner = async (_p, _r, opts) => {
+        seen.push({ systemPrompt: opts?.systemPrompt });
+        return { text: topicTargetJson("t-1"), sessionId: "fake" };
+      };
+      return { runner, seen };
+    })();
+    await genTopicsForTarget({ runner, topicsDir: dir, domain: "daily", band: "fluency", count: 1, dry: true });
+    expect(seen[0].systemPrompt).toMatch(/known information|already talk about|lived experience/i);
+    expect(seen[0].systemPrompt).toMatch(/abstract/i);
+    expect(seen[0].systemPrompt).toMatch(/specialist|academic/i);
+    rmSync(dir, { recursive: true, force: true });
+  });
+});
+
+describe("genScenariosForTarget（帯×domain×count・starter口語検証必須）", () => {
+  function scenarioTargetJson(id: string, overrides: Record<string, unknown> = {}) {
+    return JSON.stringify({
+      id, title: `Scenario ${id}`, titleJa: `シナリオ${id}`,
+      hints: [
+        "You ask a coworker for help with a simple task.",
+        "The AI plays a helpful coworker.",
+        "Goal: get the help you need and say thanks.",
+      ],
+      starters: ["Can you help me for a second?", "I have a quick question.", "Do you have a minute?"],
+      ...overrides,
+    });
+  }
+
+  test("正常系: count本がlevel=帯範囲ちょうど・domain固定で書かれる", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "gen-st-"));
+    const logs: string[] = [];
+    await genScenariosForTarget({
+      runner: makeRunner([scenarioTargetJson("sc-1"), scenarioTargetJson("sc-2")]),
+      scenariosDir: dir, domain: "daily", band: "fluency", count: 2, dry: false, log: (s) => logs.push(s),
+    });
+    const items = loadContent(dir);
+    expect(items).toHaveLength(2);
+    expect(items.every((i) => i.domain === "daily" && i.level[0] === 5 && i.level[1] === 6)).toBe(true);
+    expect(items[0].starters).toHaveLength(3);
+    expect(logs.some((l) => l.startsWith("完了:"))).toBe(true);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("書き言葉調のstarterはcheckScenarioStarterでFAILし再生成される", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "gen-st-formal-"));
+    const formalCand = scenarioTargetJson("sc-formal", {
+      starters: ["I am writing to inquire about the room.", "One.", "Two."],
+    });
+    await genScenariosForTarget({
+      runner: makeRunner([formalCand, scenarioTargetJson("sc-ok")]),
+      scenariosDir: dir, domain: "business", band: "development", count: 1, dry: false, log: () => {},
+    });
+    const items = loadContent(dir);
+    expect(items).toHaveLength(1);
+    expect(items[0].id).toBe("sc-ok");
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("3回とも検証NGなら書き込みゼロでthrow（3ラウンド規律）", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "gen-st-3fail-"));
+    const bad = scenarioTargetJson("bad", { starters: ["Only one starter."] });
+    await expect(
+      genScenariosForTarget({
+        runner: makeRunner([bad, bad, bad]),
+        scenariosDir: dir, domain: "daily", band: "fluency", count: 1, dry: false,
+      }),
+    ).rejects.toThrow();
+    expect(readdirSync(dir).filter((f) => f.endsWith(".md"))).toEqual([]);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("dry=trueは一切書かない", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "gen-st-dry-"));
+    await genScenariosForTarget({
+      runner: makeRunner([scenarioTargetJson("sc-1")]),
+      scenariosDir: dir, domain: "daily", band: "fluency", count: 1, dry: true,
+    });
+    expect(readdirSync(dir).filter((f) => f.endsWith(".md"))).toEqual([]);
     rmSync(dir, { recursive: true, force: true });
   });
 });

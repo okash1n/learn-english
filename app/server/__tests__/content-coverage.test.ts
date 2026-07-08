@@ -5,6 +5,8 @@ import {
   computeStageCells,
   findBridgeItems,
   computeCoverageReport,
+  computeBandCoverageStatuses,
+  prioritizeFillTasks,
   QUOTA_PER_BAND_DOMAIN,
   BANDS,
   BAND_STAGE_RANGE,
@@ -192,5 +194,73 @@ describe("computeCoverageReport", () => {
     }
     const report = computeCoverageReport("topics", items);
     expect(report.shortfalls).toEqual([]);
+  });
+});
+
+/**
+ * v0.26 content-ladder wave1: --fill-coverage が生成順を決めるための帯単位の状況集計。
+ * 「zeroEvenWithBridge」= bridge教材を含めても当該帯にまったく教材が無い最悪ケース（daily [5,6]が該当）を
+ * 最優先で検出できることを検証する。
+ */
+describe("computeBandCoverageStatuses", () => {
+  test("既存教材ゼロなら全9セル(3domain×3band)がneededCount=quotaでzeroEvenWithBridge=true", () => {
+    const statuses = computeBandCoverageStatuses("topics", []);
+    expect(statuses).toHaveLength(9);
+    for (const s of statuses) {
+      expect(s.neededCount).toBe(QUOTA_PER_BAND_DOMAIN.topics);
+      expect(s.zeroEvenWithBridge).toBe(true);
+    }
+  });
+
+  test("bridge教材があればneededCountはquota充足だがzeroEvenWithBridgeはfalseになる", () => {
+    // [3,6]のbridgeはdevelopment[3,4]・fluency[5,6]の両方にオーバーラップする
+    const items: CoverageItem[] = [{ id: "wide", domain: "business", level: [3, 6] }];
+    const statuses = computeBandCoverageStatuses("topics", items);
+    const dev = statuses.find((s) => s.domain === "business" && s.band === "development")!;
+    const flu = statuses.find((s) => s.domain === "business" && s.band === "fluency")!;
+    expect(dev.zeroEvenWithBridge).toBe(false);
+    expect(flu.zeroEvenWithBridge).toBe(false);
+    // bridgeはquota集計から除外されるのでneededCountはquotaのまま(不足自体は解消しない)
+    expect(dev.neededCount).toBe(QUOTA_PER_BAND_DOMAIN.topics);
+    expect(flu.neededCount).toBe(QUOTA_PER_BAND_DOMAIN.topics);
+    // 完全に無関係なdaily/foundationはbridgeがカバーしないのでzeroEvenWithBridgeのまま
+    const dailyFoundation = statuses.find((s) => s.domain === "daily" && s.band === "foundation")!;
+    expect(dailyFoundation.zeroEvenWithBridge).toBe(true);
+  });
+
+  test("帯内に単帯教材が4本ちょうどあればneededCount=0", () => {
+    const items: CoverageItem[] = [
+      { id: "a", domain: "daily", level: [5, 6] }, { id: "b", domain: "daily", level: [5, 6] },
+      { id: "c", domain: "daily", level: [5, 6] }, { id: "d", domain: "daily", level: [5, 6] },
+    ];
+    const statuses = computeBandCoverageStatuses("topics", items);
+    const flu = statuses.find((s) => s.domain === "daily" && s.band === "fluency")!;
+    expect(flu.neededCount).toBe(0);
+    expect(flu.zeroEvenWithBridge).toBe(false);
+  });
+});
+
+describe("prioritizeFillTasks", () => {
+  test("neededCount=0のセルは除外される", () => {
+    const statuses = computeBandCoverageStatuses("topics", [
+      { id: "a", domain: "daily", level: [5, 6] }, { id: "b", domain: "daily", level: [5, 6] },
+      { id: "c", domain: "daily", level: [5, 6] }, { id: "d", domain: "daily", level: [5, 6] },
+    ]);
+    const tasks = prioritizeFillTasks(statuses);
+    expect(tasks.some((t) => t.domain === "daily" && t.band === "fluency")).toBe(false);
+    expect(tasks).toHaveLength(8);
+  });
+
+  test("zeroEvenWithBridgeのセルが先頭に来る(daily[5,6]が最優先の実例)", () => {
+    // businessのfluencyだけbridgeでカバー済み(zeroEvenWithBridge=false)にして、dailyのfluencyと対比する
+    const items: CoverageItem[] = [{ id: "wide", domain: "business", level: [3, 6] }];
+    const statuses = computeBandCoverageStatuses("topics", items);
+    const tasks = prioritizeFillTasks(statuses);
+    const dailyFluencyIdx = tasks.findIndex((t) => t.domain === "daily" && t.band === "fluency");
+    const businessFluencyIdx = tasks.findIndex((t) => t.domain === "business" && t.band === "fluency");
+    expect(dailyFluencyIdx).toBeGreaterThanOrEqual(0);
+    expect(businessFluencyIdx).toBeGreaterThanOrEqual(0);
+    expect(dailyFluencyIdx).toBeLessThan(businessFluencyIdx);
+    expect(tasks[0].zeroEvenWithBridge).toBe(true);
   });
 });

@@ -111,3 +111,55 @@ export function computeCoverageReport(type: CoverageType, items: readonly Covera
   const cells = computeStageCells(type, items);
   return { type, cells, bridgeItems: findBridgeItems(items), shortfalls: cells.filter((c) => !c.met) };
 }
+
+export type BandCoverageStatus = {
+  type: CoverageType;
+  domain: Domain;
+  band: Band;
+  /** 帯quota充足に必要な追加生成数（帯内2 stageのうち大きい方のshortfall。新規教材はlevelを帯範囲そのものにするため両stageに同時加算される） */
+  neededCount: number;
+  /**
+   * bridge教材を含めても当該帯×domainにまったく教材が無い最悪ケース（rotation.tsが無警告でdomain振替/
+   * 帯無視の全体フォールバックに陥る実害ケース）。--fill-coverage の生成順で最優先すべきセルを示す。
+   */
+  zeroEvenWithBridge: boolean;
+};
+
+/**
+ * --fill-coverage の入力となる、帯×domain単位の生成要否を集計する（wave1・content-ladder設計doc§8）。
+ * quota集計自体はcomputeStageCells（stage単位・bridge除外）に委譲し、ここでは「帯の2 stageのうち
+ * 大きい方のshortfall」を帯単位の必要生成数として採用する（帯範囲ちょうどの新規教材1本が帯内両stageの
+ * quotaへ同時にカウントされる前提 — 生成側は level を必ず帯範囲そのものにする）。
+ */
+export function computeBandCoverageStatuses(type: CoverageType, items: readonly CoverageItem[]): BandCoverageStatus[] {
+  const cells = computeStageCells(type, items);
+  const statuses: BandCoverageStatus[] = [];
+  for (const domain of DOMAINS) {
+    for (const band of BANDS) {
+      const [lo, hi] = BAND_STAGE_RANGE[band];
+      const cellLo = cells.find((c) => c.domain === domain && c.stage === lo)!;
+      const cellHi = cells.find((c) => c.domain === domain && c.stage === hi)!;
+      const neededCount = Math.max(cellLo.shortfall, cellHi.shortfall);
+      const zeroEvenWithBridge = !items.some(
+        (it) => it.domain === domain && it.level[0] <= hi && lo <= it.level[1],
+      );
+      statuses.push({ type, domain, band, neededCount, zeroEvenWithBridge });
+    }
+  }
+  return statuses;
+}
+
+/**
+ * fill-coverage の生成タスク優先順を決める（設計doc§8 wave1: 「bridge含めてもカバレッジゼロのセル」を先頭に）。
+ * neededCount=0（quota充足済み）のセルは除外する。ソート優先度: ①zeroEvenWithBridge降順 ②neededCount降順。
+ * Array.prototype.sort は安定ソート（ECMA-262仕様）のため、③以降の同点セルは入力順（DOMAINS×BANDSの決定的順序）を保つ。
+ */
+export function prioritizeFillTasks(statuses: readonly BandCoverageStatus[]): BandCoverageStatus[] {
+  return statuses
+    .filter((s) => s.neededCount > 0)
+    .slice()
+    .sort((a, b) => {
+      if (a.zeroEvenWithBridge !== b.zeroEvenWithBridge) return a.zeroEvenWithBridge ? -1 : 1;
+      return b.neededCount - a.neededCount;
+    });
+}
