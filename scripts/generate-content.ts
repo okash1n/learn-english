@@ -9,8 +9,8 @@
  * --dry はプレビューのみ（ファイルを書かない）。書き込み前バリデーションに失敗したら何も書かずに終了する。
  * 既定は Claude Agent SDK（サブスクリプション認証）。LLM_PROVIDER で openai-compat / codex に切替可能。
  * チューニング env はこの CLI だけが解釈する（サーバ/UI 経路は env チューニングを一切読まない）:
- *   LLM_PROVIDER=claude（既定）: CLAUDE_MODEL（haiku|sonnet|opus）/ CLAUDE_EFFORT（low|medium|high|xhigh）
- *   LLM_PROVIDER=codex: CODEX_REASONING_EFFORT（low|medium|high|xhigh）/ CODEX_SERVICE_TIER（fast|standard）
+ *   LLM_PROVIDER=claude（既定）: CLAUDE_MODEL（haiku|sonnet|opus）/ CLAUDE_EFFORT（low|medium|high|xhigh|max）
+ *   LLM_PROVIDER=codex: CODEX_REASONING_EFFORT（low|medium|high|xhigh|max）/ CODEX_SERVICE_TIER（fast|standard）
  * 恒久教材の生成には LLM_PROVIDER=claude CLAUDE_MODEL=opus CLAUDE_EFFORT=high を推奨。
  * このファイルは依存関係の組み立てだけを行う薄いラッパ。コア生成ロジックは app/server/content-gen.ts。
  */
