@@ -258,12 +258,21 @@ export class CodexAppServerClient {
   }
 }
 
-/** 動作確認済みの codex CLI バージョン（前方一致で判定）。乖離時は警告のみ（動作は継続）。 */
+/** 動作確認済みの codex CLI バージョン。乖離時は警告のみ（動作は継続）。 */
 export const TESTED_CODEX_VERSION = "0.142.5";
 
-/** `codex --version` の出力が動作確認済みバージョンと前方一致するか判定する純関数（単体テスト対象）。 */
+/**
+ * `codex --version` の出力が動作確認済みバージョンと一致するか判定する純関数（単体テスト対象）。
+ * 実際の出力は `codex-cli 0.142.5` のように name + version が空白区切りになりうるため、
+ * 末尾の空白区切りトークンだけを版として見る。単純な前方一致だと "0.142.5" は "0.142.50" にも
+ * マッチしてしまう（別バージョンを誤って一致扱いする）ため、前方一致した残り部分が空文字列
+ * または非数字で始まることまで境界チェックする（"0.142.5" のみ一致・"0.142.50" は不一致）。
+ */
 export function isTestedCodexVersion(actual: string): boolean {
-  return actual.trim().startsWith(TESTED_CODEX_VERSION);
+  const token = actual.trim().split(/\s+/).pop() ?? "";
+  if (!token.startsWith(TESTED_CODEX_VERSION)) return false;
+  const rest = token.slice(TESTED_CODEX_VERSION.length);
+  return rest === "" || !/^\d/.test(rest);
 }
 
 /** 版チェックはプロセス起動のたびではなく、実プロセスの初回 spawn 時に一度だけ行う（module-level フラグ）。 */
@@ -407,17 +416,24 @@ export function makeCodexAppServerRunner(cfg: CodexAppServerConfig): ClaudeRunne
 /** makeCodexAppServerRunner の本体。client を外部から受け取れるように分離し、registry（下記）が
  * 常駐プロセスを設定キー単位で使い回せるようにする（同じ client を複数回 buildRunner しても
  * 新規プロセスは spawn されない＝ CodexAppServerClient.ensureStarted の lazy 判定に従う）。
+ * maps を渡すと threads/transcript もそのまま再利用する（registry 経由の呼び出しが、設定保存の
+ * たびの再構築でも保険トランスクリプトをリセットしないようにするため。Fix 1）。省略時（直接
+ * makeCodexAppServerRunner を呼ぶ場合）は従来どおり呼び出しごとに空の Map を新規に持つ。
  */
-function buildRunner(client: CodexAppServerClient, cfg: CodexAppServerConfig): ClaudeRunner {
+function buildRunner(
+  client: CodexAppServerClient,
+  cfg: CodexAppServerConfig,
+  maps?: { threads: Map<string, { systemPrompt: string; generation: number }>; transcript: Map<string, CodexMsg[]> },
+): ClaudeRunner {
   /**
    * sessionId(=threadId) → スレッド作成/復元時に採用した systemPrompt と、その時点のプロセス世代。
    * 世代が client.generation() と一致するエントリだけが「今のプロセスが知っているスレッド」。
    * 大域の alive() 判定では不十分（別セッションの復元が再spawnすると alive() は true に戻り、
    * 新プロセスが知らないスレッドの古い記憶が生きているように見える）ため、エントリごとに世代を持つ。
    */
-  const threads = new Map<string, { systemPrompt: string; generation: number }>();
+  const threads = maps?.threads ?? new Map<string, { systemPrompt: string; generation: number }>();
   /** 保険のインメモリ・トランスクリプト（resume 不能時の畳み込み再投入用。exec アダプタの store と同様に保持し続ける）。 */
-  const transcript = new Map<string, CodexMsg[]>();
+  const transcript = maps?.transcript ?? new Map<string, CodexMsg[]>();
 
   async function startThread(system: string): Promise<string> {
     const res = await client.request("thread/start", threadParams(cfg, system));
@@ -502,7 +518,36 @@ function buildRunner(client: CodexAppServerClient, cfg: CodexAppServerConfig): C
 // registry 層: 接続設定（model/reasoningEffort/serviceTier）単位で常駐プロセス（client）を共有する
 // ---------------------------------------------------------------------------
 
-type CodexAppServerRegistryEntry = { key: string; client: CodexAppServerClient };
+/**
+ * 前提（binding）: このレジストリは「単一の正準接続」を1スロットだけ保持する設計である。
+ * 現在の唯一の呼び出し経路（llm-provider.ts の selectRunner ← converse.ts の
+ * applyLlmRoleSettings、ロールごとに呼ばれる）は、ロールごとに異なる codexModel を理論上は
+ * 渡せる形をしているが、クライアント側の buildRolesPayload（app/client/src/lib/llm-assignments.ts）
+ * が「接続は常に1つ・codex を選んだ全ロールへ同じ codexModel を配る」形でしか payload を組み立てない
+ * ため、出荷済み UI からは常に単一の接続設定に収束する。この前提が保証されている限り、
+ * applyLlmRoleSettings が4ロール分 resolveRunner を呼んでも connectionKey は毎回同一になり、
+ * このスロットは1つの client を使い回し続ける。
+ *
+ * もし将来 UI を経由しない直接 API 呼び出し等でロールごとに異なる codexModel を保存する経路が
+ * 導入されると、この前提が崩れる。その場合 applyLlmRoleSettings がロールを順に解決するたびに
+ * connectionKey が入れ替わり、この唯一のスロットが呼び出しのたびに evict される
+ * 「eviction ping-pong」が起きる（Fix 4 の交互切替回帰テスト参照）。旧 client は都度 kill() される
+ * ため無制限のプロセスリークにはならないが、kill 済みプロセスの自己修復（再spawn）が
+ * 追跡されないまま繰り返し起き、想定外の頻度でプロセスが生成/破棄され続けることになる。
+ *
+ * per-role に独立した常駐接続を許可する設計へ発展させる場合は、この単一スロットのままではなく
+ * 接続キーで引く `Map<string, CodexAppServerRegistryEntry>` へ拡張し、キーごとの生成・破棄タイミング
+ * （どのロールがどのキーを使っているか、いつ evict してよいか）を明示的に設計し直す必要がある。
+ * 本 fix はこの前提を明文化するのみで、挙動・enforcement は変えない。
+ */
+type CodexAppServerRegistryEntry = {
+  key: string;
+  client: CodexAppServerClient;
+  /** buildRunner の threads/transcript と同じ形。設定保存で registry を再取得しても保険トランスクリプトが
+   * リセットされないよう、client と同居させて同一キーである限り使い回す（Fix 1）。 */
+  threads: Map<string, { systemPrompt: string; generation: number }>;
+  transcript: Map<string, CodexMsg[]>;
+};
 
 /** module-level singleton。applyLlmRoleSettings が設定保存のたびに selectRunner → getCodexAppServerRunner
  * を再実行しても、接続設定が変わらない限り既存プロセスを使い回すための唯一の保持場所。 */
@@ -517,9 +562,10 @@ function connectionKey(cfg: CodexAppServerConfig): string {
 
 /**
  * codex app-server 常駐プロセスを接続設定単位でデデュープする ClaudeRunner ファクトリ。
- * - 同一キー（同一 model/reasoningEffort/serviceTier）で呼ばれた場合、既存の client（=既に spawn 済みかもしれない
- *   常駐プロセス）をそのまま使う新しい runner を返す（新規プロセスは spawn されない）。
- * - キーが変わった場合は旧 client を kill() してから新規 client を作る。
+ * - 同一キー（同一 model/reasoningEffort/serviceTier）で呼ばれた場合、既存の client と threads/transcript
+ *   （=既に spawn 済みかもしれない常駐プロセスと、そのセッション記憶）をそのまま使う新しい runner を返す
+ *   （新規プロセスは spawn されず、設定保存のたびの再解決でも保険トランスクリプトはリセットされない。Fix 1）。
+ * - キーが変わった場合は旧 client を kill() し、threads/transcript も新規の空 Map から作り直す。
  * - defaultSystemPrompt/execFallback は呼び出しごとの cfg をそのまま使う（値は実運用では固定だが、
  *   仮に変わっても次回呼び出しの runner に反映される）。
  */
@@ -527,9 +573,14 @@ export function getCodexAppServerRunner(cfg: CodexAppServerConfig): ClaudeRunner
   const key = connectionKey(cfg);
   if (!registry || registry.key !== key) {
     registry?.client.kill();
-    registry = { key, client: new CodexAppServerClient(cfg.spawn ?? realSpawnAppServer) };
+    registry = {
+      key,
+      client: new CodexAppServerClient(cfg.spawn ?? realSpawnAppServer),
+      threads: new Map(),
+      transcript: new Map(),
+    };
   }
-  return buildRunner(registry.client, cfg);
+  return buildRunner(registry.client, cfg, { threads: registry.threads, transcript: registry.transcript });
 }
 
 /** テスト用: registry をリセットする（現在の client があれば kill してから破棄）。テスト間の分離用。 */
