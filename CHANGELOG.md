@@ -2,6 +2,19 @@
 
 このプロジェクトの特筆すべき変更を記録します。形式は [Keep a Changelog](https://keepachangelog.com/ja/1.1.0/) に、バージョニングは [Semantic Versioning](https://semver.org/lang/ja/) に従います。
 
+## [0.24.0] - 2026-07-08
+
+### Added
+
+- **クイック支援ロールの新設 + ロール別チューニング**: 「用途ごとのモデル」を4区分から5区分（会話・**クイック支援**・コーチング・教材生成・測定）に再編した。クイック支援は発話1文の訳・言い方ヒント・訂正のちょっとした解説をまとめたロールで、個別設定が無ければコーチングの設定を継承し、コーチングも未設定なら全体設定を継承する（既存ユーザーは何も変えなければ挙動は完全に不変）。各ロールの詳細設定で**モデル**（Claude: haiku/sonnet/opus）・**effort**（low/medium/high/xhigh/max）・**配信**（Codex: fast/standard）を個別に指定できるようになり、「推奨チューニングを適用」ボタンでクラウド割当のロールだけ推奨値（会話=sonnet/low、クイック支援=haiku、コーチング=sonnet/high、教材生成=sonnet/medium、測定=opus/xhigh。Codex 側は low/fast・low/fast・medium/fast・medium/fast・xhigh/standard）へワンタップで適用できる（保存は「割当を保存」で確定）
+- **実効モデルの可視化・選択**: 「用途ごとのモデル」の各ロール行に、実際に使われている具体モデルID・effort・配信を示す「実効」サマリを追加。「モデル一覧を更新」ボタンで Claude（Agent SDK）・Codex（app-server）・ローカル（`/models`）の実モデル一覧を取得し、選択肢に反映する。取得できないソースは推測せず「実体未確認」と表示する（嘘の表示をしない）
+- **APIキー認証モード**: 「モデル接続設定」タブで Claude・Codex それぞれ「サブスクリプション（既定）」「APIキー（従量課金）」を選べるようになった。キーは従来どおり `app/.env`（`ANTHROPIC_API_KEY` / `CODEX_API_KEY`）にのみ置き、UI・DBには一切保存されない。Codex の APIキーモードは隔離した専用ホームディレクトリ（`data/codex-home`）を使い、ユーザー本体の `~/.codex`（ChatGPT ログイン）には一切触れない
+- **Claude のフォールバック**: Claude Agent SDK 経路が使えない・応答しないとき、その呼び出しだけ `claude -p`（ワンショット実行）へ自動フォールバックするようになった。ネイティブの `--resume` を使うため、フォールバック中もサーバ再起動をまたいで同じ会話の続きから復元できる。Claude Agent SDK・`codex app-server`・ローカル LLM（openai-compat）の各経路のハング検知タイムアウトを180秒に統一（従来は `codex app-server` にしかなかった）
+
+### Changed
+
+- **チューニング系 env のサーバ読み取りを廃止（破壊的変更）**: これまでサーバが読んでいた `CLAUDE_MODEL` / `CLAUDE_EFFORT` / `CODEX_REASONING_EFFORT` / `CODEX_SERVICE_TIER` は、v0.24.0 以降サーバ本体では一切読まれない（画面に見えない裏設定を無くすため）。設定の唯一の真実は **⚙️ 設定 → 用途ごとのモデル** の UI（DB）になった。これらの env は生成 CLI（`scripts/generate-content.ts`）だけが引き続き解釈する（推奨: `LLM_PROVIDER=claude CLAUDE_MODEL=opus CLAUDE_EFFORT=high`）
+
 ## [0.23.0] - 2026-07-08
 
 ### Added
