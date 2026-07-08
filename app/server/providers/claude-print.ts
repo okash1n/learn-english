@@ -65,6 +65,7 @@ export function makeClaudePrintRunner(cfg: ClaudePrintConfig): ClaudeRunner {
     } catch (err) {
       throw new TransportError(
         `claude -p returned invalid JSON: ${err instanceof Error ? err.message : String(err)}`,
+        { cause: err },
       );
     }
 
@@ -72,11 +73,17 @@ export function makeClaudePrintRunner(cfg: ClaudePrintConfig): ClaudeRunner {
     if (is_error === true || subtype !== "success") {
       throw new Error(`claude -p error (${subtype}): ${result ?? ""}`);
     }
+    // success なのに session_id が無い malformed payload を "" で握りつぶすと、次ターンで --resume が
+    // 付かず無音で新セッション化する（incoming resumeId も破棄される）。JSON.parse 失敗と同じ
+    // 「CLI が出力契約を守らなかった」分類として TransportError にし、withFallback の委譲シグナルにする。
+    if (typeof session_id !== "string" || session_id === "") {
+      throw new TransportError("claude -p success response missing session_id");
+    }
 
     const text = (result ?? "").trim();
     if (!text) throw new Error("Claude returned empty result");
 
-    return { text, sessionId: session_id ?? "" };
+    return { text, sessionId: session_id };
   };
 }
 

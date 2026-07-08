@@ -90,6 +90,15 @@ describe("makeClaudePrintRunner", () => {
     await runner("x").catch((e) => expect(e).not.toBeInstanceOf(TransportError));
   });
 
+  test("success応答なのに session_id が欠落 → TransportError（無音のresume喪失を防ぐ）", async () => {
+    const runner = makeClaudePrintRunner({
+      defaultSystemPrompt: "S",
+      exec: async () => JSON.stringify({ subtype: "success", is_error: false, result: "ok" }),
+    });
+    await expect(runner("x")).rejects.toBeInstanceOf(TransportError);
+    await runner("x").catch((e) => expect(e.message).toMatch(/session_id/));
+  });
+
   test("result の前後空白は trim される", async () => {
     const runner = makeClaudePrintRunner({
       defaultSystemPrompt: "S",
