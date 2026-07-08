@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { CodexAppServerClient, type SpawnAppServer } from "../providers/codex-app-server";
-import { makeFakeProc } from "./helpers/fake-app-server";
+import { makeFakeProc, makeScriptedProc } from "./helpers/fake-app-server";
 
 describe("CodexAppServerClient", () => {
   test("初回requestでinitializeハンドシェイクを行いid対応でレスポンスを返す", async () => {
@@ -251,6 +251,40 @@ describe("CodexAppServerClient", () => {
     expect(req.params).toEqual({});
     f.emit({ id: req.id, result: { data: [{ id: "gpt-5.6-codex" }] } });
     expect(await p).toEqual([{ id: "gpt-5.6-codex" }]);
+  });
+
+  test("listModelsはnextCursorがある限りcursorを渡してページングし、全ページのdataを連結する（レビュー指摘: ページネーション対応）", async () => {
+    const f = makeScriptedProc({
+      "model/list": (m) => {
+        const params = m.params as Record<string, unknown>;
+        if (params.cursor === undefined) {
+          return [{ id: m.id, result: { data: [{ id: "a" }], nextCursor: "page2" } }];
+        }
+        if (params.cursor === "page2") {
+          return [{ id: m.id, result: { data: [{ id: "b" }], nextCursor: null } }];
+        }
+        throw new Error(`unexpected cursor: ${String(params.cursor)}`);
+      },
+    });
+    const client = new CodexAppServerClient((() => f.proc) as SpawnAppServer);
+    const models = await client.listModels();
+    expect(models).toEqual([{ id: "a" }, { id: "b" }]);
+    const reqs = f.sent.filter((m) => m.method === "model/list");
+    expect(reqs.length).toBe(2);
+    expect(reqs[0]!.params).toEqual({});
+    expect(reqs[1]!.params).toEqual({ cursor: "page2" });
+  });
+
+  test("nextCursorが尽きない場合はMAX_MODEL_LIST_PAGES上限でthrowし、知らないうちに部分リストを返さない（レビュー指摘）", async () => {
+    let page = 0;
+    const f = makeScriptedProc({
+      "model/list": (m) => {
+        page++;
+        return [{ id: m.id, result: { data: [{ id: `p${page}` }], nextCursor: `cursor-${page}` } }];
+      },
+    });
+    const client = new CodexAppServerClient((() => f.proc) as SpawnAppServer);
+    await expect(client.listModels()).rejects.toThrow(/pagination/);
   });
 
   test("listModelsはresult.dataが配列でなければ空配列を返す", async () => {

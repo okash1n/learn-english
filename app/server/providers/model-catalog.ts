@@ -49,6 +49,12 @@ const DEFAULT_TTL_MS = 60 * 60 * 1000; // 1h
  * 失敗（available:false）は次回呼び出しのために一切キャッシュしない（毎回 fetcher を叩き直す）ため、
  * 一過性の障害が「実体未確認」を恒久化させない。既存の成功キャッシュも失敗では上書きされない
  * （refresh=1 で強制再取得した結果が失敗でも、直前の成功キャッシュはそのまま活かされる）。
+ *
+ * in-flight デデュープ（レビュー指摘）: 同一 provider への並行呼び出しは進行中の fetcher 実行を共有する
+ * （例: refresh ボタンの連打で claude CLI プロセスが二重に立ち上がるのを防ぐ）。**選んだ意味論**: refresh=1
+ * の呼び出しであっても、ちょうど進行中の fetch があればそれに相乗りし、別途新しい fetcher 実行は起こさない
+ * （「強制再取得」の厳密性より「同時に何本も立ち上げない」ことを優先する）。fetch 完了後（成功・失敗いずれも）
+ * は in-flight エントリを消すため、次回の呼び出しは新しい fetch を開始できる。
  */
 export function makeModelCatalogCache(
   fetchers: Record<LlmCatalogProvider, CatalogFetcher>,
@@ -57,16 +63,29 @@ export function makeModelCatalogCache(
   const ttlMs = opts?.ttlMs ?? DEFAULT_TTL_MS;
   const now = opts?.now ?? (() => Date.now());
   const cache = new Map<LlmCatalogProvider, { result: CatalogResult; expiresAt: number }>();
+  const inFlight = new Map<LlmCatalogProvider, Promise<CatalogResult>>();
 
   return {
-    async get(provider, refresh) {
+    get(provider, refresh) {
       if (!refresh) {
         const cached = cache.get(provider);
-        if (cached && cached.expiresAt > now()) return cached.result;
+        if (cached && cached.expiresAt > now()) return Promise.resolve(cached.result);
       }
-      const result = await fetchers[provider]();
-      if (result.available) cache.set(provider, { result, expiresAt: now() + ttlMs });
-      return result;
+
+      const existing = inFlight.get(provider);
+      if (existing) return existing;
+
+      const p = (async () => {
+        try {
+          const result = await fetchers[provider]();
+          if (result.available) cache.set(provider, { result, expiresAt: now() + ttlMs });
+          return result;
+        } finally {
+          inFlight.delete(provider);
+        }
+      })();
+      inFlight.set(provider, p);
+      return p;
     },
   };
 }

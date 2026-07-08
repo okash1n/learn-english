@@ -19,6 +19,10 @@ export type SpawnAppServer = () => AppServerProc;
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 180_000;
 
+/** listModels() のページネーション上限。異常に多いページ数（無限ループするサーバ実装など）から
+ * 「知らないうちに部分リストを返し続ける」ことを防ぐための安全弁。 */
+const MAX_MODEL_LIST_PAGES = 10;
+
 type Pending = {
   resolve: (result: Record<string, unknown>) => void;
   reject: (err: Error) => void;
@@ -99,13 +103,29 @@ export class CodexAppServerClient {
   }
 
   /**
-   * モデルカタログ取得（Task 3）用: 常駐プロセスへ `model/list` を投げ、result.data をそのまま返す。
+   * モデルカタログ取得（Task 3）用: 常駐プロセスへ `model/list` を投げ、全ページの data を連結して返す。
    * プロトコルのマッピング（CatalogModel への写像）はこのクライアントの責務ではなく呼び出し側
    * （providers/model-catalog.ts）が担う。exec フォールバックは経由しない（呼び出し元が available:false に変換する）。
+   *
+   * ページネーション（レビュー指摘・binding）: ModelListResponse は nextCursor を返しうる。1ページ目だけ
+   * 読んで available:true を返すと、モデル数がページサイズを超えた瞬間に「一部だけなのに全部であるかのように
+   * 見せる」— このカタログ機能が防ごうとしている「UI への嘘」そのものになる。nextCursor が string で
+   * 存在する限り cursor を渡して追い読みし、全ページの data を連結する。MAX_MODEL_LIST_PAGES を超えても
+   * 終端しない場合は「知らないうちに部分リストを返す」よりは失敗を明示する方が安全なため throw する
+   * （呼び出し元 providers/model-catalog.ts の makeCodexCatalogFetcher が catch して available:false + reason
+   * に変換する。ここでは変換しない — exec フォールバック同様、変換は呼び出し元の責務）。
    */
   async listModels(): Promise<Record<string, unknown>[]> {
-    const res = await this.request("model/list", {});
-    return Array.isArray(res.data) ? (res.data as Record<string, unknown>[]) : [];
+    const rows: Record<string, unknown>[] = [];
+    let cursor: string | undefined;
+    for (let page = 0; page < MAX_MODEL_LIST_PAGES; page++) {
+      const res = await this.request("model/list", cursor !== undefined ? { cursor } : {});
+      if (Array.isArray(res.data)) rows.push(...(res.data as Record<string, unknown>[]));
+      const next = res.nextCursor;
+      if (typeof next !== "string" || next.length === 0) return rows;
+      cursor = next;
+    }
+    throw new Error(`codex model/list: pagination did not terminate within ${MAX_MODEL_LIST_PAGES} pages`);
   }
 
   /** turn/start を送り、turn/completed まで通知を収集して最終 agentMessage テキストを返す */

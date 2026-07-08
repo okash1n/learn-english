@@ -137,6 +137,51 @@ describe("makeModelCatalogCache", () => {
     expect(third).toEqual(first);
     expect(calls).toBe(2); // fetcherは呼ばれ直さない
   });
+
+  test("同一providerへの並行get()はfetcherを1回だけ呼ぶ(in-flightデデュープ・レビュー指摘: 連打での二重起動防止)", async () => {
+    let calls = 0;
+    let resolveFetch!: (r: CatalogResult) => void;
+    const pending = new Promise<CatalogResult>((resolve) => { resolveFetch = resolve; });
+    const cache = makeModelCatalogCache({
+      claude: async () => { calls++; return pending; },
+      codex: async () => ({ available: true, models: [], fetchedAt: "t" }),
+      local: async () => ({ available: true, models: [], fetchedAt: "t" }),
+    });
+    const p1 = cache.get("claude", false);
+    const p2 = cache.get("claude", false);
+    resolveFetch({ available: true, models: [], fetchedAt: "t1" });
+    const [r1, r2] = await Promise.all([p1, p2]);
+    expect(calls).toBe(1);
+    expect(r1).toEqual(r2);
+  });
+
+  test("進行中のfetchにrefresh=1が来ても新規fetcher呼び出しを増やさず相乗りする(選んだ意味論)", async () => {
+    let calls = 0;
+    let resolveFetch!: (r: CatalogResult) => void;
+    const pending = new Promise<CatalogResult>((resolve) => { resolveFetch = resolve; });
+    const cache = makeModelCatalogCache({
+      claude: async () => { calls++; return pending; },
+      codex: async () => ({ available: true, models: [], fetchedAt: "t" }),
+      local: async () => ({ available: true, models: [], fetchedAt: "t" }),
+    });
+    const p1 = cache.get("claude", false);
+    const p2 = cache.get("claude", true); // 進行中のfetchに相乗りする
+    resolveFetch({ available: true, models: [], fetchedAt: "t1" });
+    await Promise.all([p1, p2]);
+    expect(calls).toBe(1);
+  });
+
+  test("in-flightのfetchが完了した後は次のget()が新しいfetcher呼び出しを開始する", async () => {
+    let calls = 0;
+    const cache = makeModelCatalogCache({
+      claude: async () => { calls++; return { available: true, models: [], fetchedAt: `t${calls}` }; },
+      codex: async () => ({ available: true, models: [], fetchedAt: "t" }),
+      local: async () => ({ available: true, models: [], fetchedAt: "t" }),
+    });
+    await cache.get("claude", true);
+    await cache.get("claude", true);
+    expect(calls).toBe(2);
+  });
 });
 
 describe("makeClaudeCatalogFetcher", () => {
@@ -244,6 +289,16 @@ describe("makeCodexCatalogFetcher", () => {
     }));
     const result = await fetcher();
     expect(result).toMatchObject({ available: false, reason: "codex app-server exited", models: [] });
+  });
+
+  test("listModelsのページネーション上限超過(throw)もavailable:falseへ変換する(部分リストをavailable:trueで返さない・レビュー指摘)", async () => {
+    const fetcher = makeCodexCatalogFetcher(() => ({
+      listModels: async () => { throw new Error("codex model/list: pagination did not terminate within 10 pages"); },
+    }));
+    const result = await fetcher();
+    expect(result.available).toBe(false);
+    expect(result.reason).toMatch(/pagination/);
+    expect(result.models).toEqual([]);
   });
 });
 
