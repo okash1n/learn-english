@@ -131,6 +131,18 @@ export const THRESHOLDS_BY_BAND: Record<SpokenBand, BandThresholds> = {
   advanced: { maxAvgWordsPerSentence: 16, minContractionsPerSentence: 0.2, maxWrittenVocabHits: 0 },
 };
 
+/**
+ * frontmatter の level: [min, max] から帯を推定する（3帯 [1,2]/[3,4]/[5,6] の境界と一致: level[1]<=3 は beginner、
+ * level[0]>=4 は advanced、それ以外（development=[3,4]自体・帯をまたぐbridge）は intermediate）。
+ * 旧実装は scripts/check-spoken-register.ts 内にのみ private に存在しテストが無かった。genListening系の
+ * 帯決定とCLIの両方から参照できるよう、ここに一本化してエクスポートする。
+ */
+export function bandForLevel(level: [number, number]): SpokenBand {
+  if (level[1] <= 3) return "beginner";
+  if (level[0] >= 4) return "advanced";
+  return "intermediate";
+}
+
 export function checkSpokenRegister(text: string, band: SpokenBand): SpokenRegisterResult {
   const metrics = computeSpokenRegisterMetrics(text);
   const th = THRESHOLDS_BY_BAND[band];
@@ -151,4 +163,131 @@ export function checkSpokenRegister(text: string, band: SpokenBand): SpokenRegis
     );
   }
   return { band, metrics, pass: reasons.length === 0, reasons };
+}
+
+/**
+ * model talk（連続モノローグ）の口語レジスター検証。
+ * 設計doc §5: 「listening / model talk（連続モノローグ）: spoken-register 3指標を hard fail（帯別閾値）」
+ * — ロジックは checkSpokenRegister と完全に同一（同じ3指標・同じ帯別閾値）。model talk 生成パイプライン
+ * から意味の伝わる名前で呼べるようにする別名エクスポートであり、listening 側の呼び出しは
+ * checkSpokenRegister のまま変更しない（既存セマンティクス不変）。
+ */
+export function checkModelTalk(text: string, band: SpokenBand): SpokenRegisterResult {
+  return checkSpokenRegister(text, band);
+}
+
+export type PrepChunk = { en: string; ja: string };
+
+export type PrepChunkThresholds = { minWords: number; maxWords: number };
+
+/**
+ * prepPack 1chunk あたりの語数許容レンジ。
+ * coach.ts prepSystem() の帯別ガイド（stage1-2: 6-10語 / stage3: 8-14語 / stage4+: 8-16語）の全域を
+ * カバーする単一の外枠として設定する。本チェックはプロンプト側の帯別厳密さを補完する粗い機械ゲートであり、
+ * stage別の厳密な範囲判定はしない — 明らかな異常（1語のフラグメント・数十語の長文化）だけを検出する。
+ */
+export const PREP_CHUNK_WORD_RANGE: PrepChunkThresholds = { minWords: 4, maxWords: 20 };
+
+/**
+ * placeholder らしき文字列（未展開のテンプレート跡）を検出する。
+ * [name] / <topic> / {slot} のようなブラケット系、TODO/TBD、3つ以上の連続アンダースコア、そして
+ * 省略記号（coach.ts prepSystem が明示的に禁止する "..." / "…"）を対象にする。
+ */
+const PLACEHOLDER_RE = /\[[^\]]*\]|<[^>]*>|\{[^}]*\}|\bTODO\b|\bTBD\b|_{2,}|\.\.\.|…/i;
+
+/**
+ * 文の表層的な完全性判定（大文字始まり・句読点終わり）。
+ * 主語+動詞の厳密な文法完全性は判定しない — 相槌的な短い発話（例: "Sure thing." "Sounds good!"）も
+ * 正当な話し言葉の完結した発話として扱うため、意図的に表層規則のみで判定する
+ * （ブリーフの「natural spoken fragment rule」に対応 — 文法的完全性を要求すると自然な短い発話を
+ * 誤ってFAILさせてしまうため、句読点で閉じているかどうかだけを見る）。
+ */
+function looksLikeCompleteSentence(text: string): boolean {
+  if (!text) return false;
+  const startsOk = /^[A-Z0-9"'(]/.test(text);
+  const endsOk = /[.!?]["')]?$/.test(text);
+  return startsOk && endsOk;
+}
+
+export type PrepChunkResult = {
+  pass: boolean;
+  reasons: string[];
+  wordCount: number;
+};
+
+/**
+ * prepPack の1chunk単位の検証（listening/model talkの「集計」チェックとは別物 — 1文ごとに判定する）。
+ * 検査項目: ①完全な文か（大文字始まり・句読点終わり） ②語数が許容レンジ内か ③placeholderトークンが無いか。
+ */
+export function checkPrepChunk(chunk: PrepChunk): PrepChunkResult {
+  const text = (chunk.en ?? "").trim();
+  const reasons: string[] = [];
+  const wordCount = countWords(text);
+
+  if (!looksLikeCompleteSentence(text)) {
+    reasons.push(`完全な文になっていません（大文字始まり・句読点終わりが必要）: "${text}"`);
+  }
+  if (wordCount < PREP_CHUNK_WORD_RANGE.minWords || wordCount > PREP_CHUNK_WORD_RANGE.maxWords) {
+    reasons.push(
+      `語数 ${wordCount} 語が許容範囲 ${PREP_CHUNK_WORD_RANGE.minWords}-${PREP_CHUNK_WORD_RANGE.maxWords} 語の外です`,
+    );
+  }
+  const placeholder = text.match(PLACEHOLDER_RE);
+  if (placeholder) {
+    reasons.push(`placeholderらしき文字列を検出: "${placeholder[0]}"`);
+  }
+  return { pass: reasons.length === 0, reasons, wordCount };
+}
+
+export type ScenarioStarterResult = {
+  pass: boolean;
+  reasons: string[];
+  wordCount: number;
+  hasContraction: boolean;
+};
+
+/**
+ * starter（シナリオ冒頭セリフ）1件あたりの語数上限。単一の話しことば発話としては明らかに長すぎる
+ * （手紙・案内文調に流れている）ことを検出するための粗い外枠。実在54件の起点セリフの最大語数は13語
+ * （__tests__/spoken-register-check.test.ts の較正コーパスで実証）のため、十分な余裕を持たせている。
+ */
+const STARTER_MAX_WORDS = 20;
+
+/**
+ * starter の書き言葉調 定型句パターン（非網羅的なキーワードリスト）。
+ * レビュー指摘（実データ較正）: 旧実装は「短縮形が無ければ書き言葉調」という単一発話への短縮形要求を
+ * 課しており、実在54件の起点セリフ中28件（52%）を誤ってFAILさせていた（"Hi, could I see the menu,
+ * please?" 等、丁寧な依頼・挨拶は短縮形が無くても自然な話しことば — 単一発話に短縮形を要求するのは
+ * 言語学的に誤り）。短縮形は「あれば自然さの一つの手がかり」という positive signal に留め、
+ * 必須要件にはしない。代わりに、手紙・ビジネス文書調であることが明確な定型句だけを狙い撃ちで検出する。
+ */
+const FORMAL_STARTER_RE =
+  /\bI would like to inquire\b|\bit is necessary\b|\bI am writing (?:to|in regard to|regarding)\b|\bplease be advised\b|\bkindly\b|\bat your earliest convenience\b|\bthis is to inform you\b|\bwould it be possible for you to\b|\bI am contacting you regarding\b|\bwe regret to inform\b|\bpursuant to\b/i;
+
+/**
+ * シナリオ starters のみを対象にした口語検証（hints/setupのナラティブ文には適用しない — 呼び出し側の責務）。
+ * 設計doc §5: 「scenarios: starters（冒頭セリフ）のみ口語検証。hints/setupには短縮形率を要求しない」。
+ * hard-fail条件: ①書き言葉語彙ヒット ②語数超過（STARTER_MAX_WORDS） ③書き言葉調の定型句ヒット。
+ * 短縮形の有無はpass/failに影響しない情報用フィールド（hasContraction）としてのみ返す。
+ * 較正根拠: 実在54件の起点セリフ全件PASS・書き言葉調で構成したFAIL例文がFAILすることを
+ * __tests__/spoken-register-check.test.ts で固定している。
+ */
+export function checkScenarioStarter(text: string): ScenarioStarterResult {
+  const trimmed = text.trim();
+  const wordCount = countWords(trimmed);
+  const hasContraction = countContractions(trimmed) > 0;
+  const reasons: string[] = [];
+
+  if (wordCount > STARTER_MAX_WORDS) {
+    reasons.push(`語数 ${wordCount} 語が上限 ${STARTER_MAX_WORDS} 語を超えています（単一発話として長すぎる可能性）`);
+  }
+  const formalMatch = trimmed.match(FORMAL_STARTER_RE);
+  if (formalMatch) {
+    reasons.push(`書き言葉調の定型句を検出: "${formalMatch[0]}"`);
+  }
+  const vocabHits = findWrittenVocabHits(trimmed);
+  if (vocabHits.length > 0) {
+    reasons.push(`書き言葉語彙を検出: ${vocabHits.map((h) => `${h.term}×${h.count}`).join(", ")}`);
+  }
+  return { pass: reasons.length === 0, reasons, wordCount, hasContraction };
 }

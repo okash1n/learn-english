@@ -10,6 +10,10 @@ export type ContentItem = {
   id: string; kind: "topic" | "scenario"; title: string; titleJa: string; hints: string[];
   starters: string[];
   domain: Domain; level: [number, number];
+  /** v0.26 content-ladder wave1: topicの「完全に既知」アンカー（frontmatterの追加フィールド・省略可・既存教材はundefined） */
+  experienceAnchor?: string;
+  memoryCue?: string;
+  commonObjectsOrActions?: string[];
 };
 
 export function parseDomain(raw: string | undefined): Domain {
@@ -53,9 +57,17 @@ export function parseContentFile(text: string): ContentItem | null {
   if (!fields.id || !fields.title || (fields.kind !== "topic" && fields.kind !== "scenario")) return null;
   const hints = body.split("\n").filter((l) => l.trim().startsWith("- ")).map((l) => l.trim().slice(2));
   const starters = body.split("\n").filter((l) => l.trim().startsWith("> ")).map((l) => l.trim().slice(2).trim());
+  // commonObjectsOrActions のシリアライズはカンマ区切りの単一行文字列（parseFrontmatterは配列値を扱えないため）。
+  // フィールド自体が無い既存教材は undefined のまま（後方互換・quota集計等には影響しない）。
+  const commonObjectsOrActions = fields.common_objects_or_actions
+    ? fields.common_objects_or_actions.split(",").map((s) => s.trim()).filter((s) => s.length > 0)
+    : undefined;
   return {
     id: fields.id, kind: fields.kind, title: fields.title, titleJa: fields.title_ja ?? "", hints, starters,
     domain: parseDomain(fields.domain), level: parseLevelRange(fields.level),
+    experienceAnchor: fields.experience_anchor || undefined,
+    memoryCue: fields.memory_cue || undefined,
+    commonObjectsOrActions,
   };
 }
 

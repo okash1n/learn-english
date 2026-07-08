@@ -6,9 +6,40 @@ import {
   findWrittenVocabHits,
   computeSpokenRegisterMetrics,
   checkSpokenRegister,
+  checkModelTalk,
+  checkPrepChunk,
+  checkScenarioStarter,
+  bandForLevel,
   WRITTEN_VOCAB_BAN_LIST,
   THRESHOLDS_BY_BAND,
+  PREP_CHUNK_WORD_RANGE,
 } from "../spoken-register-check";
+import { loadContent } from "../content";
+import { loadListening } from "../listening";
+import { SCENARIOS_DIR, LISTENING_DIR } from "../paths";
+
+// --- 較正コーパス(共有フィクスチャ・beginner/advanced/intermediateの全較正テストで再利用) ---
+// content/sentences/sentences300.json の no.1-10 の en をそのまま抜粋（口語の会話文が並ぶ良好サンプル）
+const GOOD_EXCERPT = [
+  "I usually skip breakfast and just grab coffee on my way out.",
+  "This curry tastes a bit spicy, doesn't it?",
+  "My eyesight is getting worse these days, honestly.",
+  "My son is always leaving his socks all over the floor.",
+  "I'm working from home this week, so just message me anytime.",
+  "The weekly meeting starts at nine sharp, so don't be late.",
+  "I think we need one more week to finish the report.",
+  "I'm meeting a new client on Thursday afternoon.",
+  "The deployment is still running, so don't merge anything yet.",
+  "This script checks disk usage every five minutes and sends alerts.",
+].join(" ");
+
+// content/listening/testing-a-new-app.md 第1段落（初級帯・短縮形0%の教科書調の実例）
+const BAD_TEXTBOOK_EXCERPT =
+  "I work for a small software company. My job is not to write code. My job is to test the app before other people use it. I look for problems. We call these problems bugs. Every day, I open the app on my phone or my computer and I try different things.";
+
+// content/listening/cleaning-out-the-closet.md 第1段落（上級帯・平均17.7語/文のエッセイ調の実例）
+const BAD_ESSAY_EXCERPT =
+  "Last Saturday, I finally decided to clean out my closet. It had been a mess for months, and every time I opened the door, something would fall out onto the floor. I told myself I would just spend twenty minutes tidying it up, but of course, that plan didn't work out at all.";
 
 describe("splitSentences", () => {
   test("., !, ? の直後の空白で文を分割する", () => {
@@ -132,52 +163,99 @@ describe("computeSpokenRegisterMetrics", () => {
 // 短縮形率も0.2を下回り、平均文長オーバーに加えて短縮形率不足でも二重にFAILするようになった（詳細は
 // .superpowers/sdd/task-2-report.md の「レビュー修正」節の較正表を参照）。
 describe("較正: 例文300(実データ抜粋) は PASS する", () => {
-  // content/sentences/sentences300.json の no.1-10 の en をそのまま抜粋（口語の会話文が並ぶ良好サンプル）
-  const goodExcerpt = [
-    "I usually skip breakfast and just grab coffee on my way out.",
-    "This curry tastes a bit spicy, doesn't it?",
-    "My eyesight is getting worse these days, honestly.",
-    "My son is always leaving his socks all over the floor.",
-    "I'm working from home this week, so just message me anytime.",
-    "The weekly meeting starts at nine sharp, so don't be late.",
-    "I think we need one more week to finish the report.",
-    "I'm meeting a new client on Thursday afternoon.",
-    "The deployment is still running, so don't merge anything yet.",
-    "This script checks disk usage every five minutes and sends alerts.",
-  ].join(" ");
-
   test("beginner帯の閾値でPASSする", () => {
-    const result = checkSpokenRegister(goodExcerpt, "beginner");
+    const result = checkSpokenRegister(GOOD_EXCERPT, "beginner");
     expect(result.pass).toBe(true);
     expect(result.reasons).toEqual([]);
   });
 
   test("平均文長11語未満・短縮形率0.2以上である（数値の固定）", () => {
-    const metrics = computeSpokenRegisterMetrics(goodExcerpt);
+    const metrics = computeSpokenRegisterMetrics(GOOD_EXCERPT);
     expect(metrics.avgWordsPerSentence).toBeLessThan(THRESHOLDS_BY_BAND.beginner.maxAvgWordsPerSentence);
     expect(metrics.contractionsPerSentence).toBeGreaterThanOrEqual(THRESHOLDS_BY_BAND.beginner.minContractionsPerSentence);
   });
 });
 
 describe("較正: 多聴6本(旧版・実データ抜粋)はFAILする", () => {
-  // content/listening/testing-a-new-app.md 第1段落（初級帯・短縮形0%の教科書調の実例）
-  const badTextbookExcerpt =
-    "I work for a small software company. My job is not to write code. My job is to test the app before other people use it. I look for problems. We call these problems bugs. Every day, I open the app on my phone or my computer and I try different things.";
-
   test("初級帯: 短縮形率0でFAILする（教科書調）", () => {
-    const result = checkSpokenRegister(badTextbookExcerpt, "beginner");
+    const result = checkSpokenRegister(BAD_TEXTBOOK_EXCERPT, "beginner");
     expect(result.pass).toBe(false);
     expect(result.reasons.some((r) => r.includes("短縮形率"))).toBe(true);
   });
 
-  // content/listening/cleaning-out-the-closet.md 第1段落（上級帯・平均17.7語/文のエッセイ調の実例）
-  const badEssayExcerpt =
-    "Last Saturday, I finally decided to clean out my closet. It had been a mess for months, and every time I opened the door, something would fall out onto the floor. I told myself I would just spend twenty minutes tidying it up, but of course, that plan didn't work out at all.";
-
   test("上級帯: 平均文長オーバーでFAILする（エッセイ調）", () => {
-    const result = checkSpokenRegister(badEssayExcerpt, "advanced");
+    const result = checkSpokenRegister(BAD_ESSAY_EXCERPT, "advanced");
     expect(result.pass).toBe(false);
     expect(result.reasons.some((r) => r.includes("平均文長"))).toBe(true);
+  });
+});
+
+describe("bandForLevel", () => {
+  test("level[1]<=3 は beginner（[1,2]foundation・[1,3]旧下帯とも該当）", () => {
+    expect(bandForLevel([1, 2])).toBe("beginner");
+    expect(bandForLevel([1, 3])).toBe("beginner");
+  });
+
+  test("level[0]>=4 は advanced（[5,6]fluency・[4,6]旧上帯とも該当）", () => {
+    expect(bandForLevel([5, 6])).toBe("advanced");
+    expect(bandForLevel([4, 6])).toBe("advanced");
+  });
+
+  test("それ以外（development=[3,4]自体・帯をまたぐbridge）は intermediate", () => {
+    expect(bandForLevel([3, 4])).toBe("intermediate");
+    expect(bandForLevel([1, 4])).toBe("intermediate"); // bridge（foundation→development）
+    expect(bandForLevel([3, 6])).toBe("intermediate"); // bridge（development→fluency）
+    expect(bandForLevel([1, 6])).toBe("intermediate"); // 全帯bridge
+  });
+});
+
+// --- intermediate帯(development=[3,4])の初期較正 ---
+// 設計doc(docs/superpowers/specs/2026-07-09-content-ladder-design.md §5)の制約:
+//   「旧素材FAIL + 例文300 PASS + v0.25再生成listening PASS」を満たす範囲で緩め設定から開始する。
+// THRESHOLDS_BY_BAND.intermediate は spoken-style.ts の LENGTH_CAP_BY_BAND.intermediate
+// （「9-13 words per sentence」）に1語の余裕を足した14語/文（beginnerの11語・advancedの16語の中間）を
+// 採用済み。以下はこの値を実データ・既存FAIL実例に対して固定するための較正テスト。
+describe("較正: intermediate帯(development=[3,4])の閾値", () => {
+  test("beginner(11) < intermediate(14) < advanced(16) の段階性を持つ", () => {
+    expect(THRESHOLDS_BY_BAND.intermediate.maxAvgWordsPerSentence).toBeGreaterThan(
+      THRESHOLDS_BY_BAND.beginner.maxAvgWordsPerSentence,
+    );
+    expect(THRESHOLDS_BY_BAND.intermediate.maxAvgWordsPerSentence).toBeLessThan(
+      THRESHOLDS_BY_BAND.advanced.maxAvgWordsPerSentence,
+    );
+  });
+
+  test("短縮形率下限は全帯と同じ0.2で統一されている", () => {
+    expect(THRESHOLDS_BY_BAND.intermediate.minContractionsPerSentence).toBe(0.2);
+  });
+
+  test("例文300(実データ抜粋)はintermediate帯でもPASSする", () => {
+    const result = checkSpokenRegister(GOOD_EXCERPT, "intermediate");
+    expect(result.pass).toBe(true);
+    expect(result.reasons).toEqual([]);
+  });
+
+  test("旧FAIL実例（教科書調・0%短縮形）はintermediate帯でもFAILする", () => {
+    const result = checkSpokenRegister(BAD_TEXTBOOK_EXCERPT, "intermediate");
+    expect(result.pass).toBe(false);
+    expect(result.reasons.some((r) => r.includes("短縮形率"))).toBe(true);
+  });
+
+  test("旧FAIL実例（エッセイ調・平均17.7語/文）はintermediate帯でもFAILする（advancedより厳しい閾値のため同じ理由で確実にFAIL）", () => {
+    const result = checkSpokenRegister(BAD_ESSAY_EXCERPT, "intermediate");
+    expect(result.pass).toBe(false);
+    expect(result.reasons.some((r) => r.includes("平均文長"))).toBe(true);
+  });
+});
+
+describe("較正: v0.25再生成listening 6本の実データがそれぞれの帯(bandForLevel)でPASSする（サンイティアンカー）", () => {
+  test("content/listening/*.md 全件が bandForLevel で決まる帯の閾値でPASSする", () => {
+    const items = loadListening(LISTENING_DIR);
+    expect(items.length).toBeGreaterThanOrEqual(6);
+    const failures = items
+      .map((it) => ({ id: it.id, result: checkSpokenRegister(it.paragraphs.join("\n\n"), bandForLevel(it.level)) }))
+      .filter(({ result }) => !result.pass);
+    expect(failures).toEqual([]);
   });
 });
 
@@ -200,5 +278,152 @@ describe("checkSpokenRegister: 書き言葉語彙ヒットでFAILする", () => 
     const result = checkSpokenRegister(text, "beginner");
     expect(result.pass).toBe(false);
     expect(result.reasons.some((r) => r.includes("書き言葉語彙"))).toBe(true);
+  });
+});
+
+describe("checkModelTalk", () => {
+  test("checkSpokenRegisterと同一の判定を返す（同じ3指標・同じ帯別閾値）", () => {
+    const good =
+      "I usually skip breakfast and just grab coffee on my way out. This curry tastes a bit spicy, doesn't it?";
+    const bad =
+      "I work for a small software company. My job is not to write code. My job is to test the app before other people use it.";
+    expect(checkModelTalk(good, "beginner")).toEqual(checkSpokenRegister(good, "beginner"));
+    expect(checkModelTalk(bad, "beginner")).toEqual(checkSpokenRegister(bad, "beginner"));
+    expect(checkModelTalk(bad, "beginner").pass).toBe(false);
+  });
+});
+
+describe("checkPrepChunk", () => {
+  test("正常系: 完全な文・語数範囲内・placeholderなしはPASS", () => {
+    const result = checkPrepChunk({ en: "The main problem we had was a slow database query.", ja: "主な問題は遅いDBクエリでした。" });
+    expect(result.pass).toBe(true);
+    expect(result.reasons).toEqual([]);
+    expect(result.wordCount).toBe(10);
+  });
+
+  test("小文字始まりはFAIL（大文字始まりでない）", () => {
+    const result = checkPrepChunk({ en: "the main problem was a slow query.", ja: "ja" });
+    expect(result.pass).toBe(false);
+    expect(result.reasons.some((r) => r.includes("完全な文"))).toBe(true);
+  });
+
+  test("句読点で終わらない断片はFAIL", () => {
+    const result = checkPrepChunk({ en: "The main problem we had was a slow query", ja: "ja" });
+    expect(result.pass).toBe(false);
+    expect(result.reasons.some((r) => r.includes("完全な文"))).toBe(true);
+  });
+
+  test("感嘆符・疑問符で終わる短い相槌的発話もPASSする（文法完全性は要求しない）", () => {
+    expect(checkPrepChunk({ en: "Sounds good to me!", ja: "いいですね！" }).reasons.some((r) => r.includes("完全な文"))).toBe(false);
+  });
+
+  test(`語数が下限(${PREP_CHUNK_WORD_RANGE.minWords}語)未満はFAIL`, () => {
+    const result = checkPrepChunk({ en: "Sure thing.", ja: "了解。" });
+    expect(result.pass).toBe(false);
+    expect(result.reasons.some((r) => r.includes("語数"))).toBe(true);
+  });
+
+  test(`語数が上限(${PREP_CHUNK_WORD_RANGE.maxWords}語)超はFAIL`, () => {
+    const en =
+      "The main problem we had was a very slow database query that kept timing out during peak traffic hours every single day.";
+    const result = checkPrepChunk({ en, ja: "ja" });
+    expect(result.pass).toBe(false);
+    expect(result.reasons.some((r) => r.includes("語数"))).toBe(true);
+  });
+
+  test("[X]のようなplaceholderトークンを検出する", () => {
+    const result = checkPrepChunk({ en: "The main problem was [specific issue] we found.", ja: "ja" });
+    expect(result.pass).toBe(false);
+    expect(result.reasons.some((r) => r.includes("placeholder"))).toBe(true);
+  });
+
+  test("<topic>のような山括弧placeholderも検出する", () => {
+    const result = checkPrepChunk({ en: "We talked about <topic> during the meeting today.", ja: "ja" });
+    expect(result.pass).toBe(false);
+    expect(result.reasons.some((r) => r.includes("placeholder"))).toBe(true);
+  });
+
+  test("省略記号(...)を検出する（coach.tsのNo ellipses規則に対応）", () => {
+    const result = checkPrepChunk({ en: "The main problem was... something we found later.", ja: "ja" });
+    expect(result.pass).toBe(false);
+    expect(result.reasons.some((r) => r.includes("placeholder"))).toBe(true);
+  });
+
+  test("TODO/TBDトークンを検出する", () => {
+    expect(checkPrepChunk({ en: "This is a TODO placeholder sentence for now.", ja: "ja" }).pass).toBe(false);
+  });
+
+  test("空文字列は完全な文でも語数範囲内でもなくFAIL", () => {
+    const result = checkPrepChunk({ en: "", ja: "" });
+    expect(result.pass).toBe(false);
+    expect(result.wordCount).toBe(0);
+  });
+});
+
+describe("checkScenarioStarter", () => {
+  test("短縮形を含む発話はPASS", () => {
+    const result = checkScenarioStarter("I'd like to check in, please.");
+    expect(result.pass).toBe(true);
+    expect(result.hasContraction).toBe(true);
+  });
+
+  test("短縮形が無くても、書き言葉調の定型句や語数超過が無ければPASS（短縮形は必須要件にしない）", () => {
+    const result = checkScenarioStarter("Excuse me, is this seat taken?");
+    expect(result.hasContraction).toBe(false);
+    expect(result.pass).toBe(true);
+  });
+
+  test("丁寧な依頼表現は短縮形が無くても自然な話しことばとしてPASSする（実データ較正のポイント）", () => {
+    // 実在starterの典型例（"Hi, could I see the menu, please?"型）。短縮形の有無ではなく
+    // 定型句/語数/書き言葉語彙のみで判定するため、丁寧表現がそのままFAILすることはない。
+    const result = checkScenarioStarter("Could you tell me a bit about your background?");
+    expect(result.hasContraction).toBe(false);
+    expect(result.pass).toBe(true);
+  });
+
+  test("書き言葉語彙は長さに関わらずFAILする", () => {
+    const result = checkScenarioStarter("Moreover, I'd like to start.");
+    expect(result.pass).toBe(false);
+    expect(result.reasons.some((r) => r.includes("書き言葉語彙"))).toBe(true);
+  });
+});
+
+describe("checkScenarioStarter: 書き言葉調の定型句・語数超過で構成したFAIL例文（固定ピン留め）", () => {
+  test("'I would like to inquire ...' はFAIL", () => {
+    const result = checkScenarioStarter("I would like to inquire about the possibility of moving our meeting.");
+    expect(result.pass).toBe(false);
+    expect(result.reasons.some((r) => r.includes("定型句"))).toBe(true);
+  });
+
+  test("'It is necessary that ...' はFAIL", () => {
+    const result = checkScenarioStarter("It is necessary that we discuss this matter before the deadline.");
+    expect(result.pass).toBe(false);
+    expect(result.reasons.some((r) => r.includes("定型句"))).toBe(true);
+  });
+
+  test("'Please be advised ...' はFAIL", () => {
+    const result = checkScenarioStarter("Please be advised that the meeting has been rescheduled.");
+    expect(result.pass).toBe(false);
+    expect(result.reasons.some((r) => r.includes("定型句"))).toBe(true);
+  });
+
+  test("極端に長い単一発話(20語超)はFAIL", () => {
+    const long =
+      "I would really appreciate it if you could possibly find some time in your schedule to meet with me sometime this week or next.";
+    const result = checkScenarioStarter(long);
+    expect(result.pass).toBe(false);
+    expect(result.reasons.some((r) => r.includes("語数"))).toBe(true);
+  });
+});
+
+describe("checkScenarioStarter: 実データ較正（実在するシナリオ起点セリフが全てPASSすること）", () => {
+  test("content/scenarios/*.md の starters が1件残らずPASSする（旧実装は28/54でFAILしていた）", () => {
+    const scenarios = loadContent(SCENARIOS_DIR);
+    const starters = scenarios.flatMap((s) => s.starters);
+    expect(starters.length).toBeGreaterThanOrEqual(54);
+    const failures = starters
+      .map((starter) => ({ starter, result: checkScenarioStarter(starter) }))
+      .filter(({ result }) => !result.pass);
+    expect(failures).toEqual([]);
   });
 });
