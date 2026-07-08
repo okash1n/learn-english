@@ -127,6 +127,17 @@ export function App() {
           <Button variant="secondary" onClick={() => setMode({ kind: "start" })}>{t.appShell.backToMenu}</Button>
         )}
         <div className="sidebar-spacer" />
+        <div className="sidebar-quick">
+          <div className="lang-toggle" role="group" aria-label={t.appShell.textSize}>
+            {(["small", "medium", "large", "xlarge"] as const).map((sc) => (
+              <button key={sc} className={uiScale === sc ? "is-active" : ""} onClick={() => setUiScale(sc)}>{t.uiScale[sc]}</button>
+            ))}
+          </div>
+          <div className="lang-toggle" role="group" aria-label={t.appShell.language}>
+            <button className={lang === "en" ? "is-active" : ""} onClick={() => switchLang("en")}>EN</button>
+            <button className={lang === "ja" ? "is-active" : ""} onClick={() => switchLang("ja")}>日本語</button>
+          </div>
+        </div>
         <SupportPanel lang={lang} />
         <PracticeStat lang={lang} />
       </aside>
