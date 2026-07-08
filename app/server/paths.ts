@@ -8,6 +8,9 @@ export const DATA_DIR = path.join(REPO_ROOT, "data");
 export const CLIENT_DIST_DIR = path.join(REPO_ROOT, "app", "client", "dist");
 export const SESSIONS_DIR = path.join(DATA_DIR, "sessions");
 export const RECORDINGS_DIR = path.join(DATA_DIR, "recordings");
+export const LOGS_DIR = path.join(DATA_DIR, "logs");
+// Tauri Phase 1 Task 3: 録音→STT PoC（dev専用 /api/dev/poc-result）の追記先
+export const POC_STT_LOG_FILE = path.join(LOGS_DIR, "poc-stt.jsonl");
 export const TTS_CACHE_DIR = path.join(DATA_DIR, "tts-cache");
 export const MODELS_DIR = path.join(REPO_ROOT, "models");
 export const CONTENT_DIR = path.join(REPO_ROOT, "content");

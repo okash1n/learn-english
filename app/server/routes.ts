@@ -1,6 +1,7 @@
 import { appendEvent, isErrorLogged } from "./session-log";
 import { json, type RouteEntry } from "./routes/http";
 import { serveStatic, type StaticRoutesDeps } from "./routes/static";
+import { makeDevRoutes, type DevRoutesDeps } from "./routes/dev";
 import { CLIENT_DIST_DIR } from "./paths";
 import { makeSystemRoutes, type SystemRoutesDeps } from "./routes/system";
 import { makeConverseRoutes, type ConverseRoutesDeps } from "./routes/converse";
@@ -32,7 +33,7 @@ export type RouteDeps =
   SettingsRoutesDeps & LibraryRoutesDeps & CoachRoutesDeps & SentenceRoutesDeps &
   ChunkRoutesDeps & ProgressRoutesDeps & PlacementRoutesDeps & MetricsRoutesDeps &
   AssessmentRoutesDeps & ListeningRoutesDeps & FeedbackRoutesDeps & LlmSettingsRoutesDeps &
-  LlmModelsRoutesDeps & TtsSettingsRoutesDeps & StaticRoutesDeps;
+  LlmModelsRoutesDeps & TtsSettingsRoutesDeps & StaticRoutesDeps & DevRoutesDeps;
 
 /** 現在の index.ts の全ルーティング・ハンドラをソケットを開かずにテストできる形に切り出したもの */
 export function makeFetchHandler(deps: RouteDeps): (req: Request) => Promise<Response> {
@@ -55,6 +56,7 @@ export function makeFetchHandler(deps: RouteDeps): (req: Request) => Promise<Res
     ...makeLlmSettingsRoutes(deps),
     ...makeLlmModelsRoutes(deps),
     ...makeTtsSettingsRoutes(deps),
+    ...makeDevRoutes(deps),
   ];
   return async function fetch(req: Request): Promise<Response> {
     // 受信を契機にローカルLLM（conversation が openai-compat のとき）を温める。throttle 済み・fire-and-forget。

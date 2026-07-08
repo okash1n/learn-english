@@ -14,6 +14,18 @@ const POLL_ATTEMPTS: u32 = 5;
 const POLL_INTERVAL: Duration = Duration::from_secs(1);
 const MAIN_WINDOW_LABEL: &str = "main";
 
+/// Task 3（録音→STT PoC）専用のdevフック: 起動時に環境変数 `SOLO_EIKAIWA_POC=stt` が
+/// 設定されていれば通常の `/` ではなく dev専用PoCページ（`?poc=stt`）へ向ける。
+/// `open` はプロセスにenvを引き渡さないため、`.app`内バイナリを直接起動する必要がある
+/// （detached試作機用。本番の起動導線・既定URLは変更しない）。
+fn target_url() -> String {
+    if std::env::var("SOLO_EIKAIWA_POC").as_deref() == Ok("stt") {
+        format!("{SERVER_URL}?poc=stt")
+    } else {
+        SERVER_URL.to_string()
+    }
+}
+
 fn health_agent() -> Agent {
     Agent::config_builder()
         .timeout_global(Some(HEALTH_TIMEOUT))
@@ -36,7 +48,7 @@ fn try_attach(app: &AppHandle) -> bool {
     let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) else {
         return false;
     };
-    let Ok(url) = Url::parse(SERVER_URL) else {
+    let Ok(url) = Url::parse(&target_url()) else {
         return false;
     };
     window.navigate(url).is_ok()
@@ -64,9 +76,24 @@ pub fn retry_attach(app: AppHandle) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::is_healthy;
+    use super::{is_healthy, target_url, SERVER_URL};
     use std::io::{Read, Write};
     use std::net::TcpListener;
+
+    // 1テスト内で set/remove を完結させ、他テストとのプロセスグローバルenvの競合を避ける。
+    #[test]
+    fn target_url_switches_on_poc_env_var() {
+        std::env::remove_var("SOLO_EIKAIWA_POC");
+        assert_eq!(target_url(), SERVER_URL);
+
+        std::env::set_var("SOLO_EIKAIWA_POC", "stt");
+        assert_eq!(target_url(), format!("{SERVER_URL}?poc=stt"));
+
+        std::env::set_var("SOLO_EIKAIWA_POC", "other");
+        assert_eq!(target_url(), SERVER_URL);
+
+        std::env::remove_var("SOLO_EIKAIWA_POC");
+    }
 
     /// ローカルに1回だけ「HTTP/1.1 200 OK」を返す使い捨てサーバを立て、そのURLを渡す。
     fn spawn_ok_server() -> String {
