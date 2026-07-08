@@ -274,6 +274,8 @@ type FeedbackScreenStrings = { feedbackScreen: {
   levelStage: (level: number | null, stage: number | null) => string;
 } };
 
+type AboutStrings = { about: { title: string; desc: string; lpButton: string; githubButton: string; license: string } };
+
 type Strings =
   & NavStrings & UiScaleStrings & AppShellStrings & SupportStrings & StatStrings & HeroStrings
   & QuickStrings & IntensiveStrings & DrillsStrings & SessionCardStrings
@@ -281,7 +283,8 @@ type Strings =
   & MenuTitleStrings & SessionStrings
   & WarmupStrings & Ftt432Strings & ReflectionStrings & ChunkListStrings
   & ShadowingStrings & LibraryStrings & RoleplayStrings & FreeTalkScreenStrings & ListeningScreenStrings
-  & LevelChipStrings & FeedbackRowStrings & FeedbackScreenStrings & LlmPanelStrings & SettingsStrings;
+  & LevelChipStrings & FeedbackRowStrings & FeedbackScreenStrings & LlmPanelStrings & SettingsStrings
+  & AboutStrings;
 
 const WEEKDAYS_EN = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const MONTHS_EN = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -614,6 +617,13 @@ export const STR: Record<Lang, Strings> = {
       levelStage: (level, stage) =>
         [level !== null ? `Lv${level}` : null, stage !== null ? `Stage${stage}` : null].filter(Boolean).join(" · ") || "—",
     },
+    about: {
+      title: "About",
+      desc: "solo-eikaiwa is a local-first English speaking gym for daily self-study — recording, transcription, AI conversation, and speech all run on your Mac.",
+      lpButton: "Visit the website",
+      githubButton: "View on GitHub",
+      license: "Open source under the MIT License.",
+    },
   },
   ja: {
     nav: {
@@ -940,6 +950,13 @@ export const STR: Record<Lang, Strings> = {
       at: (ymd) => ymd,
       levelStage: (level, stage) =>
         [level !== null ? `Lv${level}` : null, stage !== null ? `Stage${stage}` : null].filter(Boolean).join(" · ") || "—",
+    },
+    about: {
+      title: "このアプリについて",
+      desc: "solo-eikaiwa は、録音・文字起こし・AI 会話・音声合成まで自分の Mac の上で完結する、毎日のひとり英会話ジムです。",
+      lpButton: "紹介ページ（LP）を開く",
+      githubButton: "GitHub リポジトリを開く",
+      license: "MIT ライセンスのオープンソースです。",
     },
   },
 };
