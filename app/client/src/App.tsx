@@ -227,7 +227,7 @@ function PracticeStat({ lang }: { lang: Lang }) {
   useEffect(() => {
     if (fetchedRef.current) return;
     fetchedRef.current = true;
-    fetchPracticeDays().then(setDays).catch(() => {});
+    fetchPracticeDays().then((v) => setDays(v.days)).catch(() => {});
     fetchProgressSummary().then(setSummary).catch(() => {});
   }, []);
   // 他画面でのXP付与・レベル操作（提案の承認等）を購読し、再取得なしで最新値に追従する

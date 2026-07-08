@@ -116,7 +116,7 @@ type SessionCardStrings = {
   fullSession: { title: string; minutes: string; desc: string };
   shortSession: { title: string; minutes: string; desc: string };
 };
-type CalendarStrings = { calendar: { title: string; practiced: string; notYet: string } };
+type CalendarStrings = { calendar: { title: string; legendLess: string; legendMore: string } };
 type FreeTalkHeaderStrings = { freeTalk: { title: string; desc: string } };
 type ProgressStrings = {
   progress: {
@@ -391,7 +391,7 @@ export const STR: Record<Lang, Strings> = {
     },
     fullSession: { title: "Full Session", minutes: "60 min", desc: "Five blocks of solid practice" },
     shortSession: { title: "Short Session", minutes: "30 min", desc: "Focused training when you have time" },
-    calendar: { title: "Practice days", practiced: "Practiced", notYet: "Not yet" },
+    calendar: { title: "Practice days", legendLess: "Less", legendMore: "More" },
     freeTalk: { title: "Free Talk", desc: "Talk about anything in English — press the button to start and stop recording" },
     progress: {
       levelLabel: (n) => `Lv ${n}`,
@@ -709,7 +709,7 @@ export const STR: Record<Lang, Strings> = {
     },
     fullSession: { title: "通しセッション", minutes: "60分", desc: "5ブロックで総合的にしっかり練習" },
     shortSession: { title: "短縮版", minutes: "30分", desc: "時間がある日の集中トレーニング" },
-    calendar: { title: "練習日", practiced: "練習した日", notYet: "未実施" },
+    calendar: { title: "練習日", legendLess: "少", legendMore: "多" },
     freeTalk: { title: "自由会話", desc: "英語でなんでも話しかけてください — 録音ボタンで開始・停止" },
     progress: {
       levelLabel: (n) => `Lv ${n}`,

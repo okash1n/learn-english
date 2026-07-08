@@ -7,6 +7,7 @@ export * from "./coach";
 export {
   type LevelProposal,
   type ProgressSummary,
+  type PracticeDaysView,
   onProgressUpdate,
   notifyProgress,
   fetchProgressSummary,

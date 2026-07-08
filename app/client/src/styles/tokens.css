@@ -22,6 +22,12 @@
   --danger: #a03d33;
   --danger-soft: #f7e5e2;
 
+  /* 練習カレンダー濃淡（L1=活動のみ〜L4=最濃。--accent と --surface の混色） */
+  --cal-l1: color-mix(in srgb, var(--accent) 25%, var(--surface));
+  --cal-l2: color-mix(in srgb, var(--accent) 50%, var(--surface));
+  --cal-l3: color-mix(in srgb, var(--accent) 75%, var(--surface));
+  --cal-l4: var(--accent);
+
   /* タイポグラフィ（システムフォントのみ） */
   --font-sans: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Noto Sans JP", sans-serif;
   --fs-sm: 13px;
@@ -76,5 +82,11 @@
     --danger-soft: #3f2623;
     --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
     --shadow-2: 0 4px 12px rgba(0, 0, 0, 0.5);
+
+    /* 練習カレンダー濃淡（L1=活動のみ〜L4=最濃。--accent と --surface の混色） */
+    --cal-l1: color-mix(in srgb, var(--accent) 25%, var(--surface));
+    --cal-l2: color-mix(in srgb, var(--accent) 50%, var(--surface));
+    --cal-l3: color-mix(in srgb, var(--accent) 75%, var(--surface));
+    --cal-l4: var(--accent);
   }
 }

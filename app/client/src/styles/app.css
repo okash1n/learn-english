@@ -167,7 +167,10 @@ ul, ol { margin: 0 0 var(--sp-3); padding-left: var(--sp-5); }
 .cal-week-label { position: absolute; top: 0; left: 0; height: 14px; line-height: 14px; font-size: 10px; color: var(--text-muted); white-space: nowrap; }
 .cal-week-label.is-last { left: auto; right: 0; }
 .day { width: 18px; height: 18px; border-radius: 5px; background: var(--border); }
-.day.is-done { background: var(--accent); }
+.day[data-level="1"] { background: var(--cal-l1); }
+.day[data-level="2"] { background: var(--cal-l2); }
+.day[data-level="3"] { background: var(--cal-l3); }
+.day[data-level="4"] { background: var(--cal-l4); }
 .day.is-today { outline: 2px solid var(--accent); outline-offset: 1px; }
 .day.is-future { visibility: hidden; }
 .cal-legend { display: flex; align-items: center; gap: var(--sp-2); justify-content: flex-end; margin-top: var(--sp-3); }

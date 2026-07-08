@@ -68,8 +68,11 @@ export function progressLevelAction(
   return postForSummary("/api/progress/level", { action, level });
 }
 
-export async function fetchPracticeDays(): Promise<string[]> {
+export type PracticeDaysView = { days: string[]; xpByDay: Record<string, number> };
+
+export async function fetchPracticeDays(): Promise<PracticeDaysView> {
   const res = await fetch("/api/progress/days");
   if (!res.ok) throw new Error(`practice days failed: ${await extractErrorMessage(res)}`);
-  return ((await res.json()) as { days: string[] }).days;
+  const body = (await res.json()) as { days: string[]; xpByDay?: Record<string, number> };
+  return { days: body.days, xpByDay: body.xpByDay ?? {} };
 }
