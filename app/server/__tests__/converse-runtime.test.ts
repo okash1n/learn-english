@@ -2,6 +2,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { applyLlmSettings, applyLlmRoleSettings, getCurrentRunner, runnerFor } from "../converse";
 import { LLM_ROLES } from "../llm-provider";
 import type { LlmSettings, LlmRole, LlmRoleSetting } from "../llm-provider";
+import type { RoleTuning } from "../llm-role-tuning-store";
 
 // ambient な Bun.env.LLM_PROVIDER の影響を排除するため、空 env を明示注入して決定的にする
 const emptyEnv: Record<string, string | undefined> = {};
@@ -43,7 +44,7 @@ const allInherit = (): Record<LlmRole, LlmRoleSetting> =>
 describe("runnerFor / applyLlmRoleSettings ロール別ルーティング", () => {
   afterAll(() => applyLlmSettings(CLAUDE, emptyEnv));
 
-  test("全ロール inherit + global=env なら4ロールとも同一の claude runner に解決する（既定不変）", () => {
+  test("全ロール inherit + global=env なら5ロールとも同一の claude runner に解決する（既定不変）", () => {
     applyLlmSettings(CLAUDE, emptyEnv);
     const claudeRef = getCurrentRunner("conversation");
     applyLlmRoleSettings({ provider: "env", baseUrl: null, model: null, codexModel: null }, allInherit(), emptyEnv);
@@ -73,6 +74,7 @@ describe("runnerFor / applyLlmRoleSettings ロール別ルーティング", () =
     );
     expect(getCurrentRunner("generation")).not.toBe(claudeRef);
     expect(getCurrentRunner("conversation")).toBe(claudeRef);
+    expect(getCurrentRunner("assist")).toBe(claudeRef);
     expect(getCurrentRunner("coaching")).toBe(claudeRef);
     expect(getCurrentRunner("assessment")).toBe(claudeRef);
   });
@@ -81,5 +83,96 @@ describe("runnerFor / applyLlmRoleSettings ロール別ルーティング", () =
     applyLlmSettings({ provider: "openai-compat", baseUrl: "http://localhost:11434/v1", model: "llama3", codexModel: null }, emptyEnv);
     const conv = getCurrentRunner("conversation");
     for (const role of LLM_ROLES) expect(getCurrentRunner(role)).toBe(conv);
+  });
+});
+
+describe("assist ロールの連鎖規則（不在=coaching の解決結果を共有参照）", () => {
+  afterAll(() => applyLlmSettings(CLAUDE, emptyEnv));
+
+  test("assist 行が inherit のとき、coaching が openai-compat でも assist は coaching と同一 runner 参照になる", () => {
+    applyLlmRoleSettings(
+      CLAUDE,
+      { ...allInherit(), coaching: { provider: "openai-compat", baseUrl: "http://localhost:11434/v1", model: "llama3", codexModel: null } },
+      emptyEnv,
+    );
+    expect(runnerFor("assist")).not.toBe(undefined);
+    expect(getCurrentRunner("assist")).toBe(getCurrentRunner("coaching"));
+  });
+
+  test("assist 行が明示設定のときは coaching と独立に解決する", () => {
+    applyLlmRoleSettings(
+      CLAUDE,
+      {
+        ...allInherit(),
+        coaching: { provider: "openai-compat", baseUrl: "http://localhost:11434/v1", model: "llama3", codexModel: null },
+        assist: { provider: "codex", baseUrl: null, model: null, codexModel: "o4-mini" },
+      },
+      emptyEnv,
+    );
+    expect(getCurrentRunner("assist")).not.toBe(getCurrentRunner("coaching"));
+  });
+
+  test("assist・coaching とも inherit なら両方 global と同一参照（従来どおり）", () => {
+    applyLlmSettings(CLAUDE, emptyEnv);
+    const claudeRef = getCurrentRunner("conversation");
+    applyLlmRoleSettings({ provider: "env", baseUrl: null, model: null, codexModel: null }, allInherit(), emptyEnv);
+    expect(getCurrentRunner("assist")).toBe(claudeRef);
+    expect(getCurrentRunner("coaching")).toBe(claudeRef);
+  });
+});
+
+const NO_TUNING: RoleTuning = { claudeModel: null, effort: null, serviceTier: null };
+const allNullTuning = (): Record<LlmRole, RoleTuning> =>
+  Object.fromEntries(LLM_ROLES.map((r) => [r, NO_TUNING])) as Record<LlmRole, RoleTuning>;
+
+describe("ロール別チューニング配線（Task 8）", () => {
+  afterAll(() => applyLlmSettings(CLAUDE, emptyEnv));
+
+  test("全ロール inherit + tuning全null なら5ロールとも同一参照（既定挙動不変）", () => {
+    applyLlmSettings(CLAUDE, emptyEnv);
+    const claudeRef = getCurrentRunner("conversation");
+    applyLlmRoleSettings(CLAUDE, allInherit(), emptyEnv, allNullTuning());
+    for (const role of LLM_ROLES) expect(getCurrentRunner(role)).toBe(claudeRef);
+  });
+
+  test("1ロールだけチューニングを設定すると、そのロールだけ独立解決し他のinherit+tuning無しロールはglobalと共有のまま", () => {
+    applyLlmSettings(CLAUDE, emptyEnv);
+    const claudeRef = getCurrentRunner("conversation");
+    applyLlmRoleSettings(CLAUDE, allInherit(), emptyEnv, {
+      ...allNullTuning(),
+      assessment: { claudeModel: "opus", effort: "xhigh", serviceTier: null },
+    });
+    expect(getCurrentRunner("assessment")).not.toBe(claudeRef);
+    expect(getCurrentRunner("conversation")).toBe(claudeRef);
+    expect(getCurrentRunner("coaching")).toBe(claudeRef);
+    expect(getCurrentRunner("generation")).toBe(claudeRef);
+    // assist は inherit で coaching も global 共有のままなので claudeRef と同じになる
+    expect(getCurrentRunner("assist")).toBe(claudeRef);
+  });
+
+  test("assist行がinherit・assist独自のtuningがあっても、coachingのtuning込みの解決結果をそのまま共有する（連鎖の一貫性）", () => {
+    applyLlmRoleSettings(CLAUDE, allInherit(), emptyEnv, {
+      ...allNullTuning(),
+      assist: { claudeModel: "haiku", effort: "low", serviceTier: null },
+      coaching: { claudeModel: "opus", effort: "xhigh", serviceTier: null },
+    });
+    // assist は自分の tuning(haiku/low) ではなく、coaching の解決結果(opus/xhigh) と同一参照になる
+    expect(getCurrentRunner("assist")).toBe(getCurrentRunner("coaching"));
+    // coaching は独立チューニングを持つため、tuning無しの他ロールとは異なる参照
+    expect(getCurrentRunner("coaching")).not.toBe(getCurrentRunner("conversation"));
+  });
+
+  test("assist行が明示設定(非inherit)のときは、assist自身のtuningがあってもcoachingとは独立に解決する", () => {
+    applyLlmRoleSettings(
+      CLAUDE,
+      { ...allInherit(), assist: { provider: "claude", baseUrl: null, model: null, codexModel: null } },
+      emptyEnv,
+      {
+        ...allNullTuning(),
+        assist: { claudeModel: "haiku", effort: "low", serviceTier: null },
+        coaching: { claudeModel: "opus", effort: "xhigh", serviceTier: null },
+      },
+    );
+    expect(getCurrentRunner("assist")).not.toBe(getCurrentRunner("coaching"));
   });
 });

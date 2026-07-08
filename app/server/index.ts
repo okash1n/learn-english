@@ -23,8 +23,14 @@ import { makeFeedbackStore } from "./feedback-store";
 import { makeLlmSettingsStore } from "./llm-settings-store";
 import { makeTtsSettingsStore } from "./tts-settings-store";
 import { makeLlmRoleSettingsStore } from "./llm-role-settings-store";
+import { makeLlmRoleTuningStore } from "./llm-role-tuning-store";
+import { makeLlmAuthStore, setActiveAuthModes } from "./llm-auth-store";
+import { ensureCodexApiKeyHome } from "./codex-auth";
 import { conversationWarmup } from "./llm-warmup";
 import { LLM_ROLES } from "./llm-provider";
+import { query } from "@anthropic-ai/claude-agent-sdk";
+import { getCodexAppServerClient, __resetCodexAppServerRegistry } from "./providers/codex-app-server";
+import { makeClaudeCatalogFetcher, makeCodexCatalogFetcher, makeLocalCatalogFetcher, makeModelCatalogCache } from "./providers/model-catalog";
 
 ensureDirs();
 const PORT = 3111;
@@ -44,6 +50,17 @@ const feedbackStore = makeFeedbackStore(db);
 const llmSettingsStore = makeLlmSettingsStore(db);
 const ttsSettingsStore = makeTtsSettingsStore(db);
 const llmRoleSettingsStore = makeLlmRoleSettingsStore(db);
+const llmRoleTuningStore = makeLlmRoleTuningStore(db);
+const llmAuthStore = makeLlmAuthStore(db);
+// モデルカタログ（GET /api/llm-models）: 3ソースを TTL キャッシュ付きで束ねる。
+// codex はカタログ取得も runner と同じ常駐プロセスを共有する（getCodexAppServerClient・exec フォールバックなし）。
+// local の baseUrl は「保存済み openai-compat 設定 → 無ければ env」の順で解決する（グローバル設定に閉じる。
+// ロール別 baseUrl は対象外＝カタログは接続単位ではなくプロバイダ単位の一覧のため）。
+const modelCatalogCache = makeModelCatalogCache({
+  claude: makeClaudeCatalogFetcher(query),
+  codex: makeCodexCatalogFetcher(() => getCodexAppServerClient()),
+  local: makeLocalCatalogFetcher(() => (llmSettingsStore.get()?.baseUrl ?? Bun.env.OPENAI_COMPAT_BASE_URL)?.trim() || null),
+});
 const assembleMonthData = makeAssembleMonthData({
   db,
   sentences,
@@ -94,10 +111,10 @@ const realDeps: RouteDeps = {
   explainSentence: (s) => generateSentenceExplanation(s, runnerFor("coaching")),
   explainTalk: (text) => generateTalkExplanation({ text }, runnerFor("coaching")),
   talkExplainCache: makeTalkExplainCache(db),
-  translate: (text) => generateUtteranceTranslation({ text }, runnerFor("coaching")),
+  translate: (text) => generateUtteranceTranslation({ text }, runnerFor("assist")),
   translationCache: makeTranslationCache(db),
-  phraseHint: (args) => generatePhraseHints(args, runnerFor("coaching")),
-  fixExplain: (args) => generateFixExplanation(args, runnerFor("coaching")),
+  phraseHint: (args) => generatePhraseHints(args, runnerFor("assist")),
+  fixExplain: (args) => generateFixExplanation(args, runnerFor("assist")),
   metricsSummary,
   assessmentStore,
   assembleMonthData: () => assembleMonthData(),
@@ -110,19 +127,38 @@ const realDeps: RouteDeps = {
   saveLlmSettings: (s) => llmSettingsStore.save(s),
   getLlmRoleSettings: () => llmRoleSettingsStore.getAll(),
   saveLlmRoleSettings: (role, s) => llmRoleSettingsStore.save(role, s),
-  // 「現在の全体設定 + 保存済みロール」で一括再解決する（PUT /api/llm-settings, /api/llm-settings/roles の共通経路）。
-  applyLlmSettings: (s) => applyLlmRoleSettings(s, llmRoleSettingsStore.getAll()),
+  getLlmRoleTuning: () => llmRoleTuningStore.getAll(),
+  saveLlmRoleTuning: (t) => llmRoleTuningStore.setAll(t),
+  // 「現在の全体設定 + 保存済みロール + 保存済みチューニング」で一括再解決する
+  // （PUT /api/llm-settings, /api/llm-settings/roles の共通経路）。
+  applyLlmSettings: (s) => applyLlmRoleSettings(s, llmRoleSettingsStore.getAll(), Bun.env, llmRoleTuningStore.getAll()),
   // env 由来情報。APIキーは有無のみ（値は絶対に返さない）。
   llmEnv: () => ({
     provider: (Bun.env.LLM_PROVIDER ?? "claude").trim().toLowerCase() || "claude",
     apiKeyConfigured: Boolean(Bun.env.OPENAI_COMPAT_API_KEY?.trim()),
   }),
   warmLlm: () => conversationWarmup.maybeWarm(),
+  getLlmAuthModes: () => llmAuthStore.getAll(),
+  saveLlmAuthMode: (provider, mode) => llmAuthStore.set(provider, mode),
+  // env のキー検出のみ（値は絶対に返さない）。anthropic=ANTHROPIC_API_KEY・codex=CODEX_API_KEY。
+  getAuthKeysConfigured: () => ({
+    anthropic: Boolean(Bun.env.ANTHROPIC_API_KEY?.trim()),
+    codex: Boolean(Bun.env.CODEX_API_KEY?.trim()),
+  }),
+  // 保存直後の最新モードを runner 側のランタイムキャッシュへ push する（PUT がサーバ再起動なしに反映されるため）。
+  applyLlmAuthModes: (modes) => setActiveAuthModes(modes),
+  ensureCodexApiKeyHome: () => ensureCodexApiKeyHome(),
+  killCodexAppServerRegistry: () => __resetCodexAppServerRegistry(),
+  getModelCatalog: (provider, refresh) => modelCatalogCache.get(provider, refresh),
   getTtsSettings: () => ttsSettingsStore.get(),
   saveTtsSettings: (s) => ttsSettingsStore.save(s),
   // env 由来。TTS の APIキーは有無のみ開示（TTS_API_KEY 優先・無ければ OPENAI_API_KEY）。値は絶対に返さない。
   ttsEnv: () => ({ apiKeyConfigured: Boolean((Bun.env.TTS_API_KEY ?? Bun.env.OPENAI_API_KEY)?.trim()) }),
 };
+
+// 起動時: 保存済み認証モードを runner 側のランタイムキャッシュへ反映する（行不在なら既定 subscription/subscription
+// のまま＝挙動不変）。以後は routes/llm-settings.ts の PUT ハンドラが保存の都度ここを更新する。
+setActiveAuthModes(llmAuthStore.getAll());
 
 // 起動時: DB に LLM 設定（全体 or ロール別）があれば実行中プロセスへ適用する（fail-open）。
 // どちらも無ければ何もせず、converse.ts のモジュールロード時 env 既定のまま（現行と完全同一）。
@@ -130,10 +166,20 @@ const realDeps: RouteDeps = {
 // crash-loop を起こさないため、失敗は warn してフォールバックする（プロセスは落とさない）。
 const savedLlm = llmSettingsStore.get();
 const savedRoles = llmRoleSettingsStore.getAll();
+const savedTuning = llmRoleTuningStore.getAll();
 const hasRoleOverride = LLM_ROLES.some((r) => savedRoles[r].provider !== "inherit");
-if (savedLlm || hasRoleOverride) {
+const hasTuningOverride = LLM_ROLES.some((r) => {
+  const t = savedTuning[r];
+  return t.claudeModel !== null || t.effort !== null || t.serviceTier !== null;
+});
+if (savedLlm || hasRoleOverride || hasTuningOverride) {
   try {
-    applyLlmRoleSettings(savedLlm ?? { provider: "env", baseUrl: null, model: null, codexModel: null }, savedRoles);
+    applyLlmRoleSettings(
+      savedLlm ?? { provider: "env", baseUrl: null, model: null, codexModel: null },
+      savedRoles,
+      Bun.env,
+      savedTuning,
+    );
   } catch (err) {
     console.warn(`[llm] failed to apply saved settings, falling back to environment/claude: ${String(err)}`);
   }

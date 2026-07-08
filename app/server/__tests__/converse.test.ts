@@ -1,9 +1,14 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test, afterEach } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { converseTurn, makeClaudeRunner, PARTNER_SYSTEM_PROMPT, partnerSystemPrompt } from "../converse";
+import {
+  converseTurn, makeClaudeRunner, PARTNER_SYSTEM_PROMPT, partnerSystemPrompt,
+  resolveClaudeRunner, resolveClaudeTuning, resolveCliRunner, claudeRunner,
+} from "../converse";
 import { isErrorLogged, readEvents } from "../session-log";
+import { TransportError } from "../providers/errors";
+import { setActiveAuthModes } from "../llm-auth-store";
 import type { query } from "@anthropic-ai/claude-agent-sdk";
 
 // Minimal fake message shapes; only the fields defaultRunner actually reads are populated.
@@ -83,6 +88,67 @@ describe("makeClaudeRunner", () => {
 
     await expect(runner("hi")).rejects.toThrow(/empty/);
   });
+
+  test("SDK が最初のメッセージ前に落ちたら TransportError に包む（cause 保持）", async () => {
+    const throwingQuery = (() => {
+      async function* gen(): AsyncGenerator<unknown> {
+        throw new Error("spawn ENOENT");
+      }
+      return gen();
+    }) as unknown as typeof query;
+
+    const runner = makeClaudeRunner(throwingQuery);
+    await expect(runner("hi")).rejects.toBeInstanceOf(TransportError);
+
+    let caught: unknown;
+    try {
+      await runner("hi");
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(TransportError);
+    expect((caught as TransportError).cause).toBeInstanceOf(Error);
+    expect(((caught as TransportError).cause as Error).message).toBe("spawn ENOENT");
+  });
+
+  test("query() 自体が同期 throw した場合（ネイティブバイナリ欠損等）も TransportError に分類する", async () => {
+    // 実 SDK の query() は iterator を返す前に同期バリデーションで throw しうる
+    // （例: "Native CLI binary for ${platform}-${arch} not found..."）。これも transport 障害。
+    const syncThrowingQuery = (() => {
+      throw new Error("Native CLI binary for darwin-arm64 not found");
+    }) as unknown as typeof query;
+
+    const runner = makeClaudeRunner(syncThrowingQuery);
+    let caught: unknown;
+    try {
+      await runner("hi");
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(TransportError);
+    expect(((caught as TransportError).cause as Error).message).toBe(
+      "Native CLI binary for darwin-arm64 not found",
+    );
+  });
+
+  test("最初のメッセージ以後の失敗（result subtype エラー）は plain Error のまま（TransportError ではない）", async () => {
+    const runner = makeClaudeRunner(
+      fakeQuery([
+        { type: "system", subtype: "init", session_id: "sess-abc" },
+        { type: "result", subtype: "error_during_execution", errors: ["boom"], stop_reason: null },
+      ]),
+    );
+
+    let caught: unknown;
+    try {
+      await runner("hi");
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(Error);
+    expect(caught).not.toBeInstanceOf(TransportError);
+    expect((caught as Error).message).toMatch(/Claude result error/);
+  });
 });
 
 describe("converseTurn error path", () => {
@@ -148,6 +214,119 @@ describe("makeClaudeRunner: SDK呼び出し引数のパススルー", () => {
     const runner = makeClaudeRunner(fakeQuery);
     await runner("second turn", "sess-x");
     expect(calls[0].options).toMatchObject({ resume: "sess-x" });
+  });
+
+  test("第2引数cfg.model/cfg.effort が options.model/options.effort として渡る", async () => {
+    const { calls, fakeQuery } = capturingQuery();
+    const runner = makeClaudeRunner(fakeQuery, { model: "haiku", effort: "low" });
+    await runner("hi");
+    expect(calls[0].options).toMatchObject({ model: "haiku", effort: "low" });
+  });
+
+  test("cfg省略時はmodelが既定sonnet・effortキーは付かない", async () => {
+    const { calls, fakeQuery } = capturingQuery();
+    const runner = makeClaudeRunner(fakeQuery);
+    await runner("hi");
+    expect(calls[0].options).toMatchObject({ model: "sonnet" });
+    expect(calls[0].options).not.toHaveProperty("effort");
+  });
+
+  test("cfg.modelのみ指定時はeffortキーが付かない", async () => {
+    const { calls, fakeQuery } = capturingQuery();
+    const runner = makeClaudeRunner(fakeQuery, { model: "opus" });
+    await runner("hi");
+    expect(calls[0].options).toMatchObject({ model: "opus" });
+    expect(calls[0].options).not.toHaveProperty("effort");
+  });
+});
+
+describe("makeClaudeRunner: 認証モードに応じた spawn env 注入", () => {
+  afterEach(() => {
+    // 他テストファイルへの汚染防止（グローバルなランタイムキャッシュのため）
+    setActiveAuthModes({ claude: "subscription", codex: "subscription" });
+  });
+
+  test("subscription（既定）: options.env キー自体が付かない（現行どおり process.env を継承）", async () => {
+    const { calls, fakeQuery } = capturingQuery();
+    const runner = makeClaudeRunner(fakeQuery);
+    await runner("hi");
+    expect(calls[0].options).not.toHaveProperty("env");
+  });
+
+  test("api-key: options.env に ANTHROPIC_API_KEY を含む env が渡る", async () => {
+    setActiveAuthModes({ claude: "api-key", codex: "subscription" });
+    const savedKey = Bun.env.ANTHROPIC_API_KEY;
+    Bun.env.ANTHROPIC_API_KEY = "sk-sdk-test";
+    try {
+      const { calls, fakeQuery } = capturingQuery();
+      const runner = makeClaudeRunner(fakeQuery);
+      await runner("hi");
+      expect((calls[0].options.env as Record<string, string>).ANTHROPIC_API_KEY).toBe("sk-sdk-test");
+    } finally {
+      if (savedKey === undefined) delete Bun.env.ANTHROPIC_API_KEY;
+      else Bun.env.ANTHROPIC_API_KEY = savedKey;
+    }
+  });
+});
+
+describe("resolveClaudeRunner（tuning が空なら module-level claudeRunner の単一参照）", () => {
+  test("tuning未指定は claudeRunner と同一参照を返す", () => {
+    expect(resolveClaudeRunner(undefined)).toBe(claudeRunner);
+  });
+
+  test("model/effortとも未指定のtuningオブジェクトも同一参照を返す（正規化）", () => {
+    expect(resolveClaudeRunner({ model: undefined, effort: undefined })).toBe(claudeRunner);
+  });
+
+  test("複数回呼んでも同一参照（安定した単一参照＝回帰基準）", () => {
+    expect(resolveClaudeRunner()).toBe(resolveClaudeRunner());
+  });
+
+  test("model/effortいずれかを指定すると claudeRunner とは別の新規合成runnerを返す", () => {
+    const r = resolveClaudeRunner({ model: "haiku", effort: "low" });
+    expect(r).not.toBe(claudeRunner);
+    expect(typeof r).toBe("function");
+  });
+
+  test("effortのみ指定でもclaudeRunnerとは別参照になる", () => {
+    const r = resolveClaudeRunner({ effort: "xhigh" });
+    expect(r).not.toBe(claudeRunner);
+  });
+});
+
+describe("resolveClaudeTuning（優先順位: tuning > コード既定。envチューニングは読まない）", () => {
+  test("claudeModel/effortとも null（未カスタマイズ）なら undefined（resolveClaudeRunnerの単一参照トリガー）", () => {
+    expect(resolveClaudeTuning({ claudeModel: null, effort: null, serviceTier: null })).toBeUndefined();
+  });
+
+  test("tuning指定はそのまま使われる", () => {
+    expect(
+      resolveClaudeTuning({ claudeModel: "opus", effort: "xhigh", serviceTier: null }),
+    ).toEqual({ model: "opus", effort: "xhigh" });
+  });
+
+  test("model未指定はsonnetのコード既定", () => {
+    expect(
+      resolveClaudeTuning({ claudeModel: null, effort: "high", serviceTier: null }),
+    ).toEqual({ model: "sonnet", effort: "high" });
+  });
+
+  test("effort未指定は未指定(undefined)のまま（SDK標準）", () => {
+    expect(
+      resolveClaudeTuning({ claudeModel: "haiku", effort: null, serviceTier: null }),
+    ).toEqual({ model: "haiku", effort: undefined });
+  });
+});
+
+describe("resolveCliRunner（CLI用: envプロバイダ解決 + 明示チューニング）", () => {
+  test("claude解決 + 空チューニングは module-level claudeRunner と同一参照（回帰基準）", () => {
+    expect(resolveCliRunner({ claudeModel: null, effort: null, serviceTier: null }, {})).toBe(claudeRunner);
+  });
+
+  test("claude解決 + チューニング指定は別参照の新規合成runnerを返す", () => {
+    const r = resolveCliRunner({ claudeModel: "opus", effort: "high", serviceTier: null }, {});
+    expect(r).not.toBe(claudeRunner);
+    expect(typeof r).toBe("function");
   });
 });
 

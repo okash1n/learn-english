@@ -62,6 +62,7 @@ type LlmPanelStrings = {
     applied: string;
     notApplied: (msg: string) => string;
     saveFailed: string;
+    saveFailedWithReason: (reason: string) => string;
     apiKeyConfigured: string; apiKeyMissing: string;
     help: string; helpAria: string;
     envNote: (envProvider: string) => string;
@@ -88,16 +89,40 @@ type SettingsStrings = {
     presetBalancedOption: string;
     preferredCloudLabel: string;
     preferredCloudNote: string;
+    applyRecommendedTuning: string;
+    applyRecommendedTuningNote: string;
     connectionSection: string;
     claudeNoSetup: string;
     localConnTitle: string;
     codexConnTitle: string;
+    authModeLabel: string;
+    authSubscription: string;
+    authApiKey: string;
+    authKeyDetected: string;
+    authKeyMissing: string;
+    authApiKeyNote: string;
     roleAssignSection: string;
     roleAssignDesc: string;
     targetClaude: string;
     targetLocal: string;
     targetCodex: string;
     targetLocalDisabled: string;
+    tuningDetails: string;
+    tuningModel: string;
+    tuningEffort: string;
+    tuningTier: string;
+    tuningDefault: string;
+    tuningDefaultWith: (v: string) => string;
+    tuningSdkStandard: string;
+    tuningTierFast: string;
+    tuningTierStandard: string;
+    effectiveLabel: string;
+    effectiveUnconfirmedWith: (label: string) => string;
+    cliDefaultLabel: string;
+    cliDefaultBadgeWith: (label: string) => string;
+    refreshCatalog: string;
+    refreshingCatalog: string;
+    catalogNote: string;
     saveConnection: string;
     saveAssignments: string;
     displaySection: string;
@@ -323,6 +348,7 @@ export const STR: Record<Lang, Strings> = {
       applied: "Applied to the running app.",
       notApplied: (msg) => `Saved, but not applied: ${msg}`,
       saveFailed: "Could not save settings.",
+      saveFailedWithReason: (reason) => `Could not save settings: ${reason}`,
       apiKeyConfigured: "API key: set in app/.env", apiKeyMissing: "API key: not set (app/.env)",
       help: "The API key is read from app/.env only and is never stored here. Reply quality depends on the model you choose; Claude is the tested baseline.",
       helpAria: "About the LLM provider setting",
@@ -333,21 +359,24 @@ export const STR: Record<Lang, Strings> = {
       llmSection: "Language model",
       roleName: {
         conversation: "Conversation",
+        assist: "Quick assist",
         coaching: "Coaching",
         generation: "Content generation",
         assessment: "Assessment",
       },
       roleDesc: {
         conversation: "Free talk and role-play replies",
-        coaching: "Feedback, reflection, translation, phrasing hints, explanations",
+        assist: "One-line translation, phrasing hints, quick fix notes",
+        coaching: "Feedback, reflection, explanations",
         generation: "Model talks, 4/3/2 prep, generated study material",
         assessment: "Level check and monthly review",
       },
       roleReason: {
-        conversation: "Recommended: local — fastest responses. Switch to Claude or Codex if quality falls short.",
-        coaching: "Recommended: Claude or Codex — writing quality matters more than speed.",
-        generation: "Recommended: local — fairly templated output with modest quality demands. Switch to Claude or Codex for higher quality.",
-        assessment: "Recommended: Claude or Codex — runs infrequently and quality matters most.",
+        conversation: "Recommended: local — fastest responses. On cloud, sonnet / low is a good baseline.",
+        assist: "Recommended: local — simple tasks that need an instant answer. On cloud, haiku is enough (it ignores the effort setting).",
+        coaching: "Recommended: Claude / Codex — quality matters most here (corrections stay in your SRS, explanations are cached permanently). sonnet / high is a good baseline.",
+        generation: "Recommended: local — templated output with modest demands. For higher quality, use sonnet / medium.",
+        assessment: "Recommended: Claude / Codex — runs less than monthly and the verdict affects everything. opus / xhigh; standard delivery is fine since there's no rush.",
       },
       roleQualityNote: "Where model quality matters most: Assessment > Coaching > Content generation. Conversation benefits more from response speed.",
       presetSection: "Presets",
@@ -365,16 +394,40 @@ export const STR: Record<Lang, Strings> = {
       presetBalancedOption: "Balanced (Recommended)",
       preferredCloudLabel: "Preferred cloud",
       preferredCloudNote: "Used for the cloud slots when you apply a preset — pick the provider you subscribe to.",
+      applyRecommendedTuning: "Apply recommended tuning",
+      applyRecommendedTuningNote: "Sets the recommended model/effort/delivery for cloud-assigned roles. Local roles are left as-is. Save assignments to confirm.",
       connectionSection: "Model connections",
       claudeNoSetup: "Claude needs no setup — it works with your Claude subscription.",
       localConnTitle: "Local LLM (OpenAI-compatible)",
       codexConnTitle: "Codex (optional)",
+      authModeLabel: "Authentication",
+      authSubscription: "Subscription (default)",
+      authApiKey: "API key (pay-as-you-go)",
+      authKeyDetected: "API key: configured in app/.env",
+      authKeyMissing: "API key: not set (add it to app/.env)",
+      authApiKeyNote: "API keys are billed pay-as-you-go via api.openai.com / the Anthropic API (separate from your subscription allowance). The key itself is never stored in the UI.",
       roleAssignSection: "Model per role",
       roleAssignDesc: "Choose which model handles each role.",
       targetClaude: "Claude",
       targetLocal: "Local",
       targetCodex: "Codex",
       targetLocalDisabled: "Set up a local LLM connection in the Model connections tab to choose Local.",
+      tuningDetails: "Advanced",
+      tuningModel: "Model",
+      tuningEffort: "Effort",
+      tuningTier: "Delivery",
+      tuningDefault: "Default",
+      tuningDefaultWith: (v) => `Default (${v})`,
+      tuningSdkStandard: "SDK standard",
+      tuningTierFast: "Fast (priority)",
+      tuningTierStandard: "Standard",
+      effectiveLabel: "Effective:",
+      effectiveUnconfirmedWith: (label) => `${label} (unconfirmed)`,
+      cliDefaultLabel: "CLI default",
+      cliDefaultBadgeWith: (label) => `${label} (CLI default)`,
+      refreshCatalog: "Refresh model list",
+      refreshingCatalog: "Refreshing…",
+      catalogNote: "Fetches the real model list from Claude / Codex / your local endpoint to power the pickers below and the “Effective” line. If a source can't be reached, it degrades to “unconfirmed” rather than guessing.",
       saveConnection: "Save connections",
       saveAssignments: "Save assignments",
       displaySection: "Display",
@@ -661,6 +714,7 @@ export const STR: Record<Lang, Strings> = {
       applied: "実行中のアプリに適用しました。",
       notApplied: (msg) => `保存しましたが適用できませんでした: ${msg}`,
       saveFailed: "設定を保存できませんでした。",
+      saveFailedWithReason: (reason) => `設定を保存できませんでした: ${reason}`,
       apiKeyConfigured: "APIキー: app/.env に設定済み", apiKeyMissing: "APIキー: 未設定（app/.env）",
       help: "APIキーは app/.env からのみ読み込み、ここには保存しません。応答品質は選んだモデルに依存します。Claude は動作確認済みの基準です。",
       helpAria: "LLM プロバイダ設定の説明",
@@ -671,21 +725,24 @@ export const STR: Record<Lang, Strings> = {
       llmSection: "言語モデル",
       roleName: {
         conversation: "会話",
+        assist: "クイック支援",
         coaching: "コーチング",
         generation: "教材生成",
         assessment: "測定",
       },
       roleDesc: {
         conversation: "自由会話・ロールプレイの相手応答",
-        coaching: "添削・振り返り・訳・言い方ヒント・解説",
+        assist: "訳・言い方ヒント・ちょっとした解説",
+        coaching: "添削・振り返り・解説",
         generation: "モデルトーク・4/3/2 準備・生成教材",
         assessment: "レベル測定・月次レビュー",
       },
       roleReason: {
-        conversation: "推奨: ローカル — 応答が最も速いため。品質が物足りなければ Claude や Codex へ。",
-        coaching: "推奨: Claude / Codex — 速度より文章の品質が重要なため。",
-        generation: "推奨: ローカル — 出力が定型的で要求性能は低め。品質を上げたいときは Claude / Codex へ。",
-        assessment: "推奨: Claude / Codex — 実行頻度が低く、質の高さが最優先のため。",
+        conversation: "推奨: ローカル — 応答が最も速いため。クラウドなら sonnet / low が目安。",
+        assist: "推奨: ローカル — 単純で即答が欲しいタスク。クラウドなら haiku で十分（effort指定は無視されます）。",
+        coaching: "推奨: Claude / Codex — 品質勝負（SRSに残る添削・恒久キャッシュされる解説）。sonnet / high が目安。",
+        generation: "推奨: ローカル — 定型的で要求低め。品質を上げるなら sonnet / medium。",
+        assessment: "推奨: Claude / Codex — 月1未満で判断が全体に波及。opus / xhigh・急がないので standard 配信で十分。",
       },
       roleQualityNote: "モデル性能が効く順: 測定 > コーチング > 教材生成。会話は性能より応答の速さが効きます。",
       presetSection: "プリセット",
@@ -703,16 +760,40 @@ export const STR: Record<Lang, Strings> = {
       presetBalancedOption: "バランス（推奨）",
       preferredCloudLabel: "優先クラウド",
       preferredCloudNote: "プリセット適用時のクラウド枠に使われます。課金しているサービスに合わせてください。",
+      applyRecommendedTuning: "推奨チューニングを適用",
+      applyRecommendedTuningNote: "クラウド割当の用途に推奨のモデル/effort/配信を設定します（ローカル割当は変更しません）。「割当を保存」で確定します。",
       connectionSection: "モデル接続設定",
       claudeNoSetup: "Claude は設定不要です（Claude のサブスクリプションで動作します）。",
       localConnTitle: "ローカル LLM（OpenAI 互換）",
       codexConnTitle: "Codex（任意）",
+      authModeLabel: "認証",
+      authSubscription: "サブスクリプション（既定）",
+      authApiKey: "APIキー（従量課金）",
+      authKeyDetected: "APIキー: app/.env に設定済み",
+      authKeyMissing: "APIキー: 未設定（app/.env に追記してください）",
+      authApiKeyNote: "APIキーは api.openai.com / Anthropic API の従量課金です（サブスクの利用枠とは別）。キーは UI には保存されません。",
       roleAssignSection: "用途ごとのモデル",
       roleAssignDesc: "各用途をどのモデルに任せるか選びます。",
       targetClaude: "Claude",
       targetLocal: "ローカル",
       targetCodex: "Codex",
       targetLocalDisabled: "「モデル接続設定」タブでローカル LLM の接続先を設定すると「ローカル」を選べます。",
+      tuningDetails: "詳細設定",
+      tuningModel: "モデル",
+      tuningEffort: "effort（思考の深さ）",
+      tuningTier: "配信",
+      tuningDefault: "既定",
+      tuningDefaultWith: (v) => `既定（${v}）`,
+      tuningSdkStandard: "SDK標準",
+      tuningTierFast: "fast（優先配信）",
+      tuningTierStandard: "standard（標準・安価）",
+      effectiveLabel: "実効:",
+      effectiveUnconfirmedWith: (label) => `${label}（実体未確認）`,
+      cliDefaultLabel: "CLI既定",
+      cliDefaultBadgeWith: (label) => `${label}（CLI既定）`,
+      refreshCatalog: "モデル一覧を更新",
+      refreshingCatalog: "更新中…",
+      catalogNote: "Claude/Codex/ローカル接続先から実際のモデル一覧を取得し、下の選択肢と「実効」表示に反映します。取得できないソースは推測せず「実体未確認」に留めます。",
       saveConnection: "接続を保存",
       saveAssignments: "割当を保存",
       displaySection: "表示",

@@ -12,6 +12,8 @@ import { ensureFeedbackSchema } from "./feedback-store";
 import { ensureLlmSettingsSchema } from "./llm-settings-store";
 import { ensureTtsSettingsSchema } from "./tts-settings-store";
 import { ensureLlmRoleSettingsSchema } from "./llm-role-settings-store";
+import { ensureLlmRoleTuningSchema } from "./llm-role-tuning-store";
+import { ensureLlmAuthSchema } from "./llm-auth-store";
 
 /** 構造化された状態・履歴の置き場（ログはJSONLのまま）。data/ はローカル専用（gitignore済み）。 */
 // DB ファイル名はリネーム（solo-eikaiwa）後も旧名を維持する: 既存ユーザーの学習データ継続のため（表示名とは独立）
@@ -71,6 +73,8 @@ export function openDb(dbPath: string = DEFAULT_DB_PATH): Database {
   ensureLlmSettingsSchema(db);
   ensureTtsSettingsSchema(db);
   ensureLlmRoleSettingsSchema(db);
+  ensureLlmRoleTuningSchema(db);
+  ensureLlmAuthSchema(db);
   return db;
 }
 

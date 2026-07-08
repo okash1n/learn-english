@@ -4,3 +4,6 @@ app/.env
 dist/
 *.log
 .superpowers/
+
+# Claude Code 個人設定（hook等）
+.claude/settings.local.json

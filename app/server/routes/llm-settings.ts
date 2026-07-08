@@ -1,16 +1,33 @@
 import { json, parseJsonBody, exact, type RouteEntry } from "./http";
 import { LLM_ROLES, type LlmSettings, type LlmProvider, type LlmRole, type LlmRoleProvider, type LlmRoleSetting } from "../llm-provider";
+import { CLAUDE_MODELS, EFFORTS, SERVICE_TIERS, type RoleTuning } from "../llm-role-tuning-store";
+import { AUTH_MODES, type AuthMode, type LlmAuthModes, type LlmAuthProvider } from "../llm-auth-store";
 
 export type LlmSettingsRoutesDeps = {
   getLlmSettings: () => LlmSettings | null;
   saveLlmSettings: (s: LlmSettings) => void;
   getLlmRoleSettings: () => Record<LlmRole, LlmRoleSetting>;
   saveLlmRoleSettings: (role: LlmRole, s: LlmRoleSetting) => void;
+  getLlmRoleTuning: () => Record<LlmRole, RoleTuning>;
+  /** 渡されたロールだけを部分更新する（route 側でホワイトリスト検証済み）。 */
+  saveLlmRoleTuning: (t: Partial<Record<LlmRole, Partial<RoleTuning>>>) => void;
   applyLlmSettings: (s: LlmSettings) => void;
   /** env 由来の情報。値そのものは返さず、APIキーは presence(boolean) のみ。 */
   llmEnv: () => { provider: string; apiKeyConfigured: boolean };
   /** 受信入口の fire-and-forget フック（conversation が openai-compat のときローカルモデルを温める）。llm-settings ルート自体は使わない。 */
   warmLlm: () => void;
+  /** 認証モード（DB 由来。行不在は "subscription"）。 */
+  getLlmAuthModes: () => LlmAuthModes;
+  /** 単一 provider の認証モードを upsert する（route 側でホワイトリスト・キー存在を検証済み）。 */
+  saveLlmAuthMode: (provider: LlmAuthProvider, mode: AuthMode) => void;
+  /** env のキー検出のみ（値は返さない）。anthropic=ANTHROPIC_API_KEY・codex=CODEX_API_KEY。 */
+  getAuthKeysConfigured: () => { anthropic: boolean; codex: boolean };
+  /** 保存直後の最新モードを runner 側のランタイムキャッシュへ反映する（サーバ再起動なしに反映するため）。 */
+  applyLlmAuthModes: (modes: LlmAuthModes) => void;
+  /** codex を api-key モードへ切替える際、隔離 CODEX_HOME に auth.json を用意する（無ければ codex login）。 */
+  ensureCodexApiKeyHome: () => Promise<string>;
+  /** codex の認証モードが変わったとき、常駐 app-server プロセスを kill する（認証環境変更のため。次回 lazy respawn）。 */
+  killCodexAppServerRegistry: () => void;
 };
 
 const PROVIDERS = ["env", "claude", "openai-compat", "codex"] as const;
@@ -67,7 +84,7 @@ function parseSettingsInput(
   return { ok: true, value: { provider: b.provider, baseUrl: null, model: null, codexModel: null } };
 }
 
-/** GET と PUT 応答の共通ビュー。APIキー値は決して含めない（有無の boolean のみ）。roles は additive。 */
+/** GET と PUT 応答の共通ビュー。APIキー値は決して含めない（有無の boolean のみ）。roles/tuning は additive。 */
 function viewOf(deps: LlmSettingsRoutesDeps, applied?: boolean, error?: string | null) {
   const stored = deps.getLlmSettings();
   const env = deps.llmEnv();
@@ -78,6 +95,14 @@ function viewOf(deps: LlmSettingsRoutesDeps, applied?: boolean, error?: string |
     const r = roleSettings[role];
     roles[role] = { provider: r.provider, baseUrl: r.baseUrl, model: r.model, codexModel: r.codexModel };
   }
+  const roleTuning = deps.getLlmRoleTuning();
+  const tuning = {} as Record<LlmRole, RoleTuning>;
+  for (const role of LLM_ROLES) {
+    const t = roleTuning[role];
+    tuning[role] = { claudeModel: t.claudeModel, effort: t.effort, serviceTier: t.serviceTier };
+  }
+  const authModes = deps.getLlmAuthModes();
+  const authKeys = deps.getAuthKeysConfigured();
   return {
     provider: s.provider,
     baseUrl: s.baseUrl,
@@ -86,9 +111,88 @@ function viewOf(deps: LlmSettingsRoutesDeps, applied?: boolean, error?: string |
     apiKeyConfigured: env.apiKeyConfigured,
     envProvider: env.provider,
     roles,
+    tuning,
+    authModes: { claude: authModes.claude, codex: authModes.codex },
+    authKeys: { anthropic: authKeys.anthropic, codex: authKeys.codex },
     ...(applied === undefined ? {} : { applied }),
     ...(error === undefined ? {} : { error }),
   };
+}
+
+/** auth の1エントリを検証する。undefined=未指定(変更なし)、それ以外はホワイトリスト適合を要求する。 */
+function parseAuthMode(v: unknown): { ok: true; value: AuthMode | undefined } | { ok: false } {
+  if (v === undefined) return { ok: true, value: undefined };
+  if (typeof v === "string" && (AUTH_MODES as readonly string[]).includes(v)) return { ok: true, value: v as AuthMode };
+  return { ok: false };
+}
+
+type AuthInput = { claude?: unknown; codex?: unknown };
+
+/**
+ * auth 全体を検証する。api-key を指定した provider に対応する env キーが未設定なら 400 相当のエラーを返す
+ * （キーを保存済みDBへ書く前に弾く＝「保存したのに使えないモード」を作らない）。
+ */
+function parseAuthInput(
+  v: unknown,
+  keysConfigured: { anthropic: boolean; codex: boolean },
+): { ok: true; value: Partial<Record<LlmAuthProvider, AuthMode>> } | { ok: false; error: string } {
+  if (typeof v !== "object" || v === null) return { ok: false, error: "auth must be an object" };
+  const b = v as AuthInput;
+  const out: Partial<Record<LlmAuthProvider, AuthMode>> = {};
+
+  const claude = parseAuthMode(b.claude);
+  if (!claude.ok) return { ok: false, error: `auth.claude must be one of ${AUTH_MODES.join(", ")}` };
+  if (claude.value !== undefined) {
+    if (claude.value === "api-key" && !keysConfigured.anthropic) {
+      return { ok: false, error: "anthropic api key not configured in app/.env" };
+    }
+    out.claude = claude.value;
+  }
+
+  const codex = parseAuthMode(b.codex);
+  if (!codex.ok) return { ok: false, error: `auth.codex must be one of ${AUTH_MODES.join(", ")}` };
+  if (codex.value !== undefined) {
+    if (codex.value === "api-key" && !keysConfigured.codex) {
+      return { ok: false, error: "codex api key not configured in app/.env" };
+    }
+    out.codex = codex.value;
+  }
+
+  return { ok: true, value: out };
+}
+
+/** tuning の1フィールド分をホワイトリスト検証する。undefined=未指定(変更なし)・null=クリア・それ以外はホワイトリスト適合を要求する。 */
+function parseTuningField<T extends string>(
+  v: unknown,
+  allowed: readonly T[],
+): { ok: true; value: T | null | undefined } | { ok: false } {
+  if (v === undefined) return { ok: true, value: undefined };
+  if (v === null) return { ok: true, value: null };
+  if (typeof v === "string" && (allowed as readonly string[]).includes(v)) return { ok: true, value: v as T };
+  return { ok: false };
+}
+
+type TuningInput = { claudeModel?: unknown; effort?: unknown; serviceTier?: unknown };
+
+/** 1ロール分の tuning エントリを検証する。指定されなかったフィールドは結果に含めない（既存値を保持する部分更新のため）。 */
+function parseRoleTuning(v: unknown): { ok: true; value: Partial<RoleTuning> } | { ok: false; error: string } {
+  if (typeof v !== "object" || v === null) return { ok: false, error: "tuning entry must be an object" };
+  const b = v as TuningInput;
+  const patch: Partial<RoleTuning> = {};
+
+  const cm = parseTuningField(b.claudeModel, CLAUDE_MODELS);
+  if (!cm.ok) return { ok: false, error: `claudeModel must be one of ${CLAUDE_MODELS.join(", ")} or null` };
+  if (cm.value !== undefined) patch.claudeModel = cm.value;
+
+  const ef = parseTuningField(b.effort, EFFORTS);
+  if (!ef.ok) return { ok: false, error: `effort must be one of ${EFFORTS.join(", ")} or null` };
+  if (ef.value !== undefined) patch.effort = ef.value;
+
+  const st = parseTuningField(b.serviceTier, SERVICE_TIERS);
+  if (!st.ok) return { ok: false, error: `serviceTier must be one of ${SERVICE_TIERS.join(", ")} or null` };
+  if (st.value !== undefined) patch.serviceTier = st.value;
+
+  return { ok: true, value: patch };
 }
 
 /** 「現在の全体設定 + 保存済みロール」で全ロール runner を再解決する。fail-open で applied/error を返す。 */
@@ -122,11 +226,11 @@ async function handlePut(req: Request, deps: LlmSettingsRoutesDeps): Promise<Res
 }
 
 async function handlePutRoles(req: Request, deps: LlmSettingsRoutesDeps): Promise<Response> {
-  const parsed = await parseJsonBody<{ global?: unknown; roles?: unknown }>(req);
+  const parsed = await parseJsonBody<{ global?: unknown; roles?: unknown; tuning?: unknown; auth?: unknown }>(req);
   if (!parsed.ok) return parsed.response;
   const body = parsed.body;
 
-  // 第1パス: global・roles の全エントリを検証のみ行う（何も保存しない）。
+  // 第1パス: global・roles・tuning の全エントリを検証のみ行う（何も保存しない）。
   // 1つでも NG なら 400 で即返す＝後続の保存パスに進めず、部分適用（前方だけ保存済み）を防ぐ。
   let parsedGlobal: ParsedSettings | null = null;
   if (body.global !== undefined) {
@@ -150,7 +254,35 @@ async function handlePutRoles(req: Request, deps: LlmSettingsRoutesDeps): Promis
     }
   }
 
-  // 第2パス: 全検証通過後にまとめて保存する。
+  const parsedTuning: Array<{ role: LlmRole; value: Partial<RoleTuning> }> = [];
+  if (body.tuning !== undefined) {
+    if (typeof body.tuning !== "object" || body.tuning === null) return json({ error: "tuning must be an object" }, 400);
+    const tuningObj = body.tuning as Record<string, unknown>;
+    for (const role of Object.keys(tuningObj)) {
+      if (!(LLM_ROLES as readonly string[]).includes(role)) return json({ error: `unknown role: ${role}` }, 400);
+      const p = parseRoleTuning(tuningObj[role]);
+      if (!p.ok) return json({ error: `${role}: ${p.error}` }, 400);
+      parsedTuning.push({ role: role as LlmRole, value: p.value });
+    }
+  }
+
+  let parsedAuth: Partial<Record<LlmAuthProvider, AuthMode>> | null = null;
+  if (body.auth !== undefined) {
+    const a = parseAuthInput(body.auth, deps.getAuthKeysConfigured());
+    if (!a.ok) return json({ error: a.error }, 400);
+    parsedAuth = a.value;
+  }
+
+  // codex を api-key へ切替える場合、global/roles/tuning/auth のどれか1つでも保存する前に隔離 CODEX_HOME の
+  // 準備（実行時に codex login を spawn しうる）を待つ。ここで失敗したら例外がハンドラの外側 catch-all まで
+  // 伝播し、以降の保存パスへは進まない＝何も保存されない。第2パスの内側（auth 保存の直前）に置くと、
+  // 実行時のログイン失敗時に global/roles/tuning は既に保存済みという部分適用を許してしまうため、
+  // 検証パス（400 判定）と同じ「何も保存しない」原子性の範囲に含める。
+  if (parsedAuth?.codex === "api-key") {
+    await deps.ensureCodexApiKeyHome();
+  }
+
+  // 第2パス: 全検証（+ 上記の codex ログイン確認）通過後にまとめて保存する。
   if (parsedGlobal) {
     deps.saveLlmSettings({
       provider: parsedGlobal.provider as LlmProvider,
@@ -166,6 +298,24 @@ async function handlePutRoles(req: Request, deps: LlmSettingsRoutesDeps): Promis
       model: value.model,
       codexModel: value.codexModel,
     });
+  }
+  if (parsedTuning.length > 0) {
+    const patch: Partial<Record<LlmRole, Partial<RoleTuning>>> = {};
+    for (const { role, value } of parsedTuning) patch[role] = value;
+    deps.saveLlmRoleTuning(patch);
+  }
+  if (parsedAuth) {
+    const before = deps.getLlmAuthModes();
+    let codexChanged = false;
+    for (const provider of Object.keys(parsedAuth) as LlmAuthProvider[]) {
+      const mode = parsedAuth[provider]!;
+      deps.saveLlmAuthMode(provider, mode);
+      if (provider === "codex" && mode !== before.codex) codexChanged = true;
+    }
+    // 認証環境が変わった codex の常駐 app-server プロセスは kill する（次回 lazy respawn で新envを反映）。
+    if (codexChanged) deps.killCodexAppServerRegistry();
+    // 保存直後の最新モードを runner 側のランタイムキャッシュへ push する（PUT がサーバ再起動なしに反映されるため）。
+    deps.applyLlmAuthModes(deps.getLlmAuthModes());
   }
 
   const { applied, error } = applyResolved(deps);

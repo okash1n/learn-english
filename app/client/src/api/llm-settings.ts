@@ -2,8 +2,8 @@ import { extractErrorMessage } from "./http";
 
 export type LlmProvider = "env" | "claude" | "openai-compat" | "codex";
 
-export type LlmRole = "conversation" | "coaching" | "generation" | "assessment";
-export const LLM_ROLES: readonly LlmRole[] = ["conversation", "coaching", "generation", "assessment"];
+export type LlmRole = "conversation" | "assist" | "coaching" | "generation" | "assessment";
+export const LLM_ROLES: readonly LlmRole[] = ["conversation", "assist", "coaching", "generation", "assessment"];
 export type LlmRoleProvider = "inherit" | "claude" | "openai-compat" | "codex";
 
 export type LlmRoleView = {
@@ -12,6 +12,23 @@ export type LlmRoleView = {
   model: string | null;
   codexModel: string | null;
 };
+
+/** ロール別チューニングの選択肢（サーバのホワイトリストと一致させる）。 */
+export type ClaudeModelOption = "haiku" | "sonnet" | "opus";
+export const CLAUDE_MODEL_OPTIONS: readonly ClaudeModelOption[] = ["haiku", "sonnet", "opus"];
+export type EffortOption = "low" | "medium" | "high" | "xhigh" | "max";
+export const EFFORT_OPTIONS: readonly EffortOption[] = ["low", "medium", "high", "xhigh", "max"];
+export type ServiceTierOption = "fast" | "standard";
+export const SERVICE_TIER_OPTIONS: readonly ServiceTierOption[] = ["fast", "standard"];
+
+/** 認証モード（サーバの llm_auth テーブルと一致）。api-key は対応する env キーが未設定だと 400 になる。 */
+export type AuthMode = "subscription" | "api-key";
+export const AUTH_MODE_OPTIONS: readonly AuthMode[] = ["subscription", "api-key"];
+/** 認証モードの対象プロバイダ（claude/codex の2つ。ローカルLLMは認証概念自体が無い）。 */
+export type LlmAuthProvider = "claude" | "codex";
+
+/** ロール別チューニングの値。null は「既定へ従う（未指定）」を表す。 */
+export type RoleTuning = { claudeModel: ClaudeModelOption | null; effort: EffortOption | null; serviceTier: ServiceTierOption | null };
 
 /** GET/PUT 応答。APIキー値は含まれない（有無のみ apiKeyConfigured）。 */
 export type LlmSettingsView = {
@@ -27,6 +44,12 @@ export type LlmSettingsView = {
   error?: string | null;
   /** ロール別の現在設定（未設定ロールは provider:"inherit"）。 */
   roles: Record<LlmRole, LlmRoleView>;
+  /** ロール別チューニング（未設定ロールは全項目null）。旧サーバ応答にはキー自体が無い場合がある（additive API）。 */
+  tuning: Record<LlmRole, RoleTuning>;
+  /** 認証モード（行不在は "subscription"）。旧サーバ応答にはキー自体が無い場合がある（additive API）。 */
+  authModes: Record<LlmAuthProvider, AuthMode>;
+  /** env のキー検出のみ（値は返さない）。anthropic=ANTHROPIC_API_KEY・codex=CODEX_API_KEY。旧サーバ応答にはキー自体が無い場合がある（additive API）。 */
+  authKeys: { anthropic: boolean; codex: boolean };
 };
 
 export type LlmSettingsInput = {
@@ -63,6 +86,10 @@ export type LlmRoleInput = {
 export type LlmRolesInput = {
   global?: LlmSettingsInput;
   roles?: Partial<Record<LlmRole, LlmRoleInput>>;
+  /** ロール別チューニング。常時全ロール分を含める（省略ロールはサーバ側で既存値保持）。 */
+  tuning?: Record<LlmRole, RoleTuning>;
+  /** 認証モード。省略した provider はサーバ側で既存値保持。api-key 指定時に対応する env キーが未設定だと 400。 */
+  auth?: Partial<Record<LlmAuthProvider, AuthMode>>;
 };
 
 export async function saveLlmRoleSettings(input: LlmRolesInput): Promise<LlmSettingsView> {

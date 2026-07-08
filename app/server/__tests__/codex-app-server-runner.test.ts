@@ -1,12 +1,16 @@
-import { describe, expect, spyOn, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import {
   makeCodexAppServerRunner,
   getCodexAppServerRunner,
+  getCodexAppServerClient,
   __resetCodexAppServerRegistry,
   isTestedCodexVersion,
   TESTED_CODEX_VERSION,
+  TransportError,
   type CodexAppServerConfig,
 } from "../providers/codex-app-server";
+import { withFallback, withTimeout } from "../providers/decorators";
+import type { ClaudeRunner } from "../converse";
 import { makeScriptedProc, type FakeProcHandle } from "./helpers/fake-app-server";
 
 type Msg = Record<string, unknown>;
@@ -135,8 +139,12 @@ describe("makeCodexAppServerRunner", () => {
 
     const first = await runner("Hello");
     expect(first.sessionId).toBe("t-1");
-    // transport 障害（execFallback 未設定）→ そのまま throw。既知スレッドの記憶はここで失効する
-    await expect(runner("Lost", "t-1")).rejects.toThrow(/exited/);
+    // transport 障害 → threads.clear() で掃除してそのまま throw（フォールバック合成は
+    // 呼び出し側 selectRunner の withFallback が担う。この runner 自体はもう合成しない）。
+    // 既知スレッドの記憶はここで失効する。
+    const lost = runner("Lost", "t-1");
+    await expect(lost).rejects.toBeInstanceOf(TransportError);
+    await expect(lost).rejects.toThrow(/exited/);
     // 次の呼び出し: thread/resume を試みて失敗 → 新 thread/start + 保険トランスクリプトの畳み込み
     const third = await runner("Again", "t-1");
     expect(third).toEqual({ text: "Recovered", sessionId: "t-2" });
@@ -167,30 +175,45 @@ describe("makeCodexAppServerRunner", () => {
     );
   });
 
-  test("spawn失敗/exit: execFallbackが同じ(prompt,resumeId,opts)で呼ばれ結果が返る", async () => {
-    const calls: { prompt: string; resumeId?: string; opts?: { systemPrompt?: string } }[] = [];
-    const execFallback = async (prompt: string, resumeId?: string, opts?: { systemPrompt?: string }) => {
-      calls.push({ prompt, resumeId, opts });
-      return { text: "fallback", sessionId: "s" };
-    };
-    const warn = spyOn(console, "warn").mockImplementation(() => {});
-    try {
-      const runner = makeCodexAppServerRunner({
-        ...CFG,
-        spawn: () => { throw new Error("no codex binary"); },
-        execFallback,
-      });
-      const res = await runner("Hi", "sess-9", { systemPrompt: "SP" });
-      expect(res).toEqual({ text: "fallback", sessionId: "s" });
-      expect(calls).toEqual([{ prompt: "Hi", resumeId: "sess-9", opts: { systemPrompt: "SP" } }]);
-      expect(warn).toHaveBeenCalledTimes(1);
-      expect(warn.mock.calls[0]![0]).toBe("codex app-server unavailable, falling back to exec:");
-    } finally {
-      warn.mockRestore();
-    }
+  test("fold二段: 畳み込み先スレッドのtranscriptが旧履歴を引き継ぎ、次のfoldにも全往復が残る", async () => {
+    // startFolded が新スレッドの transcript を旧履歴で播種することの回帰テスト。
+    // 播種が無いと、fold後の appendTurn は transcript.get(新threadId)=空 から書き始めるため、
+    // 2段目の fold には直前の1往復しか現れない（Hello/Again の往復が消える）。
+    const f = makeScriptedProc({
+      "thread/start": threadStartOk(["t-1", "t-2", "t-3"]),
+      "turn/start": turnOk(["Hi there", "Sure", "New persona", "Third persona"]),
+    });
+    const runner = runnerWith(f);
+    const first = await runner("Hello");
+    expect(first.sessionId).toBe("t-1");
+    const second = await runner("Again", first.sessionId);
+    expect(second).toEqual({ text: "Sure", sessionId: "t-1" });
+    // 1段目のfold: systemPrompt変更で t-2 へ畳み込み
+    const third = await runner("Third", second.sessionId, { systemPrompt: "SYS2" });
+    expect(third).toEqual({ text: "New persona", sessionId: "t-2" });
+    // 2段目のfold: さらにsystemPrompt変更で t-3 へ。ここに全3往復が残っていることが播種の証拠
+    const fourth = await runner("Fourth", third.sessionId, { systemPrompt: "SYS3" });
+    expect(fourth).toEqual({ text: "Third persona", sessionId: "t-3" });
+    const turns = f.sent.filter((m) => m.method === "turn/start");
+    expect(turns.length).toBe(4);
+    const foldText2 = ((turns[3]!.params as Msg).input as Msg[])[0]!.text as string;
+    expect(foldText2).toContain("User: Hello");
+    expect(foldText2).toContain("Assistant: Hi there");
+    expect(foldText2).toContain("User: Again");
+    expect(foldText2).toContain("Assistant: Sure");
+    expect(foldText2).toContain("User: Third");
+    expect(foldText2).toContain("Assistant: New persona");
   });
 
-  test("ターン中のプロセスexitでもexecFallbackが同じ引数で呼ばれる", async () => {
+  test("spawn失敗: TransportErrorをrethrowする（execFallbackは無くなった。委譲は selectRunner の withFallback が担う）", async () => {
+    const runner = makeCodexAppServerRunner({
+      ...CFG,
+      spawn: () => { throw new Error("no codex binary"); },
+    });
+    await expect(runner("Hi", "sess-9", { systemPrompt: "SP" })).rejects.toBeInstanceOf(TransportError);
+  });
+
+  test("ターン中のプロセスexitでもTransportErrorをrethrowし、既知スレッドの記憶を掃除する", async () => {
     const f: FakeProcHandle = makeScriptedProc({
       "thread/start": threadStartOk(["t-1"]),
       "turn/start": () => {
@@ -198,25 +221,14 @@ describe("makeCodexAppServerRunner", () => {
         return [];
       },
     });
-    const calls: unknown[][] = [];
-    const warn = spyOn(console, "warn").mockImplementation(() => {});
-    try {
-      const runner = runnerWith(f, {
-        execFallback: async (...args) => {
-          calls.push(args);
-          return { text: "fallback", sessionId: "s" };
-        },
-      });
-      const res = await runner("Hello");
-      expect(res).toEqual({ text: "fallback", sessionId: "s" });
-      expect(calls).toEqual([["Hello", undefined, undefined]]);
-      expect(warn).toHaveBeenCalledTimes(1);
-    } finally {
-      warn.mockRestore();
-    }
+    const runner = runnerWith(f);
+    await expect(runner("Hello")).rejects.toBeInstanceOf(TransportError);
+    // 既知スレッド(t-1)の記憶は掃除済み: 同じ resumeId での再呼び出しは（新プロセスが無いため
+    // 引き続き transport 障害だが）turn/start を直に打とうとはせず resume 経路へ入ろうとする
+    // ことを、spawn が新プロセスを返すシナリオの別テスト（thread/resume失敗のテスト）で確認済み。
   });
 
-  test("turn.status=failed はフォールバックせずthrow", async () => {
+  test("turn.status=failed はモデル起因なのでそのままthrow（TransportErrorではない）", async () => {
     const f = makeScriptedProc({
       "thread/start": threadStartOk(["t-1"]),
       "turn/start": (m) => [
@@ -224,15 +236,13 @@ describe("makeCodexAppServerRunner", () => {
         { method: "turn/completed", params: { threadId: (m.params as Msg).threadId, turn: { status: "failed", error: { message: "model exploded" } } } },
       ],
     });
-    const calls: unknown[] = [];
-    const runner = runnerWith(f, {
-      execFallback: async (p) => { calls.push(p); return { text: "fallback", sessionId: "s" }; },
-    });
-    await expect(runner("Hello")).rejects.toThrow("model exploded");
-    expect(calls.length).toBe(0);
+    const runner = runnerWith(f);
+    const rejection = runner("Hello");
+    await expect(rejection).rejects.toThrow("model exploded");
+    await expect(rejection).rejects.not.toBeInstanceOf(TransportError);
   });
 
-  test("空のagentMessageはthrow('Codex returned empty result')", async () => {
+  test("空のagentMessageはthrow('Codex returned empty result')（TransportErrorではない）", async () => {
     const f = makeScriptedProc({
       "thread/start": threadStartOk(["t-1"]),
       "turn/start": (m) => [
@@ -240,12 +250,10 @@ describe("makeCodexAppServerRunner", () => {
         { method: "turn/completed", params: { threadId: (m.params as Msg).threadId, turn: { status: "completed" } } },
       ],
     });
-    const calls: unknown[] = [];
-    const runner = runnerWith(f, {
-      execFallback: async (p) => { calls.push(p); return { text: "x", sessionId: "s" }; },
-    });
-    await expect(runner("Hello")).rejects.toThrow("Codex returned empty result");
-    expect(calls.length).toBe(0);
+    const runner = runnerWith(f);
+    const rejection = runner("Hello");
+    await expect(rejection).rejects.toThrow("Codex returned empty result");
+    await expect(rejection).rejects.not.toBeInstanceOf(TransportError);
   });
 
   test("プロセス自発exit後の既知sessionIdは死んだ記憶でturn/startを打たずthread/resumeで復元する", async () => {
@@ -308,6 +316,50 @@ describe("makeCodexAppServerRunner", () => {
   });
 });
 
+describe("selectRunner相当の合成（withFallback(withTimeout(appServerRunner), execFake)）", () => {
+  // llm-provider.ts の selectRunner の codex 分岐は
+  // withFallback(withTimeout(getCodexAppServerRunner(conn)), makeCodexRunner(conn)) を組み立てる。
+  // ここでは実 codex CLI に依存しないよう exec 側だけ fake にし、app-server 側は本物の
+  // makeCodexAppServerRunner（spawn だけ注入）を使って、transport 障害→exec 委譲が
+  // decorators + codex-app-server の実結線で end-to-end に通ることを確認する。
+  test("app-serverのtransport障害（spawn失敗）→execFakeへ同一引数で委譲され結果が返る", async () => {
+    const execCalls: unknown[][] = [];
+    const execFake: ClaudeRunner = async (...args) => {
+      execCalls.push(args);
+      return { text: "exec-fallback-reply", sessionId: "exec-s" };
+    };
+    const appServerRunner = makeCodexAppServerRunner({
+      ...CFG,
+      spawn: () => { throw new Error("no codex binary"); },
+    });
+    const composed = withFallback(withTimeout(appServerRunner), execFake);
+
+    const res = await composed("Hi", "sess-9", { systemPrompt: "SP" });
+
+    expect(res).toEqual({ text: "exec-fallback-reply", sessionId: "exec-s" });
+    expect(execCalls).toEqual([["Hi", "sess-9", { systemPrompt: "SP" }]]);
+  });
+
+  test("モデル起因の失敗（turn failed）はexecFakeへ委譲されずそのままthrowする", async () => {
+    const f = makeScriptedProc({
+      "thread/start": threadStartOk(["t-1"]),
+      "turn/start": (m) => [
+        { id: m.id, result: { turn: { id: "turn-1" } } },
+        { method: "turn/completed", params: { threadId: (m.params as Msg).threadId, turn: { status: "failed", error: { message: "model exploded" } } } },
+      ],
+    });
+    let execCalled = false;
+    const execFake: ClaudeRunner = async () => {
+      execCalled = true;
+      return { text: "should not happen", sessionId: "exec-s" };
+    };
+    const composed = withFallback(withTimeout(runnerWith(f)), execFake);
+
+    await expect(composed("Hello")).rejects.toThrow("model exploded");
+    expect(execCalled).toBe(false);
+  });
+});
+
 describe("getCodexAppServerRunner（registry: 接続設定キー単位でのプロセス共有）", () => {
   test("同一設定でrunnerを2回作ってもspawnは1回（プロセス共有）", async () => {
     __resetCodexAppServerRegistry();
@@ -327,39 +379,70 @@ describe("getCodexAppServerRunner（registry: 接続設定キー単位でのプ�
     expect(spawnCalls).toBe(1);
   });
 
-  test("設定キーが変わると旧プロセスがkillされ新プロセスをspawnする", async () => {
+  test("設定(model/reasoningEffort/serviceTier)が異なってもプロセスは共有され続ける（kill/再spawn無し・Task 8のプロセス1本化）", async () => {
     __resetCodexAppServerRegistry();
-    const f1 = makeScriptedProc({ "thread/start": threadStartOk(["t-1"]), "turn/start": turnOk(["Hi there"]) });
-    const f2 = makeScriptedProc({ "thread/start": threadStartOk(["t-2"]), "turn/start": turnOk(["Yo"]) });
-    let killCalls = 0;
-    f1.proc.kill = () => { killCalls++; };
-
-    const runnerA = getCodexAppServerRunner({ ...CFG, model: "gpt-a", spawn: () => f1.proc });
-    await runnerA("Hello"); // f1 を実際に spawn させる（proc がセットされないと kill() は no-op）
-    expect(killCalls).toBe(0);
-
-    const runnerB = getCodexAppServerRunner({ ...CFG, model: "gpt-b", spawn: () => f2.proc }); // キーが変わる
-    expect(killCalls).toBe(1); // 旧クライアント(f1)が kill される
-
-    const res = await runnerB("World");
-    expect(res.sessionId).toBe("t-2"); // 新クライアント(f2)で新規スレッドが作られる
-  });
-
-  test("model/reasoningEffort/serviceTierが未指定(undefined)でも同一キーとして扱われる（正規化）", async () => {
-    __resetCodexAppServerRegistry();
-    let spawnCalls = 0;
     const f = makeScriptedProc({
       "thread/start": threadStartOk(["t-1", "t-2"]),
       "turn/start": turnOk(["Hi there", "Yo"]),
     });
-    const base = { defaultSystemPrompt: "SYS" };
-    const runnerA = getCodexAppServerRunner({ ...base, model: undefined, spawn: () => { spawnCalls++; return f.proc; } });
-    const runnerB = getCodexAppServerRunner({ ...base, spawn: () => { spawnCalls++; return f.proc; } }); // model キー自体を省略
+    let killCalls = 0;
+    let spawnCalls = 0;
+    f.proc.kill = () => { killCalls++; };
+    const spawn = () => { spawnCalls++; return f.proc; };
 
-    await runnerA("Hello");
+    const runnerA = getCodexAppServerRunner({ ...CFG, model: "gpt-a", reasoningEffort: "low", serviceTier: "standard", spawn });
+    await runnerA("Hello"); // 初回のみ実際に spawn される
+
+    // model/reasoningEffort/serviceTier が違っても connectionKey は不変（実質定数）のため、
+    // 旧クライアントは kill されず、同じ client を使い回す runner が新規に返る。
+    const runnerB = getCodexAppServerRunner({ ...CFG, model: "gpt-b", reasoningEffort: "xhigh", serviceTier: "fast", spawn });
     await runnerB("World");
 
-    expect(spawnCalls).toBe(1);
+    expect(killCalls).toBe(0);
+    expect(spawnCalls).toBe(1); // 2回目の getCodexAppServerRunner でも新規 spawn は起きない
+  });
+
+  test("呼び出しごとのcfgがthread/startにper-threadで反映される（同一プロセスを共有しつつロールごとに異なるmodel/effort/tier）", async () => {
+    __resetCodexAppServerRegistry();
+    const f = makeScriptedProc({
+      "thread/start": threadStartOk(["t-a", "t-b"]),
+      "turn/start": turnOk(["A reply", "B reply"]),
+    });
+    const spawn = () => f.proc;
+
+    // ロールA相当: model=gpt-a/effort=low、ロールB相当: model=gpt-b/effort=xhigh。
+    // どちらも新規スレッド作成（resumeIdなし）なので、それぞれの thread/start に自分の cfg が乗るはず。
+    await getCodexAppServerRunner({ ...CFG, model: "gpt-a", reasoningEffort: "low", serviceTier: "standard", spawn })("Hello A");
+    await getCodexAppServerRunner({ ...CFG, model: "gpt-b", reasoningEffort: "xhigh", serviceTier: "fast", spawn })("Hello B");
+
+    const starts = f.sent.filter((m) => m.method === "thread/start");
+    expect(starts.length).toBe(2);
+    expect(starts[0]!.params).toMatchObject({ model: "gpt-a", serviceTier: "standard", config: { model_reasoning_effort: "low" } });
+    expect(starts[1]!.params).toMatchObject({ model: "gpt-b", serviceTier: "fast", config: { model_reasoning_effort: "xhigh" } });
+  });
+
+  test("thread/resumeも呼び出し時点のcfgを反映する（作成時と異なるロールのcfgで再開してもよい）", async () => {
+    __resetCodexAppServerRegistry();
+    const f1 = makeScriptedProc({
+      "thread/start": threadStartOk(["t-1"]),
+      "turn/start": turnOk(["Hi there"]),
+    });
+    const f2 = makeScriptedProc({
+      "thread/resume": (m) => [{ id: m.id, result: { thread: { id: (m.params as Msg).threadId } } }],
+      "turn/start": turnOk(["Restored"]),
+    });
+    const procs = [f1, f2];
+    let spawned = 0;
+    const spawn = () => procs[spawned++]!.proc;
+
+    const first = await getCodexAppServerRunner({ ...CFG, model: "gpt-a", reasoningEffort: "low", spawn })("Hello");
+    f1.exit(0); // プロセス自発終了 → 次回は thread/resume 経由で復元される
+
+    // 作成時と異なる cfg（別ロールのチューニング変更後を想定）で resume する。
+    await getCodexAppServerRunner({ ...CFG, model: "gpt-b", reasoningEffort: "xhigh", spawn })("Continue", first.sessionId);
+
+    const resumeReq = f2.sent.find((m) => m.method === "thread/resume")!;
+    expect(resumeReq.params).toMatchObject({ model: "gpt-b", config: { model_reasoning_effort: "xhigh" } });
   });
 
   test("__resetCodexAppServerRegistry: reset後は同一キーでも新規spawnする（テスト間分離）", async () => {
@@ -432,40 +515,69 @@ describe("getCodexAppServerRunner（registry: 接続設定キー単位でのプ�
     expect(foldText).toContain("Assistant: Sure");
   });
 
-  test("A→B→A→Bの交互切替: killは{A:2,B:1}・spawn回数も一致する（レビュー指摘の回帰）", async () => {
+  test("A→B→A→Bのロール切替: 同一プロセスを共有し続けkill/再spawnは起きない（per-threadパラメータで区別・レビュー指摘の回帰を新セマンティクスで置換）", async () => {
     __resetCodexAppServerRegistry();
-    const killCounts: Record<"A" | "B", number> = { A: 0, B: 0 };
-    const spawnCounts: Record<"A" | "B", number> = { A: 0, B: 0 };
+    let killCalls = 0;
+    let spawnCalls = 0;
+    const f = makeScriptedProc({
+      "thread/start": threadStartOk(["a-1", "b-1", "a-2", "b-2"]),
+      "turn/start": turnOk(["A1 reply", "B1 reply", "A2 reply", "B2 reply"]),
+    });
+    f.proc.kill = () => { killCalls++; };
+    const spawn = () => { spawnCalls++; return f.proc; };
 
-    function makeProcFor(label: "A" | "B", threadId: string, reply: string): FakeProcHandle {
-      const f = makeScriptedProc({
-        "thread/start": threadStartOk([threadId]),
-        "turn/start": turnOk([reply]),
-      });
-      f.proc.kill = () => { killCounts[label]++; };
-      return f;
+    function cfgFor(label: "A" | "B"): CodexAppServerConfig {
+      return { ...CFG, model: label === "A" ? "gpt-a" : "gpt-b", spawn };
     }
 
-    const a1 = makeProcFor("A", "a-1", "A1 reply");
-    const b1 = makeProcFor("B", "b-1", "B1 reply");
-    const a2 = makeProcFor("A", "a-2", "A2 reply");
-    const b2 = makeProcFor("B", "b-2", "B2 reply");
+    // A → B → A → B の順に切り替える（各回、新規スレッドで実際にターンを打つ）。
+    await getCodexAppServerRunner(cfgFor("A"))("t1");
+    await getCodexAppServerRunner(cfgFor("B"))("t2");
+    await getCodexAppServerRunner(cfgFor("A"))("t3");
+    await getCodexAppServerRunner(cfgFor("B"))("t4");
 
-    function cfgFor(label: "A" | "B", proc: FakeProcHandle): CodexAppServerConfig {
-      const model = label === "A" ? "gpt-a" : "gpt-b";
-      return { ...CFG, model, spawn: () => { spawnCounts[label]++; return proc.proc; } };
-    }
+    // connectionKey は model に関わらず実質定数のため、4回のロール切替を通じて同一クライアントを
+    // 使い回し続ける: 初回のみ spawn され、以降は kill も再 spawn も起きない（プロセス1本化）。
+    expect(spawnCalls).toBe(1);
+    expect(killCalls).toBe(0);
+    // それでも各スレッドの作成時には呼び出し元（そのときのロール）の model が per-thread で乗る。
+    const models = f.sent.filter((m) => m.method === "thread/start").map((m) => (m.params as Msg).model);
+    expect(models).toEqual(["gpt-a", "gpt-b", "gpt-a", "gpt-b"]);
+  });
+});
 
-    // A → B → A → B の順に切り替える（各回、実際にターンを打って ensureStarted/spawn を確定させる）。
-    await getCodexAppServerRunner(cfgFor("A", a1))("t1");
-    await getCodexAppServerRunner(cfgFor("B", b1))("t2");
-    await getCodexAppServerRunner(cfgFor("A", a2))("t3");
-    await getCodexAppServerRunner(cfgFor("B", b2))("t4");
+describe("getCodexAppServerClient（Task 3: モデルカタログ取得用の直接アクセス）", () => {
+  test("getCodexAppServerRunnerと同じ常駐プロセスを共有する（新規spawnを増やさない）", async () => {
+    __resetCodexAppServerRegistry();
+    let spawnCalls = 0;
+    const f = makeScriptedProc({
+      "thread/start": threadStartOk(["t-1"]),
+      "turn/start": turnOk(["Hi there"]),
+      "model/list": (m) => [{ id: m.id, result: { data: [{ id: "gpt-5.6-codex" }] } }],
+    });
+    const spawn = () => { spawnCalls++; return f.proc; };
 
-    // A→B, B→A, A→B の3回の切替で: A(a1)がB切替時にkill、B(b1)がA切替時にkill、A(a2)がB切替時にkill。
-    // 最後に生き残る b2 はこのシーケンス内では kill されない。
-    expect(killCounts).toEqual({ A: 2, B: 1 });
-    expect(spawnCounts).toEqual({ A: 2, B: 2 });
+    const runner = getCodexAppServerRunner({ ...CFG, spawn });
+    await runner("Hello");
+
+    const client = getCodexAppServerClient(spawn);
+    const models = await client.listModels();
+
+    expect(models).toEqual([{ id: "gpt-5.6-codex" }]);
+    expect(spawnCalls).toBe(1); // runner側の1回のみ・カタログ取得で新規spawnは増えない
+  });
+
+  test("registryが未生成でも呼べる（この場合は新規spawnする）", async () => {
+    __resetCodexAppServerRegistry();
+    let spawnCalls = 0;
+    const f = makeScriptedProc({
+      "model/list": (m) => [{ id: m.id, result: { data: [] } }],
+    });
+    const spawn = () => { spawnCalls++; return f.proc; };
+
+    const client = getCodexAppServerClient(spawn);
+    expect(await client.listModels()).toEqual([]);
+    expect(spawnCalls).toBe(1);
   });
 });
 

@@ -1,9 +1,13 @@
 import { tmpdir } from "node:os";
 import type { ClaudeRunner } from "../converse";
 import { composeCodexPrompt, type CodexMsg } from "./codex";
+import { TransportError } from "./errors";
+import { appendTurn } from "./transcript";
+import { getActiveAuthModes } from "../llm-auth-store";
+import { codexSpawnEnv } from "../codex-auth";
 
-/** transport 層（spawn/handshake/exit/timeout）で発生したエラー。モデル起因のエラー（turn failed 等）とは区別するために使う。 */
-export class TransportError extends Error {}
+// 既存の import 元（このモジュールから TransportError を import しているテスト等）との互換のため re-export する。
+export { TransportError };
 
 /** codex app-server プロセスとの1行JSONメッセージの送受信を抽象化した transport seam。 */
 export type AppServerProc = {
@@ -16,6 +20,10 @@ export type AppServerProc = {
 export type SpawnAppServer = () => AppServerProc;
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 180_000;
+
+/** listModels() のページネーション上限。異常に多いページ数（無限ループするサーバ実装など）から
+ * 「知らないうちに部分リストを返し続ける」ことを防ぐための安全弁。 */
+const MAX_MODEL_LIST_PAGES = 10;
 
 type Pending = {
   resolve: (result: Record<string, unknown>) => void;
@@ -94,6 +102,32 @@ export class CodexAppServerClient {
       await this.ensureHandshake();
     }
     return this.sendRequest(method, params);
+  }
+
+  /**
+   * モデルカタログ取得（Task 3）用: 常駐プロセスへ `model/list` を投げ、全ページの data を連結して返す。
+   * プロトコルのマッピング（CatalogModel への写像）はこのクライアントの責務ではなく呼び出し側
+   * （providers/model-catalog.ts）が担う。exec フォールバックは経由しない（呼び出し元が available:false に変換する）。
+   *
+   * ページネーション（レビュー指摘・binding）: ModelListResponse は nextCursor を返しうる。1ページ目だけ
+   * 読んで available:true を返すと、モデル数がページサイズを超えた瞬間に「一部だけなのに全部であるかのように
+   * 見せる」— このカタログ機能が防ごうとしている「UI への嘘」そのものになる。nextCursor が string で
+   * 存在する限り cursor を渡して追い読みし、全ページの data を連結する。MAX_MODEL_LIST_PAGES を超えても
+   * 終端しない場合は「知らないうちに部分リストを返す」よりは失敗を明示する方が安全なため throw する
+   * （呼び出し元 providers/model-catalog.ts の makeCodexCatalogFetcher が catch して available:false + reason
+   * に変換する。ここでは変換しない — exec フォールバック同様、変換は呼び出し元の責務）。
+   */
+  async listModels(): Promise<Record<string, unknown>[]> {
+    const rows: Record<string, unknown>[] = [];
+    let cursor: string | undefined;
+    for (let page = 0; page < MAX_MODEL_LIST_PAGES; page++) {
+      const res = await this.request("model/list", cursor !== undefined ? { cursor } : {});
+      if (Array.isArray(res.data)) rows.push(...(res.data as Record<string, unknown>[]));
+      const next = res.nextCursor;
+      if (typeof next !== "string" || next.length === 0) return rows;
+      cursor = next;
+    }
+    throw new Error(`codex model/list: pagination did not terminate within ${MAX_MODEL_LIST_PAGES} pages`);
   }
 
   /** turn/start を送り、turn/completed まで通知を収集して最終 agentMessage テキストを返す */
@@ -331,11 +365,13 @@ function checkCodexVersionOnce(): void {
  */
 export const realSpawnAppServer: SpawnAppServer = () => {
   checkCodexVersionOnce();
+  const env = codexSpawnEnv(getActiveAuthModes().codex);
   const proc = Bun.spawn(["codex", "app-server"], {
     stdin: "pipe",
     stdout: "pipe",
     stderr: "pipe",
     cwd: tmpdir(),
+    ...(env ? { env } : {}),
   });
 
   let onMessage: (msg: Record<string, unknown>) => void = () => {};
@@ -395,7 +431,6 @@ export type CodexAppServerConfig = {
   serviceTier?: string;
   defaultSystemPrompt: string;
   spawn?: SpawnAppServer;          // テスト注入。既定 realSpawnAppServer
-  execFallback?: ClaudeRunner;     // transport障害時のフォールバック（既定なし=そのままthrow）
 };
 
 /**
@@ -432,9 +467,12 @@ function foldPrompt(history: CodexMsg[], prompt: string): string {
  * 2. 未知の threadId / 世代が古い threadId（サーバ・プロセス再起動後）→ thread/resume
  *    （ディスク rollout からの復元 = パリティ経路）
  * 3. resume がリクエストレベルで失敗 / systemPrompt が変わった → 新 thread/start + 保険トランスクリプトの畳み込み
- * 4. transport 障害（spawn 失敗・exit・timeout・handshake 失敗 = TransportError）→ cfg.execFallback があれば
- *    同じ (prompt, resumeId, opts) で exec アダプタへフォールバック。無ければそのまま throw
- * モデル起因の失敗（turn failed・空応答）はフォールバックせず throw（exec アダプタと同じ挙動）。
+ * 4. transport 障害（spawn 失敗・exit・timeout・handshake 失敗 = TransportError）→ 死んだスレッド記憶を
+ *    threads.clear() で掃除した上でそのまま rethrow する（この runner 自体はもう exec アダプタへ
+ *    フォールバックしない。フォールバックの合成は呼び出し側 llm-provider.ts の selectRunner が
+ *    providers/decorators.ts の withFallback を使って行う）。
+ * モデル起因の失敗（turn failed・空応答）は TransportError ではないため、withFallback 側でも
+ * フォールバック対象にならず、そのまま呼び出し元へ伝播する（exec アダプタと同じ挙動）。
  */
 export function makeCodexAppServerRunner(cfg: CodexAppServerConfig): ClaudeRunner {
   return buildRunner(new CodexAppServerClient(cfg.spawn ?? realSpawnAppServer), cfg);
@@ -476,14 +514,19 @@ function buildRunner(
   async function startFolded(oldId: string, system: string, prompt: string) {
     const history = transcript.get(oldId) ?? [];
     const threadId = await startThread(system);
-    return { threadId, turnText: foldPrompt(history, prompt), history };
+    // 新スレッドの transcript エントリを旧履歴で先に播種しておく。こうすることで、この後
+    // appendTurn(transcript, threadId, ...) が内部で読む transcript.get(threadId) が旧履歴を
+    // 引き継いだ状態になり、[...history, 新往復] を書き戻す従来の挙動と一致する
+    // （新スレッドIDには当然まだ何も入っていないため、播種しないと旧履歴が失われる）。
+    transcript.set(threadId, history);
+    return { threadId, turnText: foldPrompt(history, prompt) };
   }
 
   /** セッション階梯の 1〜3 段目を解決し、turn を打つ先のスレッドと入力テキストを決める。 */
   async function resolveThread(resumeId: string | undefined, system: string, prompt: string):
-    Promise<{ threadId: string; turnText: string; history: CodexMsg[] }> {
+    Promise<{ threadId: string; turnText: string }> {
     if (!resumeId) {
-      return { threadId: await startThread(system), turnText: prompt, history: [] };
+      return { threadId: await startThread(system), turnText: prompt };
     }
     const known = threads.get(resumeId);
     if (known) {
@@ -493,7 +536,7 @@ function buildRunner(
         return startFolded(resumeId, system, prompt);
       }
       if (known.generation === client.generation()) {
-        return { threadId: resumeId, turnText: prompt, history: transcript.get(resumeId) ?? [] };
+        return { threadId: resumeId, turnText: prompt };
       }
       // 世代が古い = このスレッドを知っているプロセスはもう居ない（自発exitの dead-window、
       // または他セッション起点の再spawn後の残留記憶）。素の turn/start は実サーバでは
@@ -505,7 +548,7 @@ function buildRunner(
     try {
       await client.request("thread/resume", { threadId: resumeId, ...threadParams(cfg, system) });
       threads.set(resumeId, { systemPrompt: system, generation: client.generation() });
-      return { threadId: resumeId, turnText: prompt, history: transcript.get(resumeId) ?? [] };
+      return { threadId: resumeId, turnText: prompt };
     } catch (err) {
       if (err instanceof TransportError) throw err; // transport 障害は exec フォールバック判定へ
       // リクエストレベルの resume 失敗（未知スレッド等）→ 新スレッド + 畳み込み（transcript が空なら素の prompt）
@@ -516,25 +559,18 @@ function buildRunner(
   return async (prompt, resumeId, opts) => {
     const system = opts?.systemPrompt ?? cfg.defaultSystemPrompt;
     try {
-      const { threadId, turnText, history } = await resolveThread(resumeId, system, prompt);
+      const { threadId, turnText } = await resolveThread(resumeId, system, prompt);
       const text = (await client.runTurn(threadId, turnText)).trim();
       if (!text) throw new Error("Codex returned empty result");
-      transcript.set(threadId, [
-        ...history,
-        { role: "user", content: prompt },
-        { role: "assistant", content: text },
-      ]);
+      appendTurn(transcript, threadId, prompt, text);
       return { text, sessionId: threadId };
     } catch (err) {
       if (err instanceof TransportError) {
         // プロセスは死んだ（または起動できなかった）。世代比較でも遅延検出されるが、死んだ記憶を
         // eager に掃除しておく（次の呼び出しは thread/resume＝ディスク復元から入り直す）。
-        // transcript は保険として残す。
+        // transcript は保険として残す。フォールバックの合成はここでは行わない
+        // （呼び出し側 selectRunner が withFallback で担う）。
         threads.clear();
-        if (cfg.execFallback) {
-          console.warn("codex app-server unavailable, falling back to exec:", err);
-          return cfg.execFallback(prompt, resumeId, opts);
-        }
       }
       throw err;
     }
@@ -542,30 +578,24 @@ function buildRunner(
 }
 
 // ---------------------------------------------------------------------------
-// registry 層: 接続設定（model/reasoningEffort/serviceTier）単位で常駐プロセス（client）を共有する
+// registry 層: 単一の常駐プロセス（client）を全ロールで共有する（model/reasoningEffort/serviceTier は
+// per-thread パラメータへ移行済み・Task 8）
 // ---------------------------------------------------------------------------
 
 /**
- * 前提（binding）: このレジストリは「単一の正準接続」を1スロットだけ保持する設計である。
- * 現在の唯一の呼び出し経路（llm-provider.ts の selectRunner ← converse.ts の
- * applyLlmRoleSettings、ロールごとに呼ばれる）は、ロールごとに異なる codexModel を理論上は
- * 渡せる形をしているが、クライアント側の buildRolesPayload（app/client/src/lib/llm-assignments.ts）
- * が「接続は常に1つ・codex を選んだ全ロールへ同じ codexModel を配る」形でしか payload を組み立てない
- * ため、出荷済み UI からは常に単一の接続設定に収束する。この前提が保証されている限り、
- * applyLlmRoleSettings が4ロール分 resolveRunner を呼んでも connectionKey は毎回同一になり、
- * このスロットは1つの client を使い回し続ける。
+ * 前提（binding・Task 8 でプロセス1本化）: このレジストリは「単一の正準接続」を1スロットだけ保持する
+ * 設計である。model/reasoningEffort/serviceTier は spawn 引数ではなく thread/start・thread/resume の
+ * リクエストパラメータであることが判明したため（codex CLI 実測）、これらは connectionKey から外し、
+ * 呼び出しごとの cfg として `threadParams()`（下記 buildRunner 内）へ per-thread に反映する形にした。
+ * これにより、ロールごとに異なる model/effort/tier を選んでも常駐プロセスは1本のまま共有され続け、
+ * 以前あった「ロール解決のたびに connectionKey が入れ替わり旧 client を kill して再spawnする
+ * eviction ping-pong」（設定保存のたびに複数ロールを順に再解決する applyLlmRoleSettings の構造に起因）
+ * が構造的に解消されている。同一 client を共有する複数ロールの runner は、それぞれが自分の呼び出し時点の
+ * cfg（buildRunner のクロージャ引数）を保持するため、同じプロセス上でもスレッドごとに異なる
+ * model/effort/tier で thread/start・thread/resume できる（下記の交互切替テスト参照）。
  *
- * もし将来 UI を経由しない直接 API 呼び出し等でロールごとに異なる codexModel を保存する経路が
- * 導入されると、この前提が崩れる。その場合 applyLlmRoleSettings がロールを順に解決するたびに
- * connectionKey が入れ替わり、この唯一のスロットが呼び出しのたびに evict される
- * 「eviction ping-pong」が起きる（Fix 4 の交互切替回帰テスト参照）。旧 client は都度 kill() される
- * ため無制限のプロセスリークにはならないが、kill 済みプロセスの自己修復（再spawn）が
- * 追跡されないまま繰り返し起き、想定外の頻度でプロセスが生成/破棄され続けることになる。
- *
- * per-role に独立した常駐接続を許可する設計へ発展させる場合は、この単一スロットのままではなく
- * 接続キーで引く `Map<string, CodexAppServerRegistryEntry>` へ拡張し、キーごとの生成・破棄タイミング
- * （どのロールがどのキーを使っているか、いつ evict してよいか）を明示的に設計し直す必要がある。
- * 本 fix はこの前提を明文化するのみで、挙動・enforcement は変えない。
+ * connectionKey は現時点では実質定数（区別する接続属性が無い）。Plan B で API キー認証の隔離
+ * CODEX_HOME 等、プロセスの起動条件そのものを分ける属性が入れば、その時点で改めてキーに含める。
  */
 type CodexAppServerRegistryEntry = {
   key: string;
@@ -580,34 +610,58 @@ type CodexAppServerRegistryEntry = {
  * を再実行しても、接続設定が変わらない限り既存プロセスを使い回すための唯一の保持場所。 */
 let registry: CodexAppServerRegistryEntry | null = null;
 
-/** 接続設定（プロセスの起動条件そのもの）だけをキーにする。defaultSystemPrompt/spawn/execFallback は
- * ロール設定の変更では変わらない値、またはプロセス寿命に無関係な値なのでキーに含めない。
- * JSON.stringify は値が undefined のキーを省略するため、未指定と明示 undefined は同じキーになる（正規化）。 */
-function connectionKey(cfg: CodexAppServerConfig): string {
-  return JSON.stringify({ model: cfg.model, reasoningEffort: cfg.reasoningEffort, serviceTier: cfg.serviceTier });
+/** 接続識別用のキー。Task 8 時点では model/reasoningEffort/serviceTier が per-thread パラメータへ
+ * 移行したため接続の同一性には関与せず、区別すべき接続属性が他に無いので実質定数を返す
+ * （Plan B で API キー認証の隔離 CODEX_HOME 等が入れば、その時点でキーに含める）。 */
+function connectionKey(): string {
+  return "default";
 }
 
 /**
- * codex app-server 常駐プロセスを接続設定単位でデデュープする ClaudeRunner ファクトリ。
- * - 同一キー（同一 model/reasoningEffort/serviceTier）で呼ばれた場合、既存の client と threads/transcript
- *   （=既に spawn 済みかもしれない常駐プロセスと、そのセッション記憶）をそのまま使う新しい runner を返す
- *   （新規プロセスは spawn されず、設定保存のたびの再解決でも保険トランスクリプトはリセットされない。Fix 1）。
- * - キーが変わった場合は旧 client を kill() し、threads/transcript も新規の空 Map から作り直す。
- * - defaultSystemPrompt/execFallback は呼び出しごとの cfg をそのまま使う（値は実運用では固定だが、
- *   仮に変わっても次回呼び出しの runner に反映される）。
+ * registry の spawn-or-reuse 本体。同一キー（実質定数）である限り、既存の client と threads/transcript
+ * （=既に spawn 済みかもしれない常駐プロセスと、そのセッション記憶）をそのまま返す（新規プロセスは
+ * spawn されない。Fix 1）。キーが変わった場合（将来 API キー認証の隔離 CODEX_HOME 等が入った場合）や
+ * __resetCodexAppServerRegistry() 後だけ、旧 client を kill() して新規の空 Map から作り直す。
+ * getCodexAppServerRunner（ClaudeRunner 合成）と getCodexAppServerClient（Task 3: カタログ直接アクセス）
+ * の両方がこの唯一の spawn-or-reuse ロジックを共有する。
  */
-export function getCodexAppServerRunner(cfg: CodexAppServerConfig): ClaudeRunner {
-  const key = connectionKey(cfg);
+function ensureRegistryEntry(spawn?: SpawnAppServer): CodexAppServerRegistryEntry {
+  const key = connectionKey();
   if (!registry || registry.key !== key) {
     registry?.client.kill();
     registry = {
       key,
-      client: new CodexAppServerClient(cfg.spawn ?? realSpawnAppServer),
+      client: new CodexAppServerClient(spawn ?? realSpawnAppServer),
       threads: new Map(),
       transcript: new Map(),
     };
   }
-  return buildRunner(registry.client, cfg, { threads: registry.threads, transcript: registry.transcript });
+  return registry;
+}
+
+/**
+ * codex app-server 常駐プロセスを接続単位でデデュープする ClaudeRunner ファクトリ。
+ * - 通常呼び出しでは常に同一キー（実質定数）になるため、既存の client と threads/transcript を
+ *   そのまま使う新しい runner を返す（設定保存のたびの再解決でも保険トランスクリプトはリセットされない）。
+ *   ロールごとに異なる model/reasoningEffort/serviceTier を渡しても、この共有は維持される
+ *   （各呼び出しの cfg は buildRunner のクロージャに個別に残るため、thread/start・thread/resume には
+ *   呼び出し元の cfg がそのまま per-thread に反映される。プロセス自体は1本のまま＝Task 8）。
+ * - defaultSystemPrompt は呼び出しごとの cfg をそのまま使う（値は実運用では固定だが、
+ *   仮に変わっても次回呼び出しの runner に反映される）。
+ */
+export function getCodexAppServerRunner(cfg: CodexAppServerConfig): ClaudeRunner {
+  const entry = ensureRegistryEntry(cfg.spawn);
+  return buildRunner(entry.client, cfg, { threads: entry.threads, transcript: entry.transcript });
+}
+
+/**
+ * モデルカタログ取得（Task 3）専用: getCodexAppServerRunner と同じ常駐プロセスをそのまま共有して返す
+ * （新規 spawn を増やさない）。runner 合成（withFallback による exec フォールバック）は経由しない直接
+ * アクセスのため、呼び出し元（providers/model-catalog.ts）は request 失敗もそのまま available:false へ
+ * 変換するだけで、フォールバックの対象にはしない（カタログは app-server 専用というプロダクト仕様）。
+ */
+export function getCodexAppServerClient(spawn?: SpawnAppServer): CodexAppServerClient {
+  return ensureRegistryEntry(spawn).client;
 }
 
 /** テスト用: registry をリセットする（現在の client があれば kill してから破棄）。テスト間の分離用。 */

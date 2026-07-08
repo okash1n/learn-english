@@ -1,4 +1,9 @@
-import { LLM_ROLES, type LlmRole, type LlmRoleInput, type LlmSettingsInput, type LlmSettingsView } from "../api";
+import {
+  LLM_ROLES, SERVICE_TIER_OPTIONS, CLAUDE_MODEL_OPTIONS,
+  type LlmRole, type LlmRoleInput, type LlmSettingsInput, type LlmSettingsView, type RoleTuning,
+  type ClaudeModelOption, type ServiceTierOption, type CatalogModel, type CatalogModelEffort, type CatalogResult,
+  type AuthMode, type LlmAuthProvider,
+} from "../api";
 
 /** ロール割当の3値（UI が直接選ぶ）。inherit/env は UI に出さない。 */
 export type RoleTarget = "claude" | "local" | "codex";
@@ -14,13 +19,13 @@ export type Connection = { baseUrl: string; model: string; codexModel: string };
 export type PresetId = "all-local" | "balanced" | "high-quality";
 
 /**
- * プリセットのロール割当（固定）。バランスは会話・教材生成=ローカル / コーチング・測定=Claude。
- * 測定は Claude との品質差が最大かつ低頻度のため Claude 側に含める。
+ * プリセットのロール割当（固定）。バランスは会話・クイック支援・教材生成=ローカル / コーチング・測定=Claude。
+ * クイック支援は単純で即答が欲しいタスクのためローカル側、測定は Claude との品質差が最大かつ低頻度のため Claude 側に含める。
  */
 export const PRESETS: Record<PresetId, RoleTargets> = {
-  "all-local": { conversation: "local", coaching: "local", generation: "local", assessment: "local" },
-  balanced: { conversation: "local", coaching: "claude", generation: "local", assessment: "claude" },
-  "high-quality": { conversation: "claude", coaching: "claude", generation: "claude", assessment: "claude" },
+  "all-local": { conversation: "local", assist: "local", coaching: "local", generation: "local", assessment: "local" },
+  balanced: { conversation: "local", assist: "local", coaching: "claude", generation: "local", assessment: "claude" },
+  "high-quality": { conversation: "claude", assist: "claude", coaching: "claude", generation: "claude", assessment: "claude" },
 };
 
 /** baseUrl と model が両方非空ならローカル接続は定義済み。 */
@@ -44,6 +49,106 @@ export function presetTargets(id: PresetId, cloud: CloudTarget): RoleTargets {
   return out;
 }
 
+const EMPTY_TUNING: RoleTuning = { claudeModel: null, effort: null, serviceTier: null };
+
+/** 全ロール分の既定チューニング（全項目 null）を返す。buildRolesPayload の tuning 省略時の既定にも使う。 */
+export function defaultTuning(): Record<LlmRole, RoleTuning> {
+  const out = {} as Record<LlmRole, RoleTuning>;
+  for (const role of LLM_ROLES) out[role] = { ...EMPTY_TUNING };
+  return out;
+}
+
+/** GET 応答からロール別チューニングを復元する。tuning キー自体、または個別ロールの欠落に耐える（旧サーバ応答の後方互換）。 */
+export function hydrateTuning(view: LlmSettingsView): Record<LlmRole, RoleTuning> {
+  const out = {} as Record<LlmRole, RoleTuning>;
+  for (const role of LLM_ROLES) {
+    out[role] = view.tuning?.[role] ?? { ...EMPTY_TUNING };
+  }
+  return out;
+}
+
+/** GET 応答から認証モードを復元する。authModes キー自体、または個別 provider の欠落に耐える（旧サーバ応答の後方互換・行不在は既定 "subscription"）。 */
+export function hydrateAuthModes(view: LlmSettingsView): Record<LlmAuthProvider, AuthMode> {
+  return {
+    claude: view.authModes?.claude ?? "subscription",
+    codex: view.authModes?.codex ?? "subscription",
+  };
+}
+
+/** GET 応答から env キー検出状態を復元する。authKeys キー自体、または個別 provider の欠落に耐える（旧サーバ応答の後方互換・既定 false）。 */
+export function hydrateAuthKeys(view: LlmSettingsView): { anthropic: boolean; codex: boolean } {
+  return {
+    anthropic: view.authKeys?.anthropic ?? false,
+    codex: view.authKeys?.codex ?? false,
+  };
+}
+
+/**
+ * 認証モードの PUT ペイロード用パッチを組み立てる。ベースライン（直近 hydrate 済みの値）から
+ * 変更された provider のみを含める（両方未変更なら undefined＝PUT payload に auth フィールド自体を含めない）。
+ * これが無いと、api-key で保存済みのまま後から app/.env のキーを削除した状態で、auth を一切変更していない
+ * 他の保存（接続保存・割当保存・プリセット適用）まで毎回 auth を再送し、サーバ側の
+ * 「api-key 指定時に env キー未設定なら 400」検証に毎回引っかかって設定変更が一切保存できなくなる
+ * （ロックアウト）。「本当に auth を変更した保存だけが 400 になり得る」を保証するための差分抽出。
+ */
+export function buildAuthPatch(
+  baseline: Record<LlmAuthProvider, AuthMode>,
+  current: Record<LlmAuthProvider, AuthMode>,
+): Partial<Record<LlmAuthProvider, AuthMode>> | undefined {
+  const patch: Partial<Record<LlmAuthProvider, AuthMode>> = {};
+  if (current.claude !== baseline.claude) patch.claude = current.claude;
+  if (current.codex !== baseline.codex) patch.codex = current.codex;
+  return Object.keys(patch).length > 0 ? patch : undefined;
+}
+
+/**
+ * ロール別の推奨チューニング（spec §4 推奨マトリクスの逐語定数）。
+ * クラウド割当（claude/codex）のロールにのみ適用する想定 — local 割当ロールは対象外（applyRecommendedTuning 参照）。
+ */
+export const RECOMMENDED_TUNING: Record<LlmRole, { claude: RoleTuning; codex: RoleTuning }> = {
+  conversation: {
+    claude: { claudeModel: "sonnet", effort: "low", serviceTier: null },
+    codex: { claudeModel: null, effort: "low", serviceTier: "fast" },
+  },
+  assist: {
+    // haiku は effort 非対応（実測 2026-07-08: `claude -p --model haiku --effort low` は成功するが
+    // effort は黙って無視される）。無視される値を書き込む/表示するのは UI 真実性違反のため null（既定）にする。
+    claude: { claudeModel: "haiku", effort: null, serviceTier: null },
+    codex: { claudeModel: null, effort: "low", serviceTier: "fast" },
+  },
+  coaching: {
+    claude: { claudeModel: "sonnet", effort: "high", serviceTier: null },
+    codex: { claudeModel: null, effort: "medium", serviceTier: "fast" },
+  },
+  generation: {
+    claude: { claudeModel: "sonnet", effort: "medium", serviceTier: null },
+    codex: { claudeModel: null, effort: "medium", serviceTier: "fast" },
+  },
+  assessment: {
+    claude: { claudeModel: "opus", effort: "xhigh", serviceTier: null },
+    codex: { claudeModel: null, effort: "xhigh", serviceTier: "standard" },
+  },
+};
+
+/**
+ * 推奨チューニングを現在のロール割当に基づいて適用する（クラウド割当ロールのみ書き換え・local 割当ロールは current を維持）。
+ * 保存はしない（呼び出し側の state を更新するのみ。確定は割当保存ボタン）。current を変更せず新しいオブジェクトを返す。
+ */
+export function applyRecommendedTuning(
+  current: Record<LlmRole, RoleTuning>,
+  targets: RoleTargets,
+): Record<LlmRole, RoleTuning> {
+  const out = {} as Record<LlmRole, RoleTuning>;
+  for (const role of LLM_ROLES) {
+    const target = targets[role];
+    out[role] =
+      target === "claude" ? { ...RECOMMENDED_TUNING[role].claude }
+      : target === "codex" ? { ...RECOMMENDED_TUNING[role].codex }
+      : { ...current[role] };
+  }
+  return out;
+}
+
 /** llm_settings.provider（env は envProvider へ解決）を effective global provider として返す。 */
 function effectiveGlobalProvider(view: LlmSettingsView): string {
   return view.provider === "env" ? view.envProvider : view.provider;
@@ -51,7 +156,8 @@ function effectiveGlobalProvider(view: LlmSettingsView): string {
 
 /** GET 応答から接続入力を復元する（llm_settings 優先・ロール行フォールバック）。 */
 export function hydrateConnection(view: LlmSettingsView): Connection {
-  const roleList = LLM_ROLES.map((r) => view.roles[r]);
+  // ロール行の欠落に耐える（旧サーバ応答に新設ロールの行が無い場合。additive API の後方互換）
+  const roleList = LLM_ROLES.map((r) => view.roles[r]).filter((r) => r != null);
   const localRole = roleList.find((r) => r.provider === "openai-compat" && r.baseUrl && r.model);
   const codexRole = roleList.find((r) => r.provider === "codex" && r.codexModel);
   return {
@@ -66,7 +172,8 @@ export function hydrateTargets(view: LlmSettingsView): RoleTargets {
   const global = effectiveGlobalProvider(view);
   const out = {} as RoleTargets;
   for (const role of LLM_ROLES) {
-    const raw = view.roles[role].provider;
+    // 行欠落は inherit 扱い（旧サーバ応答に新設ロールの行が無い場合。additive API の後方互換）
+    const raw = view.roles[role]?.provider ?? "inherit";
     const p = raw === "inherit" ? global : raw;
     out[role] = p === "openai-compat" ? "local" : p === "codex" ? "codex" : "claude";
   }
@@ -77,12 +184,15 @@ export function hydrateTargets(view: LlmSettingsView): RoleTargets {
  * (targets, conn) を PUT /api/llm-settings/roles のペイロードへ直列化する。
  * - 接続は常に global（接続ストア）に保存する＝プリセット/割当保存でも接続は失われない。
  * - ローカル未定義のとき local ターゲットは優先クラウド（既定 claude）にフォールバックする（空 baseUrl で 400 になるのを防ぐ）。
+ * - tuning は常時（全ロール分）含める。省略時は全ロール null（既定）。割当やプリセット適用とは独立して素通しする
+ *   （プリセット適用は tuning を変更しない — 呼び出し側が現在の tuning state をそのまま渡す）。
  */
 export function buildRolesPayload(
   targets: RoleTargets,
   conn: Connection,
   cloud: CloudTarget = "claude",
-): { global: LlmSettingsInput; roles: Record<LlmRole, LlmRoleInput> } {
+  tuning: Record<LlmRole, RoleTuning> = defaultTuning(),
+): { global: LlmSettingsInput; roles: Record<LlmRole, LlmRoleInput>; tuning: Record<LlmRole, RoleTuning> } {
   const baseUrl = conn.baseUrl.trim();
   const model = conn.model.trim();
   const codexModel = conn.codexModel.trim() || null;
@@ -102,7 +212,7 @@ export function buildRolesPayload(
       : t === "codex" ? { provider: "codex", codexModel }
       : { provider: "claude" };
   }
-  return { global, roles };
+  return { global, roles, tuning };
 }
 
 /**
@@ -123,4 +233,200 @@ export function matchPreset(targets: RoleTargets): { id: PresetId; cloud: CloudT
     }
   }
   return "custom";
+}
+
+// ---------------------------------------------------------------------------
+// モデルカタログ（GET /api/llm-models）由来の選択肢・実効モデル解決
+// ---------------------------------------------------------------------------
+
+/** 3プロバイダ分のカタログ（App 側の catalog state の形。未取得は undefined）。 */
+export type LlmModelCatalog = { claude: CatalogResult; codex: CatalogResult; local: CatalogResult };
+
+/** claude ロールの既定エイリアス（コード定数。catalog の isDefault 行は CLI 自身の既定であり別物のため使わない）。 */
+const CLAUDE_DEFAULT_ALIAS: ClaudeModelOption = "sonnet";
+/** codex ロールの既定チューニング（コード定数。selectRunner/resolveCodexConn と一致させる）。 */
+const CODEX_DEFAULT_EFFORT = "medium";
+const CODEX_DEFAULT_TIER: ServiceTierOption = "fast";
+
+/** エイリアス（haiku/sonnet/opus）に対応するカタログ行を displayName の小文字一致で解決する。
+ * id には `opus[1m]`・`default` 等の装飾があるため id 一致には頼らない。「default」行（CLI 自身の推奨）は
+ * どのエイリアスとも一致しないため自然に除外される。 */
+function findClaudeCatalogRow(catalog: CatalogResult | undefined, alias: string): CatalogModel | undefined {
+  if (!catalog?.available) return undefined;
+  return catalog.models.find((m) => m.displayName.toLowerCase() === alias);
+}
+
+function findCodexCatalogRowById(catalog: CatalogResult | undefined, id: string): CatalogModel | undefined {
+  if (!catalog?.available) return undefined;
+  return catalog.models.find((m) => m.id === id);
+}
+
+function findCodexDefaultRow(catalog: CatalogResult | undefined): CatalogModel | undefined {
+  if (!catalog?.available) return undefined;
+  return catalog.models.find((m) => m.isDefault === true);
+}
+
+/**
+ * claude モデル DD の選択肢（常に haiku/sonnet/opus の3件・保存値はエイリアスのまま）。
+ * カタログで一致すればラベルに実体（resolvedModel）を併記する（例:「Sonnet — claude-sonnet-5」）。
+ * カタログ不可・不一致時はエイリアスそのものを表示する（推測の具体IDは出さない）。
+ */
+export function claudeModelSelectOptions(catalog: CatalogResult | undefined): Array<{ value: ClaudeModelOption; label: string }> {
+  return CLAUDE_MODEL_OPTIONS.map((alias) => {
+    const row = findClaudeCatalogRow(catalog, alias);
+    return { value: alias, label: row?.resolvedModel ? `${row.displayName} — ${row.resolvedModel}` : alias };
+  });
+}
+
+/** 選択中の claude エイリアスに対応するカタログ行の effort 選択肢（id のみ）。無ければ空配列＝既定のみ選択可（haiku 等）。 */
+export function effortOptionsForClaudeAlias(catalog: CatalogResult | undefined, alias: string): string[] {
+  return findClaudeCatalogRow(catalog, alias)?.efforts?.map((e) => e.id) ?? [];
+}
+
+/** codexModel（接続タブ）DD の選択肢。isDefault はバッジ表示用。カタログ不可・空なら空配列（自由記述へフォールバック）。 */
+export function codexModelSelectOptions(catalog: CatalogResult | undefined): Array<{ value: string; label: string; isDefault: boolean }> {
+  if (!catalog?.available) return [];
+  return catalog.models.map((m) => ({ value: m.id, label: m.displayName, isDefault: m.isDefault === true }));
+}
+
+/** 指定 codexModel（空文字="CLI既定"）に対応するカタログ行の effort 選択肢（description 併記用に丸ごと返す）。 */
+export function effortOptionsForCodexModel(catalog: CatalogResult | undefined, codexModel: string): CatalogModelEffort[] {
+  const row = codexModel ? findCodexCatalogRowById(catalog, codexModel) : findCodexDefaultRow(catalog);
+  return row?.efforts ?? [];
+}
+
+/**
+ * 指定 codexModel に対応する配信(tier)選択肢。**カタログの生の tier id（例: "priority"）は使わない**
+ * — 保存語彙は {fast, standard} を維持する仕様（spec §7 実機所見）。tiers を持つモデルは fast/standard 両方、
+ * 持たないモデルは standard のみを返す（fast を選ばせても無効なため選択肢自体を絞る＝UI真実性）。
+ * 行が見つからない場合（未マッチ・カタログ不可）は保守的に standard のみを返す。
+ */
+export function tierOptionsForCodexModel(catalog: CatalogResult | undefined, codexModel: string): readonly ServiceTierOption[] {
+  const row = codexModel ? findCodexCatalogRowById(catalog, codexModel) : findCodexDefaultRow(catalog);
+  return row?.tiers?.length ? SERVICE_TIER_OPTIONS : (["standard"] as const);
+}
+
+/** codex effort の既定ラベル（catalog の defaultEffort 優先・不一致/不可はコード既定 "medium"）。 */
+export function codexDefaultEffortLabel(catalog: CatalogResult | undefined, codexModel: string): string {
+  const row = codexModel ? findCodexCatalogRowById(catalog, codexModel) : findCodexDefaultRow(catalog);
+  return row?.defaultEffort ?? CODEX_DEFAULT_EFFORT;
+}
+
+/** local モデル DD の選択肢（/models 由来）。カタログ不可・空なら空配列（自由記述へフォールバック）。 */
+export function localModelSelectOptions(catalog: CatalogResult | undefined): Array<{ value: string; label: string }> {
+  if (!catalog?.available) return [];
+  return catalog.models.map((m) => ({ value: m.id, label: m.displayName }));
+}
+
+/** 実効モデルの解決結果（表示用）。confirmed=true のときのみ text はカタログ確認済みの具体ID。 */
+export type EffectiveModelInfo =
+  | { confirmed: true; text: string }
+  | { confirmed: false; text: string; cliDefault?: boolean };
+
+/** 実効 effort/tier。null は「このプロバイダには概念自体が無い」（local）ことを表す。 */
+export type EffectiveTuningValue = { value: string; isDefault: boolean } | null;
+
+export type EffectiveResolution = {
+  provider: RoleTarget;
+  model: EffectiveModelInfo;
+  effort: EffectiveTuningValue;
+  tier: EffectiveTuningValue;
+};
+
+const EMPTY_ROLE_TUNING: RoleTuning = { claudeModel: null, effort: null, serviceTier: null };
+
+/** env 解決済み文字列 / ロールプロバイダ文字列を3値の RoleTarget へ正規化する（hydrateTargets と共通の写像）。 */
+function normalizeProviderKey(p: string): RoleTarget {
+  return p === "openai-compat" ? "local" : p === "codex" ? "codex" : "claude";
+}
+
+/**
+ * 用途タブの「実効」サマリ用の核関数（純粋）: 直近保存済みの view（GET/PUT応答）とカタログから、
+ * 1ロール分の実効プロバイダ・具体モデル・effort・配信を解決する。サーバ側 converse.ts の
+ * resolveRoleRunner / applyLlmRoleSettings と同じ優先順位を再現する:
+ * - assist が inherit のときは coaching の解決結果（プロバイダ・tuning とも）をそのまま使う（連鎖・binding）。
+ *   assist 自身に tuning 行があっても inherit の間は使われない（連鎖の一貫性）。
+ * - inherit はグローバル実効プロバイダ（provider="env" なら envProvider）へ解決する。
+ * - tuning null はコード既定へ（claude: sonnet・SDK標準／codex: medium・fast）。
+ * - カタログ不可・非マッチは「未確認」（推測の具体IDを出さない＝UI真実性の原則）。
+ * 注: 「現在実行中の挙動」を示すため、未保存の編集中 state ではなく view（サーバの現在解決状態）を読む。
+ */
+export function resolveEffective(
+  role: LlmRole,
+  view: LlmSettingsView,
+  catalog?: LlmModelCatalog,
+): EffectiveResolution {
+  const chainRole: LlmRole = role === "assist" && view.roles.assist?.provider === "inherit" ? "coaching" : role;
+  const roleSetting = view.roles[chainRole];
+  const tuning = view.tuning?.[chainRole] ?? EMPTY_ROLE_TUNING;
+  const globalProviderRaw = view.provider === "env" ? view.envProvider : view.provider;
+  const providerRaw = !roleSetting || roleSetting.provider === "inherit" ? globalProviderRaw : roleSetting.provider;
+  const provider = normalizeProviderKey(providerRaw);
+
+  if (provider === "local") {
+    const modelValue = roleSetting?.model ?? view.model ?? "";
+    return { provider, model: { confirmed: true, text: modelValue }, effort: null, tier: null };
+  }
+
+  if (provider === "codex") {
+    const codexModel = (roleSetting?.codexModel ?? view.codexModel ?? "").trim();
+    const row = codexModel ? findCodexCatalogRowById(catalog?.codex, codexModel) : findCodexDefaultRow(catalog?.codex);
+    const model: EffectiveModelInfo = row?.resolvedModel
+      ? { confirmed: true, text: row.resolvedModel }
+      : codexModel
+      ? { confirmed: false, text: codexModel }
+      : { confirmed: false, text: "", cliDefault: true };
+    // 実測: tiers 非対応の codex モデル（例: gpt-5.4-mini/5.3-spark）へ配信ティアを送っても黙って無視され、
+    // 標準ルーティングになる（claude effort の effortIgnored と同じ「非対応値は静かに無視される」パターン）。
+    // カタログが利用可能で選択中モデルに tiers が無ければ、保存値に関わらず実効は「標準（既定）」とする。
+    // カタログ不可時は判定材料が無いため従来どおり保存値をそのまま表示する。
+    const catalogAvailable = catalog?.codex?.available === true;
+    const tierIgnored = catalogAvailable && !(row?.tiers && row.tiers.length > 0);
+    return {
+      provider,
+      model,
+      effort: { value: tuning.effort ?? row?.defaultEffort ?? CODEX_DEFAULT_EFFORT, isDefault: tuning.effort === null },
+      tier: tierIgnored
+        ? { value: "standard", isDefault: true }
+        : { value: tuning.serviceTier ?? CODEX_DEFAULT_TIER, isDefault: tuning.serviceTier === null },
+    };
+  }
+
+  // claude
+  const alias = tuning.claudeModel ?? CLAUDE_DEFAULT_ALIAS;
+  const row = findClaudeCatalogRow(catalog?.claude, alias);
+  const model: EffectiveModelInfo = row?.resolvedModel
+    ? { confirmed: true, text: row.resolvedModel }
+    : { confirmed: false, text: alias };
+  // 実測（2026-07-08）: `claude -p --model <alias> --effort <値>` はモデルが対応しない effort でも
+  // エラーにならず、その effort を黙って無視する（例: haiku + low）。カタログが利用可能で、選択中モデルが
+  // effort 非対応（efforts欄なし）または保存値がそのモデルの対応リストに無ければ、実際には無視されて
+  // SDK 標準相当の挙動になる — 保存値をそのまま「実効」に出すと嘘になるため sdk-standard を返す。
+  // カタログ不可時は判定材料が無いため従来どおり保存値をそのまま表示する（「実体未確認」が不確実性を示す）。
+  const catalogAvailable = catalog?.claude?.available === true;
+  const effortIgnored =
+    catalogAvailable && (!row?.efforts || (tuning.effort !== null && !row.efforts.some((e) => e.id === tuning.effort)));
+  const effort: EffectiveTuningValue =
+    tuning.effort !== null && !effortIgnored
+      ? { value: tuning.effort, isDefault: false }
+      : { value: "sdk-standard", isDefault: true };
+  return { provider, model, effort, tier: null };
+}
+
+/**
+ * claude モデル DD の onChange 用: モデル切替後に選択中の effort が新モデルで無効化される場合、
+ * effort を null（既定へ戻す）にクランプする純関数。実測（2026-07-08）で `claude -p` が非対応 effort を
+ * 黙って無視することが確認されたため、UI 上に「効かない値」を残さないための処置。
+ * カタログ不可時は判定材料が無いため現在値をそのまま維持する（clamp しない）。
+ */
+export function clampClaudeEffort(
+  catalog: CatalogResult | undefined,
+  newAlias: string,
+  currentEffort: string | null,
+): string | null {
+  if (!catalog?.available) return currentEffort;
+  const efforts = effortOptionsForClaudeAlias(catalog, newAlias);
+  if (efforts.length === 0) return null;
+  if (currentEffort !== null && !efforts.includes(currentEffort)) return null;
+  return currentEffort;
 }

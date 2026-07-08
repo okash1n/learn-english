@@ -2,8 +2,12 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { ClaudeRunner } from "../converse";
+import { appendTurn, resolveSessionId, type ChatTurn } from "./transcript";
+import { getActiveAuthModes } from "../llm-auth-store";
+import { codexSpawnEnv } from "../codex-auth";
 
-export type CodexMsg = { role: "user" | "assistant"; content: string };
+/** 既存 export 互換のための型エイリアス（codex-app-server.ts 等が CodexMsg として import する）。 */
+export type CodexMsg = ChatTurn;
 
 /**
  * system 指示・これまでの会話・新しい user 発話を、codex exec が読む1つのプロンプト文字列に畳む。
@@ -31,7 +35,11 @@ export function composeCodexPrompt(system: string, history: CodexMsg[], userProm
 
 /** codex exec を1回実行し、エージェントの最終メッセージ本文を返す関数の型（テスト用 seam）。 */
 export type CodexExec = (
-  args: { prompt: string; model?: string; cwd: string; reasoningEffort?: string; serviceTier?: string },
+  args: {
+    prompt: string; model?: string; cwd: string; reasoningEffort?: string; serviceTier?: string;
+    /** api-key 認証モードのときだけ渡す env 上書き（codexSpawnEnv 参照。subscription では undefined）。 */
+    env?: Record<string, string | undefined>;
+  },
 ) => Promise<string>;
 
 export type CodexConfig = {
@@ -60,7 +68,7 @@ export function makeCodexRunner(cfg: CodexConfig): ClaudeRunner {
   const store = new Map<string, CodexMsg[]>();
 
   return async (prompt, resumeId, opts) => {
-    const sessionId = resumeId && store.has(resumeId) ? resumeId : crypto.randomUUID();
+    const sessionId = resolveSessionId(store, resumeId);
     const history = store.get(sessionId) ?? [];
     const system = opts?.systemPrompt ?? cfg.defaultSystemPrompt;
 
@@ -68,14 +76,11 @@ export function makeCodexRunner(cfg: CodexConfig): ClaudeRunner {
     const text = (await exec({
       prompt: composed, model: cfg.model, cwd,
       reasoningEffort: cfg.reasoningEffort, serviceTier: cfg.serviceTier,
+      env: codexSpawnEnv(getActiveAuthModes().codex),
     })).trim();
     if (!text) throw new Error("Codex returned empty result");
 
-    store.set(sessionId, [
-      ...history,
-      { role: "user", content: prompt },
-      { role: "assistant", content: text },
-    ]);
+    appendTurn(store, sessionId, prompt, text);
     return { text, sessionId };
   };
 }
@@ -92,7 +97,7 @@ export function makeCodexRunner(cfg: CodexConfig): ClaudeRunner {
  * この関数は codex CLI に依存するため単体テスト対象外。makeCodexRunner は注入した exec フェイクで検証し、
  * ここは Task 5 の手動スモークで確認する。
  */
-export const realCodexExec: CodexExec = async ({ prompt, model, cwd, reasoningEffort, serviceTier }) => {
+export const realCodexExec: CodexExec = async ({ prompt, model, cwd, reasoningEffort, serviceTier, env }) => {
   const work = mkdtempSync(path.join(tmpdir(), "codex-run-"));
   try {
     const outFile = path.join(work, "last.txt");
@@ -114,6 +119,7 @@ export const realCodexExec: CodexExec = async ({ prompt, model, cwd, reasoningEf
       stdin: new TextEncoder().encode(prompt),
       stdout: "ignore",
       stderr: "pipe",
+      ...(env ? { env } : {}),
     });
     const stderr = await new Response(proc.stderr).text();
     const exitCode = await proc.exited;
