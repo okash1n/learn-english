@@ -48,6 +48,16 @@ function seedSrs(db: ReturnType<typeof openDb>, no: number, lastGrade: string): 
   );
 }
 
+/**
+ * genListeningForTarget/genListening のテスト用フィクスチャ。checkSpokenRegister を beginner(11語/0.2)・
+ * intermediate(14語/0.2)・advanced(16語/0.2) いずれの帯でもPASSするよう、短文+高短縮形率にしてある
+ * （genListeningForTargetがcheckSpokenRegisterをhard-failゲートするようになったため、構造検証だけを
+ * 通す旧フィクスチャ("First paragraph of X.")は0%短縮形でFAILし、テストが意図せずthrowするようになった）。
+ */
+function passingListeningParagraphs(id: string): string[] {
+  return [`I'm glad to talk about ${id} today.`, `It's a simple topic, so let's get started.`];
+}
+
 const EXISTING: Sentence[] = [
   { no: 1, category_no: 1, category: "現在形", domain: "daily", en: "I usually walk to work.", ja: "歩く", note: "" },
   { no: 5, category_no: 2, category: "過去形", domain: "it", en: "The server went down.", ja: "落ちた", note: "" },
@@ -757,7 +767,7 @@ describe("content-gen / genListeningForTarget（帯×domain×count・--fill-cove
   function listeningTargetJson(id: string, overrides: Record<string, unknown> = {}) {
     return JSON.stringify({
       id, title: `Title ${id}`, titleJa: `タイトル${id}`,
-      paragraphs: [`First paragraph of ${id}.`, `Second paragraph of ${id}.`],
+      paragraphs: passingListeningParagraphs(id),
       ...overrides,
     });
   }
@@ -798,6 +808,30 @@ describe("content-gen / genListeningForTarget（帯×domain×count・--fill-cove
       }),
     ).rejects.toThrow();
     expect(loadListening(dir)).toHaveLength(0);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  // 実生成(v0.26 wave2・36本)で3本が短縮形率不足のまま書き込まれてしまった実障害の再発防止テスト。
+  // 構造検証(validateListeningCandidate)だけでは口語レジスターの質を見ないため、checkSpokenRegisterを
+  // hard-failゲートとして追加した(genScenariosForTargetがcheckScenarioStarterをゲートするのと同構造)。
+  test("checkSpokenRegisterでFAILする候補(短縮形率0%の教科書調)は再生成される", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "gen-lt-register-"));
+    const textbookStyle = listeningTargetJson("textbook", {
+      paragraphs: [
+        "I do not like doing the dishes after dinner every single night without fail.",
+        "I do not think it is fun at all, and I do not know why that is.",
+      ],
+    });
+    const good = listeningTargetJson("good-one");
+    const logs: string[] = [];
+    await genListeningForTarget({
+      runner: makeRunner([textbookStyle, good]),
+      listeningDir: dir, domain: "daily", band: "foundation", count: 1, dry: false, log: (s) => logs.push(s),
+    });
+    const items = loadListening(dir);
+    expect(items).toHaveLength(1);
+    expect(items[0].id).toBe("good-one");
+    expect(logs.some((l) => l.includes("検証NG"))).toBe(true);
     rmSync(dir, { recursive: true, force: true });
   });
 
@@ -867,7 +901,7 @@ describe("content-gen / genListeningForTarget（帯×domain×count・--fill-cove
 
 describe("content-gen / genListening（カバレッジ駆動: 不足セルのみ生成しbridgeは対象外・べき等）", () => {
   function listeningJson(id: string) {
-    return JSON.stringify({ id, title: `Title ${id}`, titleJa: `タイトル${id}`, paragraphs: [`P1 of ${id}.`, `P2 of ${id}.`] });
+    return JSON.stringify({ id, title: `Title ${id}`, titleJa: `タイトル${id}`, paragraphs: passingListeningParagraphs(id) });
   }
   function seedFullCell(dir: string, domain: string, level: [number, number], prefix: string) {
     for (let i = 0; i < 4; i++) {

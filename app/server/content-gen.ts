@@ -13,7 +13,7 @@ import { categoryBadRates, pickWorstCategories } from "./srs-analytics";
 import { spokenStyleFor, type SpokenBand } from "./spoken-style";
 import { BAND_STAGE_RANGE, computeBandCoverageStatuses, prioritizeFillTasks, type Band } from "./content-coverage";
 import { checkTopicAnchor } from "./topic-anchor-check";
-import { checkScenarioStarter } from "./spoken-register-check";
+import { checkScenarioStarter, checkSpokenRegister } from "./spoken-register-check";
 
 const ORIGINALITY = "All output must be completely original — do not copy or adapt sentences from existing textbooks or courses.";
 
@@ -613,6 +613,10 @@ export type GenListeningForTargetDeps = {
 /**
  * --fill-coverage の生成本体（listening側）。genTopicsForTarget/genScenariosForTargetと対をなす。
  * 指定した帯(BAND_STAGE_RANGEの範囲そのものをlevelにする)×domain×countでquota適合素材をcount本生成する。
+ * 構造検証（validateListeningCandidate）に加え、checkSpokenRegister（帯別閾値の口語レジスター3指標）を
+ * hard-fail条件としてゲートする（設計doc§5「listening: spoken-register 3指標をhard fail」・
+ * genScenariosForTargetがcheckScenarioStarterをゲートするのと同じ構造）。旧実装はこのゲートが無く、
+ * 実生成36本中3本(短縮形率不足)が未検出のまま書き込まれてしまった実績があるため必須の修正。
  * 各アイテムは3ラウンド規律（attempt<=3）で検証NGなら再生成する。全アイテム検証済み後に一括書き込み（all-or-nothing）。
  */
 export async function genListeningForTarget(deps: GenListeningForTargetDeps): Promise<void> {
@@ -651,7 +655,8 @@ Do not use any tools — reply directly with text only.`;
       }
       if (text !== undefined) {
         const parsed = extractJson<NewListeningCandidate>(text);
-        cand = validateListeningCandidate(parsed, existingIds, deps.listeningDir);
+        const base = validateListeningCandidate(parsed, existingIds, deps.listeningDir);
+        cand = base && checkSpokenRegister(base.paragraphs.join("\n\n"), spokenBand).pass ? base : null;
       }
       if (!cand && attempt < 3) log(`  ${deps.domain}/${deps.band}: 検証NG — 再生成します(${attempt}/3)`);
     }
