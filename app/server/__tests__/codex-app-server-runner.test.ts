@@ -167,6 +167,36 @@ describe("makeCodexAppServerRunner", () => {
     );
   });
 
+  test("fold二段: 畳み込み先スレッドのtranscriptが旧履歴を引き継ぎ、次のfoldにも全往復が残る", async () => {
+    // startFolded が新スレッドの transcript を旧履歴で播種することの回帰テスト。
+    // 播種が無いと、fold後の appendTurn は transcript.get(新threadId)=空 から書き始めるため、
+    // 2段目の fold には直前の1往復しか現れない（Hello/Again の往復が消える）。
+    const f = makeScriptedProc({
+      "thread/start": threadStartOk(["t-1", "t-2", "t-3"]),
+      "turn/start": turnOk(["Hi there", "Sure", "New persona", "Third persona"]),
+    });
+    const runner = runnerWith(f);
+    const first = await runner("Hello");
+    expect(first.sessionId).toBe("t-1");
+    const second = await runner("Again", first.sessionId);
+    expect(second).toEqual({ text: "Sure", sessionId: "t-1" });
+    // 1段目のfold: systemPrompt変更で t-2 へ畳み込み
+    const third = await runner("Third", second.sessionId, { systemPrompt: "SYS2" });
+    expect(third).toEqual({ text: "New persona", sessionId: "t-2" });
+    // 2段目のfold: さらにsystemPrompt変更で t-3 へ。ここに全3往復が残っていることが播種の証拠
+    const fourth = await runner("Fourth", third.sessionId, { systemPrompt: "SYS3" });
+    expect(fourth).toEqual({ text: "Third persona", sessionId: "t-3" });
+    const turns = f.sent.filter((m) => m.method === "turn/start");
+    expect(turns.length).toBe(4);
+    const foldText2 = ((turns[3]!.params as Msg).input as Msg[])[0]!.text as string;
+    expect(foldText2).toContain("User: Hello");
+    expect(foldText2).toContain("Assistant: Hi there");
+    expect(foldText2).toContain("User: Again");
+    expect(foldText2).toContain("Assistant: Sure");
+    expect(foldText2).toContain("User: Third");
+    expect(foldText2).toContain("Assistant: New persona");
+  });
+
   test("spawn失敗/exit: execFallbackが同じ(prompt,resumeId,opts)で呼ばれ結果が返る", async () => {
     const calls: { prompt: string; resumeId?: string; opts?: { systemPrompt?: string } }[] = [];
     const execFallback = async (prompt: string, resumeId?: string, opts?: { systemPrompt?: string }) => {
