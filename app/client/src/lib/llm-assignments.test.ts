@@ -3,7 +3,7 @@ import type { LlmRoleInput, LlmRoleView, LlmSettingsInput, LlmSettingsView, LlmR
 import { LLM_ROLES } from "../api";
 import {
   PRESETS, isLocalDefined, presetEnabled, hydrateConnection, hydrateTargets, buildRolesPayload, matchPreset,
-  presetTargets, defaultTuning, hydrateTuning,
+  presetTargets, defaultTuning, hydrateTuning, RECOMMENDED_TUNING, applyRecommendedTuning,
   type RoleTargets,
 } from "./llm-assignments";
 
@@ -225,6 +225,88 @@ describe("matchPreset", () => {
     const payload = buildRolesPayload(presetTargets("balanced", "codex"), conn, "codex");
     const view = fakeViewFromPayload(payload);
     expect(matchPreset(hydrateTargets(view))).toEqual({ id: "balanced", cloud: "codex" });
+  });
+});
+
+describe("RECOMMENDED_TUNING", () => {
+  test("spec §4 の推奨マトリクスと逐語一致する（全ロール・claude/codex両方）", () => {
+    expect(RECOMMENDED_TUNING).toEqual({
+      conversation: {
+        claude: { claudeModel: "sonnet", effort: "low", serviceTier: null },
+        codex: { claudeModel: null, effort: "low", serviceTier: "fast" },
+      },
+      assist: {
+        claude: { claudeModel: "haiku", effort: "low", serviceTier: null },
+        codex: { claudeModel: null, effort: "low", serviceTier: "fast" },
+      },
+      coaching: {
+        claude: { claudeModel: "sonnet", effort: "high", serviceTier: null },
+        codex: { claudeModel: null, effort: "medium", serviceTier: "fast" },
+      },
+      generation: {
+        claude: { claudeModel: "sonnet", effort: "medium", serviceTier: null },
+        codex: { claudeModel: null, effort: "medium", serviceTier: "fast" },
+      },
+      assessment: {
+        claude: { claudeModel: "opus", effort: "xhigh", serviceTier: null },
+        codex: { claudeModel: null, effort: "xhigh", serviceTier: "standard" },
+      },
+    });
+  });
+
+  test("claude側・codex側とも serviceTier/claudeModel の対象外項目は常に null", () => {
+    for (const role of LLM_ROLES) {
+      expect(RECOMMENDED_TUNING[role].claude.serviceTier).toBeNull();
+      expect(RECOMMENDED_TUNING[role].codex.claudeModel).toBeNull();
+    }
+  });
+});
+
+describe("applyRecommendedTuning", () => {
+  test("claude割当ロールはclaude側の推奨で置き換わる", () => {
+    const current = defaultTuning();
+    const targets: RoleTargets = { conversation: "claude", assist: "local", coaching: "local", generation: "local", assessment: "local" };
+    expect(applyRecommendedTuning(current, targets).conversation).toEqual(RECOMMENDED_TUNING.conversation.claude);
+  });
+
+  test("codex割当ロールはcodex側の推奨で置き換わる", () => {
+    const current = defaultTuning();
+    const targets: RoleTargets = { conversation: "local", assist: "local", coaching: "local", generation: "local", assessment: "codex" };
+    expect(applyRecommendedTuning(current, targets).assessment).toEqual(RECOMMENDED_TUNING.assessment.codex);
+  });
+
+  test("local割当ロールは現在値を維持する（推奨で上書きしない）", () => {
+    const custom: RoleTuning = { claudeModel: "opus", effort: "high", serviceTier: null };
+    const current = { ...defaultTuning(), generation: custom };
+    const targets: RoleTargets = { conversation: "local", assist: "local", coaching: "local", generation: "local", assessment: "local" };
+    expect(applyRecommendedTuning(current, targets).generation).toEqual(custom);
+  });
+
+  test("全ロール網羅: claude/codex/local混在で各ロールが対応する推奨・現在値に振り分けられる", () => {
+    const current: Record<LlmRole, RoleTuning> = {
+      conversation: { claudeModel: null, effort: null, serviceTier: null },
+      assist: { claudeModel: "opus", effort: "high", serviceTier: null },
+      coaching: { claudeModel: null, effort: null, serviceTier: null },
+      generation: { claudeModel: null, effort: null, serviceTier: null },
+      assessment: { claudeModel: null, effort: null, serviceTier: null },
+    };
+    const targets: RoleTargets = { conversation: "claude", assist: "local", coaching: "codex", generation: "claude", assessment: "codex" };
+    const result = applyRecommendedTuning(current, targets);
+    expect(result).toEqual({
+      conversation: RECOMMENDED_TUNING.conversation.claude,
+      assist: current.assist,
+      coaching: RECOMMENDED_TUNING.coaching.codex,
+      generation: RECOMMENDED_TUNING.generation.claude,
+      assessment: RECOMMENDED_TUNING.assessment.codex,
+    });
+  });
+
+  test("元オブジェクト（current）を変更しない（非破壊）", () => {
+    const current = defaultTuning();
+    const snapshot = JSON.parse(JSON.stringify(current));
+    const targets: RoleTargets = { conversation: "claude", assist: "codex", coaching: "claude", generation: "codex", assessment: "claude" };
+    applyRecommendedTuning(current, targets);
+    expect(current).toEqual(snapshot);
   });
 });
 

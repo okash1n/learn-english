@@ -88,6 +88,8 @@ type SettingsStrings = {
     presetBalancedOption: string;
     preferredCloudLabel: string;
     preferredCloudNote: string;
+    applyRecommendedTuning: string;
+    applyRecommendedTuningNote: string;
     connectionSection: string;
     claudeNoSetup: string;
     localConnTitle: string;
@@ -353,11 +355,11 @@ export const STR: Record<Lang, Strings> = {
         assessment: "Level check and monthly review",
       },
       roleReason: {
-        conversation: "Recommended: local — fastest responses. Switch to Claude or Codex if quality falls short.",
-        assist: "Recommended: local — simple, latency-sensitive tasks. Switch to Claude or Codex if quality falls short.",
-        coaching: "Recommended: Claude or Codex — writing quality matters more than speed.",
-        generation: "Recommended: local — fairly templated output with modest quality demands. Switch to Claude or Codex for higher quality.",
-        assessment: "Recommended: Claude or Codex — runs infrequently and quality matters most.",
+        conversation: "Recommended: local — fastest responses. On cloud, sonnet / low is a good baseline.",
+        assist: "Recommended: local — simple tasks that need an instant answer. On cloud, haiku / low is enough.",
+        coaching: "Recommended: Claude / Codex — quality matters most here (corrections stay in your SRS, explanations are cached permanently). sonnet / high is a good baseline.",
+        generation: "Recommended: local — templated output with modest demands. For higher quality, use sonnet / medium.",
+        assessment: "Recommended: Claude / Codex — runs less than monthly and the verdict affects everything. opus / xhigh; standard delivery is fine since there's no rush.",
       },
       roleQualityNote: "Where model quality matters most: Assessment > Coaching > Content generation. Conversation benefits more from response speed.",
       presetSection: "Presets",
@@ -375,6 +377,8 @@ export const STR: Record<Lang, Strings> = {
       presetBalancedOption: "Balanced (Recommended)",
       preferredCloudLabel: "Preferred cloud",
       preferredCloudNote: "Used for the cloud slots when you apply a preset — pick the provider you subscribe to.",
+      applyRecommendedTuning: "Apply recommended tuning",
+      applyRecommendedTuningNote: "Sets the recommended model/effort/delivery for cloud-assigned roles. Local roles are left as-is. Save assignments to confirm.",
       connectionSection: "Model connections",
       claudeNoSetup: "Claude needs no setup — it works with your Claude subscription.",
       localConnTitle: "Local LLM (OpenAI-compatible)",
@@ -701,11 +705,11 @@ export const STR: Record<Lang, Strings> = {
         assessment: "レベル測定・月次レビュー",
       },
       roleReason: {
-        conversation: "推奨: ローカル — 応答が最も速いため。品質が物足りなければ Claude や Codex へ。",
-        assist: "推奨: ローカル — 単純で即答が欲しいタスクのため。品質が物足りなければ Claude / Codex へ。",
-        coaching: "推奨: Claude / Codex — 速度より文章の品質が重要なため。",
-        generation: "推奨: ローカル — 出力が定型的で要求性能は低め。品質を上げたいときは Claude / Codex へ。",
-        assessment: "推奨: Claude / Codex — 実行頻度が低く、質の高さが最優先のため。",
+        conversation: "推奨: ローカル — 応答が最も速いため。クラウドなら sonnet / low が目安。",
+        assist: "推奨: ローカル — 単純で即答が欲しいタスク。クラウドなら haiku / low で十分。",
+        coaching: "推奨: Claude / Codex — 品質勝負（SRSに残る添削・恒久キャッシュされる解説）。sonnet / high が目安。",
+        generation: "推奨: ローカル — 定型的で要求低め。品質を上げるなら sonnet / medium。",
+        assessment: "推奨: Claude / Codex — 月1未満で判断が全体に波及。opus / xhigh・急がないので standard 配信で十分。",
       },
       roleQualityNote: "モデル性能が効く順: 測定 > コーチング > 教材生成。会話は性能より応答の速さが効きます。",
       presetSection: "プリセット",
@@ -723,6 +727,8 @@ export const STR: Record<Lang, Strings> = {
       presetBalancedOption: "バランス（推奨）",
       preferredCloudLabel: "優先クラウド",
       preferredCloudNote: "プリセット適用時のクラウド枠に使われます。課金しているサービスに合わせてください。",
+      applyRecommendedTuning: "推奨チューニングを適用",
+      applyRecommendedTuningNote: "クラウド割当の用途に推奨のモデル/effort/配信を設定します（ローカル割当は変更しません）。「割当を保存」で確定します。",
       connectionSection: "モデル接続設定",
       claudeNoSetup: "Claude は設定不要です（Claude のサブスクリプションで動作します）。",
       localConnTitle: "ローカル LLM（OpenAI 互換）",

@@ -62,6 +62,52 @@ export function hydrateTuning(view: LlmSettingsView): Record<LlmRole, RoleTuning
   return out;
 }
 
+/**
+ * ロール別の推奨チューニング（spec §4 推奨マトリクスの逐語定数）。
+ * クラウド割当（claude/codex）のロールにのみ適用する想定 — local 割当ロールは対象外（applyRecommendedTuning 参照）。
+ */
+export const RECOMMENDED_TUNING: Record<LlmRole, { claude: RoleTuning; codex: RoleTuning }> = {
+  conversation: {
+    claude: { claudeModel: "sonnet", effort: "low", serviceTier: null },
+    codex: { claudeModel: null, effort: "low", serviceTier: "fast" },
+  },
+  assist: {
+    claude: { claudeModel: "haiku", effort: "low", serviceTier: null },
+    codex: { claudeModel: null, effort: "low", serviceTier: "fast" },
+  },
+  coaching: {
+    claude: { claudeModel: "sonnet", effort: "high", serviceTier: null },
+    codex: { claudeModel: null, effort: "medium", serviceTier: "fast" },
+  },
+  generation: {
+    claude: { claudeModel: "sonnet", effort: "medium", serviceTier: null },
+    codex: { claudeModel: null, effort: "medium", serviceTier: "fast" },
+  },
+  assessment: {
+    claude: { claudeModel: "opus", effort: "xhigh", serviceTier: null },
+    codex: { claudeModel: null, effort: "xhigh", serviceTier: "standard" },
+  },
+};
+
+/**
+ * 推奨チューニングを現在のロール割当に基づいて適用する（クラウド割当ロールのみ書き換え・local 割当ロールは current を維持）。
+ * 保存はしない（呼び出し側の state を更新するのみ。確定は割当保存ボタン）。current を変更せず新しいオブジェクトを返す。
+ */
+export function applyRecommendedTuning(
+  current: Record<LlmRole, RoleTuning>,
+  targets: RoleTargets,
+): Record<LlmRole, RoleTuning> {
+  const out = {} as Record<LlmRole, RoleTuning>;
+  for (const role of LLM_ROLES) {
+    const target = targets[role];
+    out[role] =
+      target === "claude" ? { ...RECOMMENDED_TUNING[role].claude }
+      : target === "codex" ? { ...RECOMMENDED_TUNING[role].codex }
+      : { ...current[role] };
+  }
+  return out;
+}
+
 /** llm_settings.provider（env は envProvider へ解決）を effective global provider として返す。 */
 function effectiveGlobalProvider(view: LlmSettingsView): string {
   return view.provider === "env" ? view.envProvider : view.provider;

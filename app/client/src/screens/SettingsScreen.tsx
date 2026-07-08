@@ -7,7 +7,7 @@ import {
 } from "../api";
 import {
   isLocalDefined, presetEnabled, presetTargets, matchPreset, hydrateConnection, hydrateTargets, hydrateTuning,
-  buildRolesPayload, defaultTuning,
+  buildRolesPayload, defaultTuning, applyRecommendedTuning,
   type RoleTarget, type RoleTargets, type Connection, type PresetId, type CloudTarget,
 } from "../lib/llm-assignments";
 import { loadPreferredCloud, savePreferredCloud } from "../lib/preferred-cloud";
@@ -304,6 +304,18 @@ export function SettingsScreen({ lang, uiScale, setUiScale, switchLang }: Props)
                 </>
               );
             })()}
+          </div>
+
+          {/* 推奨チューニングのワンタップ適用（クラウド割当ロールのみ書き換え・保存はしない） */}
+          <div className="stack">
+            <Button
+              variant="secondary"
+              onClick={() => setTuning(applyRecommendedTuning(tuning, targets))}
+              disabled={saving || !view}
+            >
+              {s.settings.applyRecommendedTuning}
+            </Button>
+            <div className="text-sm text-muted">{s.settings.applyRecommendedTuningNote}</div>
           </div>
 
           {/* 用途ごとのモデル（ロール割当） */}
