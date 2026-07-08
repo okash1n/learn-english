@@ -47,8 +47,8 @@
 - Modify: `app/server/spoken-register-check.ts`（intermediate 帯閾値の初期較正: 旧素材 FAIL + 例文300 PASS + v0.25 再生成6本 PASS を制約に、緩め設定から。較正テスト固定）
 
 - [ ] TDD → 3ゲート → コード Commit `feat: 多聴を3帯36本プランへ拡張（既存温存・不足分生成・intermediate較正）`
-- [ ] 生成実行: 不足30本（intermediate 12 + 各既存セル+3）。checker 全件 PASS まで（it×beginner はマージン薄の申し送りあり・要ラウンド注視）
-- [ ] 生成 Commit `feat: 多聴教材を全帯36本に拡充（機械検証全件PASS）`
+- [ ] 生成実行（**bridge 判明を反映**）: 既存6本は [1,3]/[4,6] の bridge のため quota 外（削除せず余剰として温存）。**帯適合の新規36本**（[1,2]/[3,4]/[5,6] × 3domain × 4・level は帯範囲そのもの）を生成。checker 全件 PASS まで（セルあたり3ラウンド規律・it 帯はマージン薄の申し送りあり・要ラウンド注視）
+- [ ] 生成 Commit `feat: 多聴教材を3帯36本に拡充（帯適合・機械検証全件PASS）`
 
 ### Task 4 (wave3): topic-assets（prepPack + model talk の3層化）
 
