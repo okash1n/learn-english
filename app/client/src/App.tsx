@@ -5,6 +5,7 @@ import {
   type Health, type ProgressSummary,
 } from "./api";
 import { loadLang, saveLang, STR, type Lang } from "./i18n";
+import { AboutScreen } from "./screens/AboutScreen";
 import { FeedbackScreen } from "./screens/FeedbackScreen";
 import { FreeTalkScreen } from "./screens/FreeTalkScreen";
 import { LibraryScreen } from "./screens/LibraryScreen";
@@ -21,7 +22,7 @@ import { LevelChip } from "./ui/LevelChip";
 import { localYmd } from "./dates";
 import { saveSupport, useSupport, type SupportToggle } from "./support";
 
-type Mode = { kind: "start" } | { kind: "free" } | { kind: "session"; source: MenuSource } | { kind: "library" } | { kind: "sentences" } | { kind: "listening" } | { kind: "placement" } | { kind: "progress" } | { kind: "feedback" } | { kind: "settings" };
+type Mode = { kind: "start" } | { kind: "free" } | { kind: "session"; source: MenuSource } | { kind: "library" } | { kind: "sentences" } | { kind: "listening" } | { kind: "placement" } | { kind: "progress" } | { kind: "feedback" } | { kind: "settings" } | { kind: "about" };
 
 export function App() {
   const [health, setHealth] = useState<Health | null>(null);
@@ -127,8 +128,25 @@ export function App() {
           <Button variant="secondary" onClick={() => setMode({ kind: "start" })}>{t.appShell.backToMenu}</Button>
         )}
         <div className="sidebar-spacer" />
+        <div className="sidebar-quick">
+          <div className="lang-toggle" role="group" aria-label={t.appShell.textSize}>
+            {(["small", "medium", "large", "xlarge"] as const).map((sc) => (
+              <button key={sc} className={uiScale === sc ? "is-active" : ""} onClick={() => setUiScale(sc)}>{t.uiScale[sc]}</button>
+            ))}
+          </div>
+          <div className="lang-toggle" role="group" aria-label={t.appShell.language}>
+            <button className={lang === "en" ? "is-active" : ""} onClick={() => switchLang("en")}>EN</button>
+            <button className={lang === "ja" ? "is-active" : ""} onClick={() => switchLang("ja")}>日本語</button>
+          </div>
+        </div>
         <SupportPanel lang={lang} />
         <PracticeStat lang={lang} />
+        <div className="sidebar-links">
+          <a className="side-link" href="https://github.com/okash1n/solo-eikaiwa" target="_blank" rel="noopener noreferrer" aria-label="GitHub">
+            <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+          </a>
+          <button className="side-link" onClick={() => setMode({ kind: "about" })}>{t.about.title}</button>
+        </div>
       </aside>
       <main className="app">
       {serverDown && (
@@ -163,6 +181,7 @@ export function App() {
       {mode.kind === "settings" && (
         <SettingsScreen lang={lang} uiScale={uiScale} setUiScale={setUiScale} switchLang={switchLang} />
       )}
+      {mode.kind === "about" && <AboutScreen lang={lang} />}
       </main>
     </div>
   );
@@ -227,7 +246,7 @@ function PracticeStat({ lang }: { lang: Lang }) {
   useEffect(() => {
     if (fetchedRef.current) return;
     fetchedRef.current = true;
-    fetchPracticeDays().then(setDays).catch(() => {});
+    fetchPracticeDays().then((v) => setDays(v.days)).catch(() => {});
     fetchProgressSummary().then(setSummary).catch(() => {});
   }, []);
   // 他画面でのXP付与・レベル操作（提案の承認等）を購読し、再取得なしで最新値に追従する

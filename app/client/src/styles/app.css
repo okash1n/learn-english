@@ -167,7 +167,10 @@ ul, ol { margin: 0 0 var(--sp-3); padding-left: var(--sp-5); }
 .cal-week-label { position: absolute; top: 0; left: 0; height: 14px; line-height: 14px; font-size: 10px; color: var(--text-muted); white-space: nowrap; }
 .cal-week-label.is-last { left: auto; right: 0; }
 .day { width: 18px; height: 18px; border-radius: 5px; background: var(--border); }
-.day.is-done { background: var(--accent); }
+.day[data-level="1"] { background: var(--cal-l1); }
+.day[data-level="2"] { background: var(--cal-l2); }
+.day[data-level="3"] { background: var(--cal-l3); }
+.day[data-level="4"] { background: var(--cal-l4); }
 .day.is-today { outline: 2px solid var(--accent); outline-offset: 1px; }
 .day.is-future { visibility: hidden; }
 .cal-legend { display: flex; align-items: center; gap: var(--sp-2); justify-content: flex-end; margin-top: var(--sp-3); }
@@ -208,6 +211,7 @@ ul, ol { margin: 0 0 var(--sp-3); padding-left: var(--sp-5); }
 }
 .side-section:first-child { margin-top: 0; }
 .sidebar-spacer { flex: 1; }
+.sidebar-quick { display: flex; flex-direction: column; gap: var(--sp-2); }
 .lang-toggle { display: flex; gap: 2px; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 2px; }
 .lang-toggle button {
   flex: 1; font: inherit; font-size: var(--fs-sm); font-weight: 550; color: var(--text-muted);
@@ -217,6 +221,7 @@ ul, ol { margin: 0 0 var(--sp-3); padding-left: var(--sp-5); }
 }
 .lang-toggle button:hover { color: var(--text); }
 .lang-toggle button.is-active { background: var(--accent-soft); color: var(--accent); font-weight: 650; }
+.settings-tabs { align-self: flex-start; }
 /* サポートパネルのラベル行 + ⓘ ヘルプ */
 .support-label-row { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); }
 .info-btn {
@@ -244,11 +249,23 @@ ul, ol { margin: 0 0 var(--sp-3); padding-left: var(--sp-5); }
 .proposal-card { border-color: var(--accent); }
 .proposal-card h3 { margin-top: 0; }
 .proposal-actions { display: flex; gap: var(--sp-2); margin-top: var(--sp-2); }
+/* サイドバー下部のフッター的リンク行（GitHub / About）。ナビ項目ではなく控えめな見た目にする */
+.sidebar-links { display: flex; align-items: center; gap: var(--sp-3); }
+.side-link {
+  display: inline-flex; align-items: center; gap: var(--sp-1);
+  font: inherit; font-size: var(--fs-sm); color: var(--text-muted);
+  background: none; border: none; padding: 0; cursor: pointer; text-decoration: none;
+}
+.side-link:hover { color: var(--text); }
+/* About画面のLP/GitHubボタン行 */
+.about-actions { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; }
 @media (max-width: 860px) {
   .shell { flex-direction: column; }
   .sidebar { width: 100%; height: auto; position: static; flex-direction: row; align-items: center; border-right: none; border-bottom: 1px solid var(--border); padding: var(--sp-2) var(--sp-4); }
   .side-nav { flex-direction: row; }
   .sidebar-spacer { display: none; }
+  .sidebar-quick { display: none; }
+  .sidebar-links { display: none; }
   .stat-box { margin-left: auto; display: flex; gap: var(--sp-2); align-items: baseline; }
 }
 

@@ -90,3 +90,9 @@ export function buildRolesPayload(
   }
   return { global, roles };
 }
+
+/** 現在の割当が一致するプリセット（値一致・適用履歴ではない）。どれとも一致しなければ "custom"。 */
+export function matchPreset(targets: RoleTargets): PresetId | "custom" {
+  return (Object.keys(PRESETS) as PresetId[])
+    .find((id) => LLM_ROLES.every((r) => PRESETS[id][r] === targets[r])) ?? "custom";
+}

@@ -11,12 +11,24 @@ describe("routes: progress", () => {
     expect(await res.json()).toEqual(FAKE_SUMMARY);
   });
 
-  test("GET /api/progress/days は {days} を返す", async () => {
-    const { deps } = makeTestDeps();
-    const handler = makeFetchHandler(deps);
-    const res = await handler(getReq("/api/progress/days"));
+  test("GET /api/progress/days は ログ日∪XP日 と xpByDay を返す", async () => {
+    const { deps } = makeTestDeps(); // practiceDays: 2026-07-01, 2026-07-03 / xpByDay: {2026-07-01: 32}
+    const res = await makeFetchHandler(deps)(getReq("/api/progress/days"));
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ days: ["2026-07-01", "2026-07-03"] });
+    expect(await res.json()).toEqual({
+      days: ["2026-07-01", "2026-07-03"],
+      xpByDay: { "2026-07-01": 32 },
+    });
+  });
+  test("GET /api/progress/days: XPのみの日（SRS採点等）も days に含まれる", async () => {
+    const { deps } = makeTestDeps({
+      progressStore: makeFakeProgressStore({ xpByDay: () => ({ "2026-07-02": 4, "2026-07-01": 32 }) }),
+    });
+    const res = await makeFetchHandler(deps)(getReq("/api/progress/days"));
+    expect(await res.json()).toEqual({
+      days: ["2026-07-01", "2026-07-02", "2026-07-03"],
+      xpByDay: { "2026-07-01": 32, "2026-07-02": 4 },
+    });
   });
 
   test("POST /api/progress/xp: block のみ受け付け、上限超過・不正kindは400", async () => {

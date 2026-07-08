@@ -72,6 +72,8 @@ type SettingsStrings = {
     llmSection: string;
     roleName: Record<LlmRole, string>;
     roleDesc: Record<LlmRole, string>;
+    roleReason: Record<LlmRole, string>;
+    roleQualityNote: string;
     presetSection: string;
     presetAllLocal: string;
     presetAllLocalDesc: string;
@@ -81,6 +83,8 @@ type SettingsStrings = {
     presetHighQuality: string;
     presetHighQualityDesc: string;
     presetLocalRequired: string;
+    presetCustom: string;
+    presetBalancedOption: string;
     connectionSection: string;
     claudeNoSetup: string;
     localConnTitle: string;
@@ -116,7 +120,7 @@ type SessionCardStrings = {
   fullSession: { title: string; minutes: string; desc: string };
   shortSession: { title: string; minutes: string; desc: string };
 };
-type CalendarStrings = { calendar: { title: string; practiced: string; notYet: string } };
+type CalendarStrings = { calendar: { title: string; legendLess: string; legendMore: string } };
 type FreeTalkHeaderStrings = { freeTalk: { title: string; desc: string } };
 type ProgressStrings = {
   progress: {
@@ -270,6 +274,8 @@ type FeedbackScreenStrings = { feedbackScreen: {
   levelStage: (level: number | null, stage: number | null) => string;
 } };
 
+type AboutStrings = { about: { title: string; desc: string; lpButton: string; githubButton: string; license: string } };
+
 type Strings =
   & NavStrings & UiScaleStrings & AppShellStrings & SupportStrings & StatStrings & HeroStrings
   & QuickStrings & IntensiveStrings & DrillsStrings & SessionCardStrings
@@ -277,7 +283,8 @@ type Strings =
   & MenuTitleStrings & SessionStrings
   & WarmupStrings & Ftt432Strings & ReflectionStrings & ChunkListStrings
   & ShadowingStrings & LibraryStrings & RoleplayStrings & FreeTalkScreenStrings & ListeningScreenStrings
-  & LevelChipStrings & FeedbackRowStrings & FeedbackScreenStrings & LlmPanelStrings & SettingsStrings;
+  & LevelChipStrings & FeedbackRowStrings & FeedbackScreenStrings & LlmPanelStrings & SettingsStrings
+  & AboutStrings;
 
 const WEEKDAYS_EN = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const MONTHS_EN = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -333,6 +340,13 @@ export const STR: Record<Lang, Strings> = {
         generation: "Model talks, 4/3/2 prep, generated study material",
         assessment: "Level check and monthly review",
       },
+      roleReason: {
+        conversation: "Recommended: local — fastest responses. Switch to Claude or Codex if quality falls short.",
+        coaching: "Recommended: Claude or Codex — writing quality matters more than speed.",
+        generation: "Recommended: local — fairly templated output with modest quality demands. Switch to Claude or Codex for higher quality.",
+        assessment: "Recommended: Claude or Codex — runs infrequently and quality matters most.",
+      },
+      roleQualityNote: "Where model quality matters most: Assessment > Coaching > Content generation. Conversation benefits more from response speed.",
       presetSection: "Presets",
       presetAllLocal: "All local",
       presetAllLocalDesc: "Every role uses your local model.",
@@ -341,8 +355,10 @@ export const STR: Record<Lang, Strings> = {
       presetBalancedDesc: "Conversation and content generation run locally; coaching and assessment use Claude, where the quality gap is largest and the usage least frequent.",
       presetHighQuality: "Best quality",
       presetHighQualityDesc: "Every role uses Claude, the tested baseline.",
-      presetLocalRequired: "Add a local LLM connection below to enable the local presets.",
-      connectionSection: "Connections",
+      presetLocalRequired: "Set up a local LLM connection in the Model connections tab to enable the local presets.",
+      presetCustom: "Custom",
+      presetBalancedOption: "Balanced (Recommended)",
+      connectionSection: "Model connections",
       claudeNoSetup: "Claude needs no setup — it works with your Claude subscription.",
       localConnTitle: "Local LLM (OpenAI-compatible)",
       codexConnTitle: "Codex (optional)",
@@ -351,7 +367,7 @@ export const STR: Record<Lang, Strings> = {
       targetClaude: "Claude",
       targetLocal: "Local",
       targetCodex: "Codex",
-      targetLocalDisabled: "Add a local LLM connection above to choose Local.",
+      targetLocalDisabled: "Set up a local LLM connection in the Model connections tab to choose Local.",
       saveConnection: "Save connections",
       saveAssignments: "Save assignments",
       displaySection: "Display",
@@ -383,7 +399,7 @@ export const STR: Record<Lang, Strings> = {
     intensive: { label: "Intensive sessions", note: "1–2 times a week" },
     drills: {
       warmup: { title: "Read-Aloud Warm-up", minutes: "6 min", desc: "Read today's phrases out loud" },
-      "ftt-mini": { title: "4/3/2 Mini", minutes: "8 min", desc: "Tell the same story twice, faster" },
+      "ftt-mini": { title: "Repeat Talk (4/3/2)", minutes: "8 min", desc: "Tell the same story twice, faster each time" },
       shadowing: { title: "Shadowing", minutes: "5 min", desc: "Listen and repeat in real time" },
       "roleplay-daily": { title: "Daily Role-play", minutes: "10 min", desc: "Restaurants, travel, small talk" },
       "roleplay-business": { title: "Business Role-play", minutes: "10 min", desc: "Meetings, scheduling, workplace talk" },
@@ -391,7 +407,7 @@ export const STR: Record<Lang, Strings> = {
     },
     fullSession: { title: "Full Session", minutes: "60 min", desc: "Five blocks of solid practice" },
     shortSession: { title: "Short Session", minutes: "30 min", desc: "Focused training when you have time" },
-    calendar: { title: "Practice days", practiced: "Practiced", notYet: "Not yet" },
+    calendar: { title: "Practice days", legendLess: "Less", legendMore: "More" },
     freeTalk: { title: "Free Talk", desc: "Talk about anything in English — press the button to start and stop recording" },
     progress: {
       levelLabel: (n) => `Lv ${n}`,
@@ -494,7 +510,7 @@ export const STR: Record<Lang, Strings> = {
     menuTitle: {
       warmup: () => "Read-Aloud Warm-up",
       ftt: (t) => `4/3/2: ${t}`,
-      "ftt-mini": (t) => `4/3/2 Mini: ${t}`,
+      "ftt-mini": (t) => `Repeat Talk (4/3/2): ${t}`,
       "roleplay-daily": (t) => `Daily Role-play: ${t}`,
       "roleplay-business": (t) => `Business Role-play: ${t}`,
       "roleplay-it": (t) => `IT Role-play: ${t}`,
@@ -601,10 +617,17 @@ export const STR: Record<Lang, Strings> = {
       levelStage: (level, stage) =>
         [level !== null ? `Lv${level}` : null, stage !== null ? `Stage${stage}` : null].filter(Boolean).join(" · ") || "—",
     },
+    about: {
+      title: "About",
+      desc: "solo-eikaiwa is a local-first English speaking gym for daily self-study — recording, transcription, AI conversation, and speech all run on your Mac.",
+      lpButton: "Visit the website",
+      githubButton: "View on GitHub",
+      license: "Open source under the MIT License.",
+    },
   },
   ja: {
     nav: {
-      home: "ホーム", placement: "レベル測定", free: "自由会話", library: "ライブラリ", sentences: "暗記例文300", listening: "多聴", progress: "進捗", feedback: "フィードバック", settings: "設定",
+      home: "ホーム", placement: "レベル測定", free: "自由会話", library: "ライブラリ", sentences: "暗記例文300", listening: "リスニング（多聴）", progress: "進捗", feedback: "フィードバック", settings: "設定",
       sectionToday: "今日の練習", sectionSelf: "自主練", sectionRecords: "記録・測定",
       selfStudyHint: "メインは「今日の練習」。自主練はすきま時間に。目安の順番: 聞く(多聴) → 覚える(暗記例文) → 話す(自由会話)。",
     },
@@ -651,6 +674,13 @@ export const STR: Record<Lang, Strings> = {
         generation: "モデルトーク・4/3/2 準備・生成教材",
         assessment: "レベル測定・月次レビュー",
       },
+      roleReason: {
+        conversation: "推奨: ローカル — 応答が最も速いため。品質が物足りなければ Claude や Codex へ。",
+        coaching: "推奨: Claude / Codex — 速度より文章の品質が重要なため。",
+        generation: "推奨: ローカル — 出力が定型的で要求性能は低め。品質を上げたいときは Claude / Codex へ。",
+        assessment: "推奨: Claude / Codex — 実行頻度が低く、質の高さが最優先のため。",
+      },
+      roleQualityNote: "モデル性能が効く順: 測定 > コーチング > 教材生成。会話は性能より応答の速さが効きます。",
       presetSection: "プリセット",
       presetAllLocal: "オールローカル",
       presetAllLocalDesc: "すべての用途をローカルモデルで動かします。",
@@ -659,8 +689,10 @@ export const STR: Record<Lang, Strings> = {
       presetBalancedDesc: "会話・教材生成はローカル、コーチング・測定は品質差が最も大きく実行頻度も低いため Claude を使います。",
       presetHighQuality: "最高品質",
       presetHighQualityDesc: "すべての用途を Claude（動作確認済みの基準）で動かします。",
-      presetLocalRequired: "下でローカル LLM の接続先を設定すると、ローカルを使うプリセットが選べます。",
-      connectionSection: "接続",
+      presetLocalRequired: "「モデル接続設定」タブでローカル LLM の接続先を設定すると、ローカルを使うプリセットが選べます。",
+      presetCustom: "カスタム",
+      presetBalancedOption: "バランス（推奨）",
+      connectionSection: "モデル接続設定",
       claudeNoSetup: "Claude は設定不要です（Claude のサブスクリプションで動作します）。",
       localConnTitle: "ローカル LLM（OpenAI 互換）",
       codexConnTitle: "Codex（任意）",
@@ -669,7 +701,7 @@ export const STR: Record<Lang, Strings> = {
       targetClaude: "Claude",
       targetLocal: "ローカル",
       targetCodex: "Codex",
-      targetLocalDisabled: "ローカルを選ぶには、上でローカル LLM の接続先を設定します。",
+      targetLocalDisabled: "「モデル接続設定」タブでローカル LLM の接続先を設定すると「ローカル」を選べます。",
       saveConnection: "接続を保存",
       saveAssignments: "割当を保存",
       displaySection: "表示",
@@ -701,15 +733,15 @@ export const STR: Record<Lang, Strings> = {
     intensive: { label: "強化セッション", note: "週1〜2回おすすめ" },
     drills: {
       warmup: { title: "音読ウォームアップ", minutes: "6分", desc: "今日の表現を声に出して準備" },
-      "ftt-mini": { title: "4/3/2ミニ", minutes: "8分", desc: "同じ話を2回、時間圧で流暢に" },
+      "ftt-mini": { title: "くり返しトーク（4/3/2）", minutes: "8分", desc: "同じ話を2回、制限時間を短くしながら流暢に" },
       shadowing: { title: "シャドーイング", minutes: "5分", desc: "聞こえた英語に重ねて言う" },
       "roleplay-daily": { title: "日常ロールプレイ", minutes: "10分", desc: "レストラン・旅行・雑談の場面練習" },
       "roleplay-business": { title: "ビジネスロールプレイ", minutes: "10分", desc: "会議・日程調整・職場の会話" },
       "roleplay-it": { title: "ITロールプレイ", minutes: "10分", desc: "技術討議・障害対応・ベンダー対応" },
     },
     fullSession: { title: "通しセッション", minutes: "60分", desc: "5ブロックで総合的にしっかり練習" },
-    shortSession: { title: "短縮版", minutes: "30分", desc: "時間がある日の集中トレーニング" },
-    calendar: { title: "練習日", practiced: "練習した日", notYet: "未実施" },
+    shortSession: { title: "短縮セッション", minutes: "30分", desc: "時間がある日の集中トレーニング" },
+    calendar: { title: "練習日", legendLess: "少", legendMore: "多" },
     freeTalk: { title: "自由会話", desc: "英語でなんでも話しかけてください — 録音ボタンで開始・停止" },
     progress: {
       levelLabel: (n) => `Lv ${n}`,
@@ -812,7 +844,7 @@ export const STR: Record<Lang, Strings> = {
     menuTitle: {
       warmup: () => "音読ウォームアップ",
       ftt: (t) => `4/3/2: ${t}`,
-      "ftt-mini": (t) => `4/3/2ミニ: ${t}`,
+      "ftt-mini": (t) => `くり返しトーク（4/3/2）: ${t}`,
       "roleplay-daily": (t) => `日常ロールプレイ: ${t}`,
       "roleplay-business": (t) => `ビジネスロールプレイ: ${t}`,
       "roleplay-it": (t) => `ITロールプレイ: ${t}`,
@@ -918,6 +950,13 @@ export const STR: Record<Lang, Strings> = {
       at: (ymd) => ymd,
       levelStage: (level, stage) =>
         [level !== null ? `Lv${level}` : null, stage !== null ? `Stage${stage}` : null].filter(Boolean).join(" · ") || "—",
+    },
+    about: {
+      title: "このアプリについて",
+      desc: "solo-eikaiwa は、録音・文字起こし・AI 会話・音声合成まで自分の Mac の上で完結する、毎日のひとり英会話ジムです。",
+      lpButton: "紹介ページ（LP）を開く",
+      githubButton: "GitHub リポジトリを開く",
+      license: "MIT ライセンスのオープンソースです。",
     },
   },
 };

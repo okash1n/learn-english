@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import {
   fetchPlacementLatest, fetchPracticeDays, fetchProgressSummary, progressLevelAction,
-  type LevelProposal, type PlacementLatest, type ProgressSummary, type QuickDrillKind, type RoleplayDomain,
+  type LevelProposal, type PlacementLatest, type PracticeDaysView, type ProgressSummary, type QuickDrillKind, type RoleplayDomain,
 } from "../api";
 import { STR, type DrillKey, type Lang } from "../i18n";
 import { Button } from "../ui/Button";
 import { type MenuSource } from "./SessionRunner";
 import { localYmd } from "../dates";
+import { calendarLevel } from "../lib/calendar-level";
 
 export type StartSelection =
   | { type: "session"; source: MenuSource }
@@ -33,7 +34,7 @@ const WEEKDAY_LETTERS: Record<Lang, string[]> = {
  * 練習日カレンダー（GitHub風: 列=週・行=曜日、横幅に入るだけ週列を表示）。
  * 実施日の表示のみ — 情報的フィードバックに徹し、連続日数・喪失演出は置かない。
  */
-function PracticeCalendar({ days, lang }: { days: string[]; lang: Lang }) {
+function PracticeCalendar({ days, xpByDay, lang }: { days: string[]; xpByDay: Record<string, number>; lang: Lang }) {
   const t = STR[lang];
   const set = new Set(days);
   const today = new Date();
@@ -89,20 +90,26 @@ function PracticeCalendar({ days, lang }: { days: string[]; lang: Lang }) {
           return (
             <div key={i} className="cal-week">
               {showLabel && <span className={`cal-week-label${isLast ? " is-last" : ""}`}>{mondayLabel}</span>}
-              {col.map((c) => (
-                <div
-                  key={c.ymd}
-                  title={c.isFuture ? undefined : c.ymd}
-                  className={`day${c.done ? " is-done" : ""}${c.isToday ? " is-today" : ""}${c.isFuture ? " is-future" : ""}`}
-                />
-              ))}
+              {col.map((c) => {
+                const level = calendarLevel(c.done, xpByDay[c.ymd]);
+                const xp = xpByDay[c.ymd] ?? 0;
+                return (
+                  <div
+                    key={c.ymd}
+                    title={c.isFuture ? undefined : xp > 0 ? `${c.ymd} · ${xp} XP` : c.ymd}
+                    data-level={level > 0 ? level : undefined}
+                    className={`day${c.isToday ? " is-today" : ""}${c.isFuture ? " is-future" : ""}`}
+                  />
+                );
+              })}
             </div>
           );
         })}
       </div>
       <div className="cal-legend text-sm text-muted">
-        <span className="day is-done" /> {t.calendar.practiced}
-        <span className="day" /> {t.calendar.notYet}
+        {t.calendar.legendLess}
+        {[1, 2, 3, 4].map((lv) => (<span key={lv} className="day" data-level={lv} />))}
+        {t.calendar.legendMore}
       </div>
     </div>
   );
@@ -111,7 +118,7 @@ function PracticeCalendar({ days, lang }: { days: string[]; lang: Lang }) {
 export function StartScreen(props: { onSelect: (sel: StartSelection) => void; lang: Lang }) {
   const t = STR[props.lang];
   const tp = STR[props.lang].placement;
-  const [days, setDays] = useState<string[]>([]);
+  const [daysView, setDaysView] = useState<PracticeDaysView>({ days: [], xpByDay: {} });
   const [summary, setSummary] = useState<ProgressSummary | null>(null);
   const [proposalError, setProposalError] = useState(false);
   const [placementLatest, setPlacementLatest] = useState<PlacementLatest | "unloaded">("unloaded");
@@ -123,7 +130,7 @@ export function StartScreen(props: { onSelect: (sel: StartSelection) => void; la
     if (!fetchedRef.current) {
       fetchedRef.current = true;
       // カレンダーは補助情報 — 取得失敗でスタート画面を壊さない
-      fetchPracticeDays().then((d) => { if (aliveRef.current) setDays(d); }).catch(() => {});
+      fetchPracticeDays().then((d) => { if (aliveRef.current) setDaysView(d); }).catch(() => {});
       fetchProgressSummary().then((s) => { if (aliveRef.current) setSummary(s); }).catch(() => {});
       fetchPlacementLatest().then((r) => { if (aliveRef.current) setPlacementLatest(r); }).catch(() => {});
     }
@@ -222,7 +229,7 @@ export function StartScreen(props: { onSelect: (sel: StartSelection) => void; la
         />
       )}
 
-      <PracticeCalendar days={days} lang={props.lang} />
+      <PracticeCalendar days={daysView.days} xpByDay={daysView.xpByDay} lang={props.lang} />
     </div>
   );
 }

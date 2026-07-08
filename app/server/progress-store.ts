@@ -29,6 +29,8 @@ export type ProgressStore = {
   levelAction(action: "accept" | "decline" | "set", level?: number, today?: string): LevelChangeResult | null;
   /** プレースメント確定によるレベル設定（level_events kind: placement-set）。同一レベルは no-op（levelChanged=false） */
   placementSet(level: number, today?: string): LevelChangeResult | null;
+  /** 日別XP合計（全kind・ymd昇順は呼び出し側で不要） */
+  xpByDay(): Record<string, number>;
 };
 
 /** XP上限（kind別）。placement は固定値10のみ許容 */
@@ -68,6 +70,7 @@ export function ensureProgressSchema(db: Database): void {
     ts TEXT NOT NULL, ymd TEXT NOT NULL, kind TEXT NOT NULL,
     completed INTEGER NOT NULL DEFAULT 0
   )`);
+  db.run("CREATE INDEX IF NOT EXISTS idx_xp_events_ymd ON xp_events(ymd)");
 }
 
 export function makeProgressStore(
@@ -277,6 +280,12 @@ export function makeProgressStore(
 
     placementSet(level, today = localYmd()) {
       return setLevelTo(level, "placement-set", today);
+    },
+
+    xpByDay() {
+      const rows = db.query<{ ymd: string; total: number }, []>(
+        "SELECT ymd, SUM(amount) AS total FROM xp_events GROUP BY ymd").all();
+      return Object.fromEntries(rows.map((r) => [r.ymd, r.total]));
     },
   };
 }

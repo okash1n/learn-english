@@ -29,9 +29,9 @@
 
 - 情報的フィードバックのみ: ノルマ・警告・喪失の演出や文言は導入しない。XP は減らないため過去日の濃さが下がることはない
 
-## A-2. 設定画面のタブ分割
+## A-2. 設定画面のタブ分割（2026-07-08 ユーザー指示で4タブに改訂）
 
-- タブ3枚 = 既存の3カード境界そのまま: **言語モデル**（プリセット+接続+用途別割当）/ **音声** / **表示**。プリセット・接続・割当は密結合（接続値が presetEnabled 判定・保存直列化の両方に効く）のため分割しない
+- タブ3枚（2026-07-08 ユーザー指示2で再改訂: 音声は独立タブにせず接続へ統合）: **接続**（ローカルLLMのURL/モデル・Codex・音声TTSの接続先/モデル/声）/ **用途ごとのモデル**（プリセット+4ロール割当）/ **表示**。TTS の設定内容は接続情報そのものなので接続タブが自然な置き場。当初案は接続と割当を1タブにまとめていたが、ユーザー指示「URL指定の画面と用途ごとのモデルの画面はタブで分ける」で分割。接続値と割当の結合は保存ロジック（親コンポーネントの state と buildRolesPayload）側で完結しているため、タブは表示の分割のみ。タブをまたぐ案内文（presetLocalRequired / targetLocalDisabled）は「接続」タブ参照へ文言更新（EN/JA同時）
 - タブ state は `useState<"llm" | "voice" | "display">("llm")`。**全入力 state は SettingsScreen 親に保持したまま**タブは条件レンダリングのみ → タブ切替で編集中入力は消えない。初回フェッチの `fetchedRef` ガードはそのまま
 - 既存バグ修正を含む: `result` メッセージが言語モデルカード内にしか描画されない → `llmResult` / `ttsResult` に分離し各タブ内に表示。`saving` は共有のまま（同時保存は UI 上発生しない）
 - タブ UI は既存 `.lang-toggle` 系のセグメントコントロールを画面上部に配置（`app.css` に `.settings-tabs` を追加してよいが色・寸法は tokens 変数のみ参照）。タブラベルは既存セクション見出しキーを流用できなければ新キー `settings.tabLlm/tabVoice/tabDisplay`（JA: 言語モデル/音声/表示）
@@ -50,12 +50,12 @@
 - バランスの option ラベルは既存キー結合「`presetBalanced`（`presetBalancedBadge`）」= 「バランス（推奨）」/ "Balanced (Recommended)"。select 下に選択中プリセットの説明（既存 Desc キー）と、ローカル未定義時は `presetLocalRequired` を表示。ローカル系 option は `presetEnabled` で disabled
 - 既存問題の修正: `applyPreset` の保存失敗時に楽観更新が残る → catch で `fetchLlmSettings` を再取得して実状態へ再 hydrate（`saveFailed` 表示は維持）
 
-## A-5. バランスプリセットの割当変更
+## A-5. バランスプリセットの割当（2026-07-08 再改訂: 変更を取り消し v0.21.0 定義を維持）
 
-- `PRESETS.balanced.generation: "local" → "claude"`（`llm-assignments.ts:19` + 14–15行の根拠コメント更新）。**テスト先行**: `llm-assignments.test.ts` の balanced 期待値を先に更新して赤→緑
-- i18n `presetBalancedDesc` を書き換え（EN/JA 同時）: JA「会話はローカルで速さを、コーチング・教材生成・測定は品質を優先して Claude を使います。」/ EN "Conversation runs locally for speed; coaching, content generation, and assessment use Claude for quality."
-- README のバランス説明（162行付近・189・192行付近の使い分け）と CHANGELOG を追随
-- 明記する仕様: 定義変更後、旧バランス相当の割当（生成=ローカル）は「カスタム」表示になる（正しい挙動）
+- 経緯: 当初ユーザー推奨（生成=Claude）に合わせて `generation: local → claude` を実装したが、性能要求の序列（測定 > コーチング > 教材生成 — 生成は定型的出力で要求が最も低い）を確認したうえでユーザーが再判断し、**バランスは v0.21.0 の元定義（会話・教材生成=ローカル / コーチング・測定=Claude）に差し戻す**
+- 実装: `PRESETS.balanced.generation` を `"local"` に戻し、コメント・`presetBalancedDesc`（EN/JA）も v0.21.0 の原文を復元。テストの balanced 期待値と「旧バランス=カスタム」ケースを追随（後者は削除）
+- README のバランス説明（162行付近）は v0.21.0 記述が正に戻るため**変更不要**。CHANGELOG にプリセット定義変更の項目は載せない（正味変更ゼロ）
+- A-6 の生成の推奨理由はこの定義と整合する文言にする（「推奨: ローカル — 定型的で要求性能低め。品質を上げたいときは Claude」）
 
 ## A-6. 用途ごとの推奨と理由の表示 + README
 
@@ -65,8 +65,10 @@
 | --- | --- | --- |
 | conversation | 推奨: ローカル — 応答が最も速いため。品質が物足りなければ Claude や Codex へ。 | Recommended: local — fastest responses. Switch to Claude or Codex if quality falls short. |
 | coaching | 推奨: Claude / Codex — 速度より文章の品質が重要なため。 | Recommended: Claude or Codex — writing quality matters more than speed. |
-| generation | 推奨: Claude — 実行頻度が低く、質の高さが最優先のため。 | Recommended: Claude — runs infrequently and quality matters most. |
-| assessment | 推奨: Claude — 実行頻度が低く、質の高さが最優先のため。 | Recommended: Claude — runs infrequently and quality matters most. |
+| generation | 推奨: ローカル — 出力が定型的で要求性能は低め。品質を上げたいときは Claude へ。 | Recommended: local — fairly templated output with modest quality demands. Switch to Claude for higher quality. |
+| assessment | 推奨: Claude / Codex — 実行頻度が低く、質の高さが最優先のため。 | Recommended: Claude or Codex — runs infrequently and quality matters most. |
+
+（2026-07-08 追記: 測定の推奨に Codex を追加 — Codex アダプタは read-only のテキスト実行で測定に機能制約が無く、GPT-5.5 級の性能は Opus と大差ないというユーザー判断。既定 reasoning effort=medium 上書きの注意は README に記載）
 
 - README: ロール表（153–158行）に「推奨」列を追加し、「使い分けの目安」（192行）を同内容に更新。Codex は「プリセットには含まれず手動割当のみ・プロンプトは Claude 向け調整という品質の前提あり」の但し書きを維持
 - ユーザー発言中の「Codex（※Typeless）」は意味が確認できなかったため文言に含めない（確認待ち事項）

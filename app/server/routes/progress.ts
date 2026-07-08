@@ -57,7 +57,11 @@ async function handleProgressLevel(req: Request, deps: ProgressRoutesDeps): Prom
 
 export function makeProgressRoutes(deps: ProgressRoutesDeps): RouteEntry[] {
   return [
-    exact("GET", "/api/progress/days", () => json({ days: deps.practiceDays() })),
+    exact("GET", "/api/progress/days", () => {
+      const xpByDay = deps.progressStore.xpByDay();
+      const days = [...new Set([...deps.practiceDays(), ...Object.keys(xpByDay)])].sort();
+      return json({ days, xpByDay });
+    }),
     exact("GET", "/api/progress/summary", () => json(deps.progressStore.getSummary())),
     exact("POST", "/api/progress/xp", (req) => handleProgressXp(req, deps)),
     exact("POST", "/api/progress/block-start", (req) => handleProgressBlockStart(req, deps)),
