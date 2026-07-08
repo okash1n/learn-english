@@ -313,3 +313,20 @@ describe("progress-store: placementSet", () => {
     expect(store.placementSet(2.5, "2026-07-06")).toBeNull();
   });
 });
+
+describe("progress-store: xpByDay", () => {
+  test("xpByDay は日別・全kind合計を返す", () => {
+    const { db, store } = freshStore();
+    db.run("INSERT INTO xp_events (ts, ymd, kind, amount, meta) VALUES (?, ?, ?, ?, NULL)",
+      ["2026-07-01T00:00:00.000Z", "2026-07-01", "block", 30]);
+    db.run("INSERT INTO xp_events (ts, ymd, kind, amount, meta) VALUES (?, ?, ?, ?, NULL)",
+      ["2026-07-01T01:00:00.000Z", "2026-07-01", "srs-grade", 2]);
+    db.run("INSERT INTO xp_events (ts, ymd, kind, amount, meta) VALUES (?, ?, ?, ?, NULL)",
+      ["2026-07-03T00:00:00.000Z", "2026-07-03", "placement", 10]);
+    expect(store.xpByDay()).toEqual({ "2026-07-01": 32, "2026-07-03": 10 });
+  });
+  test("xpByDay はイベントが無ければ空オブジェクト", () => {
+    const { store } = freshStore();
+    expect(store.xpByDay()).toEqual({});
+  });
+});

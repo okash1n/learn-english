@@ -74,6 +74,7 @@ export function makeFakeProgressStore(overrides: Partial<ProgressStore> = {}): P
       action === "set" && Number.isInteger(level) && (level as number) >= 1
         ? { summary: FAKE_SUMMARY, levelChanged: true } : null,
     placementSet: (_level) => ({ summary: FAKE_SUMMARY, levelChanged: true }),
+    xpByDay: () => ({ "2026-07-01": 32 }),
     ...overrides,
   } satisfies ProgressStore;
 }
