@@ -207,3 +207,23 @@ describe("matchPreset", () => {
     expect(matchPreset(hydrateTargets(view))).toEqual({ id: "balanced", cloud: "codex" });
   });
 });
+
+describe("旧サーバ応答への後方互換（ロール行の欠落）", () => {
+  test("assist行が無い旧応答でもhydrateTargetsは壊れずinherit扱い", () => {
+    const view = mkView({
+      provider: "openai-compat", baseUrl: "http://localhost:11434/v1", model: "qwen3:30b-instruct",
+    });
+    // 旧サーバ（4ロール）を再現: assist 行を落とす
+    delete (view.roles as Record<string, unknown>).assist;
+    const targets = hydrateTargets(view);
+    expect(targets.assist).toBe("local"); // inherit → effective global(openai-compat) → local
+    expect(targets.conversation).toBe("local");
+  });
+  test("assist行が無い旧応答でもhydrateConnectionは壊れず接続を復元する", () => {
+    const view = mkView({ provider: "openai-compat", baseUrl: "http://localhost:11434/v1", model: "qwen3:30b-instruct" });
+    delete (view.roles as Record<string, unknown>).assist;
+    expect(hydrateConnection(view)).toEqual({
+      baseUrl: "http://localhost:11434/v1", model: "qwen3:30b-instruct", codexModel: "",
+    });
+  });
+});

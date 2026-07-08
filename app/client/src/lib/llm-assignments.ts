@@ -51,7 +51,8 @@ function effectiveGlobalProvider(view: LlmSettingsView): string {
 
 /** GET 応答から接続入力を復元する（llm_settings 優先・ロール行フォールバック）。 */
 export function hydrateConnection(view: LlmSettingsView): Connection {
-  const roleList = LLM_ROLES.map((r) => view.roles[r]);
+  // ロール行の欠落に耐える（旧サーバ応答に新設ロールの行が無い場合。additive API の後方互換）
+  const roleList = LLM_ROLES.map((r) => view.roles[r]).filter((r) => r != null);
   const localRole = roleList.find((r) => r.provider === "openai-compat" && r.baseUrl && r.model);
   const codexRole = roleList.find((r) => r.provider === "codex" && r.codexModel);
   return {
@@ -66,7 +67,8 @@ export function hydrateTargets(view: LlmSettingsView): RoleTargets {
   const global = effectiveGlobalProvider(view);
   const out = {} as RoleTargets;
   for (const role of LLM_ROLES) {
-    const raw = view.roles[role].provider;
+    // 行欠落は inherit 扱い（旧サーバ応答に新設ロールの行が無い場合。additive API の後方互換）
+    const raw = view.roles[role]?.provider ?? "inherit";
     const p = raw === "inherit" ? global : raw;
     out[role] = p === "openai-compat" ? "local" : p === "codex" ? "codex" : "claude";
   }
