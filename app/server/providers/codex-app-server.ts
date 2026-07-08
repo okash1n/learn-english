@@ -32,9 +32,16 @@ type TurnCollector = {
 /**
  * codex app-server（`codex app-server`）と改行区切り JSON-RPC で対話するクライアント。
  * - 初回 request で lazy に spawn + initialize/initialized ハンドシェイクを行う（並行初回 request は1回のハンドシェイクを共有）
+ * - **自己修復設計**: プロセスが exit すると保留中の request/turn を全て reject した上で内部状態（proc/handshake）を
+ *   リセットする。次に `request()` が呼ばれた時点で新プロセスを lazy に再 spawn し、initialize/initialized から
+ *   ハンドシェイクをやり直す。バックオフは行わない（呼び出しは常にユーザー起点であり、失敗時は TransportError が
+ *   呼び出し元まで伝播して runner 側の exec フォールバックへ自然に間隔があくため）。よって1回の失敗が
+ *   インスタンスを永久に汚染することはない。
  * - id 付き result/error は pending request を解決、id 付き method（ServerRequest）は承認/elicitation を decline、
  *   それ以外は空 result で応答する
- * - id なし method（通知）は runTurn 実行中のみ収集し、それ以外は無視する
+ * - id なし method（通知）は該当 threadId の runTurn 実行中のみ収集し、それ以外は無視する
+ *   （threadId ごとに独立した収集器を持つため、異なる threadId の runTurn は並行実行できる。
+ *   同一 threadId での多重 runTurn 呼び出しは拒否する）
  */
 export class CodexAppServerClient {
   private readonly spawn: SpawnAppServer;
@@ -45,7 +52,8 @@ export class CodexAppServerClient {
   private handshakeDone = false;
   private handshakePromise: Promise<void> | undefined;
   private isAlive = true;
-  private turnCollector: TurnCollector | undefined;
+  /** threadId ごとの turn 収集器。同一 threadId につき同時に1つのみ、異なる threadId は並行可。 */
+  private readonly turnCollectors = new Map<string, TurnCollector>();
 
   constructor(spawn: SpawnAppServer, opts?: { requestTimeoutMs?: number }) {
     this.spawn = spawn;
@@ -71,18 +79,22 @@ export class CodexAppServerClient {
 
   /** turn/start を送り、turn/completed まで通知を収集して最終 agentMessage テキストを返す */
   async runTurn(threadId: string, text: string): Promise<string> {
-    if (this.turnCollector) {
-      throw new Error("codex-app-server: runTurn は同時に1つのみ実行できます");
+    if (this.turnCollectors.has(threadId)) {
+      throw new Error("codex-app-server: runTurn は同一threadIdで同時に1つのみ実行できます");
     }
     const startResult = this.request("turn/start", { threadId, input: [{ type: "text", text }] });
     const collected = new Promise<string>((resolve, reject) => {
-      this.turnCollector = { threadId, resolve, reject, lastAgentMessage: undefined };
+      this.turnCollectors.set(threadId, { threadId, resolve, reject, lastAgentMessage: undefined });
     });
+    // startResult が先に reject した場合（turn/start 応答前の exit 等）でも collected 自体が
+    // 未処理のまま放置されて unhandled rejection にならないよう、ここで一旦 handled にしておく
+    // （下の await collected は独立して本来のエラー伝播を担う）。
+    collected.catch(() => {});
     try {
       await startResult;
       return await collected;
     } finally {
-      this.turnCollector = undefined;
+      this.turnCollectors.delete(threadId);
     }
   }
 
@@ -95,6 +107,7 @@ export class CodexAppServerClient {
       throw new TransportError(`codex app-server spawn failed: ${err instanceof Error ? err.message : String(err)}`);
     }
     this.proc = proc;
+    this.isAlive = true; // 自己修復: 新規spawnした時点でこのインスタンスは新プロセスに対して有効
     proc.onMessage((msg) => this.handleMessage(msg));
     proc.onExit((code) => this.handleExit(code));
   }
@@ -175,19 +188,18 @@ export class CodexAppServerClient {
   }
 
   private handleNotification(method: string, params: Record<string, unknown> | undefined): void {
-    const collector = this.turnCollector;
+    const threadId = params?.threadId;
+    if (typeof threadId !== "string") return;
+    const collector = this.turnCollectors.get(threadId);
     if (!collector) return;
     if (method === "item/completed") {
       const item = params?.item as Record<string, unknown> | undefined;
-      const threadId = params?.threadId;
-      if (threadId === collector.threadId && item?.type === "agentMessage" && typeof item.text === "string") {
+      if (item?.type === "agentMessage" && typeof item.text === "string") {
         collector.lastAgentMessage = item.text;
       }
       return;
     }
     if (method === "turn/completed") {
-      const threadId = params?.threadId;
-      if (threadId !== collector.threadId) return;
       const turn = params?.turn as Record<string, unknown> | undefined;
       if (turn?.status === "completed") {
         collector.resolve(collector.lastAgentMessage ?? "");
@@ -207,8 +219,15 @@ export class CodexAppServerClient {
       pending.reject(err);
       this.pending.delete(id);
     }
-    this.turnCollector?.reject(err);
-    this.turnCollector = undefined;
+    for (const collector of this.turnCollectors.values()) {
+      collector.reject(err);
+    }
+    this.turnCollectors.clear();
+    // 自己修復: 次の request() が新プロセスを lazy に再spawnし、initialize からハンドシェイクをやり直せるように
+    // 内部状態をリセットする（このインスタンスを永久に汚染しない）。
+    this.proc = undefined;
+    this.handshakeDone = false;
+    this.handshakePromise = undefined;
   }
 }
 
@@ -231,8 +250,11 @@ export const realSpawnAppServer: SpawnAppServer = () => {
 
   (async () => {
     let buf = "";
+    // chunk 境界をまたぐマルチバイト文字（日本語等）を壊さないよう、decoder はループ外で使い回し
+    // { stream: true } でチャンク跨ぎの未完了バイト列を内部保持させる。
+    const decoder = new TextDecoder();
     for await (const chunk of proc.stdout) {
-      buf += new TextDecoder().decode(chunk);
+      buf += decoder.decode(chunk, { stream: true });
       let idx: number;
       while ((idx = buf.indexOf("\n")) !== -1) {
         const line = buf.slice(0, idx);
