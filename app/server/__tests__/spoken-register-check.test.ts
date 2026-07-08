@@ -45,6 +45,20 @@ describe("countContractions", () => {
   test("短縮形が無ければ0", () => {
     expect(countContractions("I am sure it is fine.")).toBe(0);
   });
+
+  test("所有格の's は短縮形として数えない（誤検出防止）", () => {
+    expect(countContractions("The manager's desk is clean. My sister's car is red.")).toBe(0);
+  });
+
+  test("it's / let's / how's などの既知ホストの's は短縮形として数える", () => {
+    expect(countContractions("It's fine.")).toBe(1);
+    expect(countContractions("Let's go.")).toBe(1);
+    expect(countContractions("How's it going?")).toBe(1);
+  });
+
+  test("所有格と短縮形が混在する文でも正しく区別する", () => {
+    expect(countContractions("It's the manager's desk, and that's fine.")).toBe(2);
+  });
 });
 
 describe("findWrittenVocabHits", () => {
@@ -72,6 +86,20 @@ describe("findWrittenVocabHits", () => {
     expect(WRITTEN_VOCAB_BAN_LIST).toContain("utilize");
     expect(WRITTEN_VOCAB_BAN_LIST).toContain("therefore");
   });
+
+  test("活用形（utilized/individually等）でもすり抜けずに検出する", () => {
+    const hits = findWrittenVocabHits("We utilized this and individually reviewed it.");
+    expect(hits).toEqual([
+      { term: "utilize", count: 1 },
+      { term: "individual", count: 1 },
+    ]);
+  });
+
+  test("utilize の他の活用形（utilizes/utilizing/utilization）も検出する", () => {
+    expect(findWrittenVocabHits("She utilizes it.").map((h) => h.term)).toContain("utilize");
+    expect(findWrittenVocabHits("We are utilizing it.").map((h) => h.term)).toContain("utilize");
+    expect(findWrittenVocabHits("The utilization was high.").map((h) => h.term)).toContain("utilize");
+  });
 });
 
 describe("computeSpokenRegisterMetrics", () => {
@@ -98,6 +126,11 @@ describe("computeSpokenRegisterMetrics", () => {
 //   多聴6本（旧版） = 初級2本 短縮形0%の教科書調 / 上級3本 平均17.8〜19.4語/文のエッセイ調 → FAIL現物
 // 閾値: 文長上限は spoken-style.ts の帯別ガイド上限+1語（beginner 11 / intermediate 14 / advanced 16）、
 //       短縮形率下限は全帯 0.2（短縮形数/文数）で統一。
+// レビュー修正（所有格's除外・禁止語の活用形対応）後の再較正: 所有格除外により例文300コーパスの短縮形率は
+// 0.406→0.364へ低下したが閾値0.2に対し十分な余裕(margin+0.164)を維持。多聴6本は全件FAILのまま変わらず、
+// うち advanced帯2本(code-review-culture / the-quiet-before-the-deadline)は所有格由来の水増しが消えたことで
+// 短縮形率も0.2を下回り、平均文長オーバーに加えて短縮形率不足でも二重にFAILするようになった（詳細は
+// .superpowers/sdd/task-2-report.md の「レビュー修正」節の較正表を参照）。
 describe("較正: 例文300(実データ抜粋) は PASS する", () => {
   // content/sentences/sentences300.json の no.1-10 の en をそのまま抜粋（口語の会話文が並ぶ良好サンプル）
   const goodExcerpt = [
@@ -145,6 +178,18 @@ describe("較正: 多聴6本(旧版・実データ抜粋)はFAILする", () => {
     const result = checkSpokenRegister(badEssayExcerpt, "advanced");
     expect(result.pass).toBe(false);
     expect(result.reasons.some((r) => r.includes("平均文長"))).toBe(true);
+  });
+});
+
+describe("較正: 所有格'sを含む実データ抜粋で誤検出しない", () => {
+  // content/listening/code-review-culture.md 第3段落。"other people's code" の所有格'sが
+  // 修正前の実装では短縮形として誤カウントされていた（it's と合わせて2件になってしまう）実例。
+  const excerptWithPossessive =
+    "Now that I have more experience, I also review other people's code regularly. I try to remember how it felt to receive harsh comments early in my career, so I always start with something positive before mentioning problems. If I disagree with an approach, I ask a question instead of simply saying it's wrong. Something like, have you considered handling this error differently, works much better than telling someone their solution is bad. I have noticed that when reviews are written this way, people actually read them carefully instead of getting defensive.";
+
+  test("people's は数えず、it's のみ短縮形1件として数える", () => {
+    const metrics = computeSpokenRegisterMetrics(excerptWithPossessive);
+    expect(metrics.contractionCount).toBe(1);
   });
 });
 
