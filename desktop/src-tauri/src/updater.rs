@@ -157,6 +157,18 @@ pub fn spawn_manual_check(app: AppHandle) {
     });
 }
 
+/// E2E検証専用の自動承認判定（純関数）。値が正確に "1" のときだけ有効（誤爆防止）。
+pub(crate) fn should_auto_confirm(env_value: Option<&str>) -> bool {
+    env_value == Some("1")
+}
+
+/// ネイティブダイアログはスクリプトから操作できないため、実機E2E（desktop/e2e-updater/）では
+/// `SOLO_EIKAIWA_UPDATER_AUTO=1` で確認ダイアログをスキップして即インストールする。
+/// 配布ユーザーが通常起動で踏むことはない（環境変数を明示設定した場合のみ）。
+fn auto_confirm_forced() -> bool {
+    should_auto_confirm(std::env::var("SOLO_EIKAIWA_UPDATER_AUTO").ok().as_deref())
+}
+
 async fn check_and_prompt(app: AppHandle, manual: bool) -> tauri_plugin_updater::Result<()> {
     let lang = current_lang();
     let Some(update) = app.updater()?.check().await? else {
@@ -172,17 +184,22 @@ async fn check_and_prompt(app: AppHandle, manual: bool) -> tauri_plugin_updater:
         return Ok(());
     };
 
-    let t = update_prompt_text(lang, &update.current_version, &update.version);
-    let dialog = app
-        .dialog()
-        .message(&t.body)
-        .title(&t.title)
-        .buttons(MessageDialogButtons::OkCancelCustom(t.ok, t.cancel));
-    // blocking_showはメインスレッド禁止（docs.rs明記: 内部でメインスレッドへディスパッチするため
-    // メインスレッドで待つとデッドロック）。tokioのblockingプールに逃がして待つ。
-    let confirmed = tauri::async_runtime::spawn_blocking(move || dialog.blocking_show())
-        .await
-        .unwrap_or(false);
+    let confirmed = if auto_confirm_forced() {
+        log::warn!("updater: SOLO_EIKAIWA_UPDATER_AUTO=1 (E2E hook); skipping confirmation dialog");
+        true
+    } else {
+        let t = update_prompt_text(lang, &update.current_version, &update.version);
+        let dialog = app
+            .dialog()
+            .message(&t.body)
+            .title(&t.title)
+            .buttons(MessageDialogButtons::OkCancelCustom(t.ok, t.cancel));
+        // blocking_showはメインスレッド禁止（docs.rs明記: 内部でメインスレッドへディスパッチするため
+        // メインスレッドで待つとデッドロック）。tokioのblockingプールに逃がして待つ。
+        tauri::async_runtime::spawn_blocking(move || dialog.blocking_show())
+            .await
+            .unwrap_or(false)
+    };
     if !confirmed {
         // 「今回はしない」: 何も記録しない・次回起動時にまた1回だけ聞く（情報的・ペナルティなし）。
         log::info!("updater: user declined update to v{}", update.version);
@@ -248,6 +265,15 @@ mod tests {
     fn manual_latest_text_mentions_current_version() {
         assert!(manual_latest_text(Lang::Ja, "0.29.0").body.contains("0.29.0"));
         assert!(manual_latest_text(Lang::En, "0.29.0").body.contains("0.29.0"));
+    }
+
+    #[test]
+    fn should_auto_confirm_only_when_env_is_exactly_1() {
+        // E2E専用フック: 明示的に "1" を設定したときだけ有効（誤爆防止）。
+        assert!(should_auto_confirm(Some("1")));
+        assert!(!should_auto_confirm(Some("0")));
+        assert!(!should_auto_confirm(Some("true")));
+        assert!(!should_auto_confirm(None));
     }
 
     #[test]
