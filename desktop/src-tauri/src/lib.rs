@@ -15,13 +15,18 @@ pub fn run() {
     .plugin(tauri_plugin_dialog::init())
     .plugin(tauri_plugin_updater::Builder::new().build())
     .setup(|app| {
-      if cfg!(debug_assertions) {
-        app.handle().plugin(
-          tauri_plugin_log::Builder::default()
-            .level(log::LevelFilter::Info)
-            .build(),
-        )?;
-      }
+      // release でも登録する: updater・sidecar の失敗診断にログが必須のため。
+      // 出力先は stdout（ターミナル起動・E2E用）と OS 標準のログディレクトリ
+      // （~/Library/Logs/<bundle-id>/。Finder起動時の事後診断用）。
+      app.handle().plugin(
+        tauri_plugin_log::Builder::default()
+          .level(log::LevelFilter::Info)
+          .targets([
+            tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Stdout),
+            tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::LogDir { file_name: None }),
+          ])
+          .build(),
+      )?;
       app.manage(sidecar::SidecarState::default());
       attach::spawn_initial_attach(app.handle().clone());
       updater::spawn_startup_check(app.handle().clone());
