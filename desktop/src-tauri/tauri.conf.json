@@ -26,6 +26,14 @@
       }
     }
   },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEYzNEM4QTU0RTI5NkZDMzEKUldReC9KYmlWSXBNODVWeUxZS09VcEtFOGlyVndxa1poSEh6WEFleHo2TXZGa0tpWFJvVUJiUzIK",
+      "endpoints": [
+        "https://github.com/btajp/solo-eikaiwa/releases/latest/download/latest.json"
+      ]
+    }
+  },
   "bundle": {
     "active": true,
     "targets": "all",
