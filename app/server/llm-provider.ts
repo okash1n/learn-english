@@ -89,10 +89,15 @@ export function resolveCodexConn(
   defaultSystemPrompt: string,
   tuning?: { effort?: string; serviceTier?: string },
 ): { model?: string; reasoningEffort: string; serviceTier: string; defaultSystemPrompt: string } {
+  // codex は effort "max" をリクエスト時に拒否する（CODEX_EFFORTS の根拠と同じ実機所見）。
+  // 保存時検証をすり抜けた保存済み値（例: claude 時代に正当に保存した global effort=max のまま
+  // プロバイダだけを codex へ切替した場合）でも毎ターン失敗しないよう、最終防衛線として
+  // codex の最上位である "xhigh" へクランプする（意図＝最大思考量に最も近い解釈）。
+  const effort = tuning?.effort === "max" ? "xhigh" : tuning?.effort;
   return {
     model: env.CODEX_MODEL?.trim() || undefined,
     // 会話用途では xhigh 級の長考がレイテンシに直撃するため、既定を medium に固定（UI の用途別詳細設定で変更可）
-    reasoningEffort: tuning?.effort ?? "medium",
+    reasoningEffort: effort ?? "medium",
     // Fast サービスティアを既定に（無効な環境ではサーバ側で黙って無視されるため安全）
     serviceTier: tuning?.serviceTier ?? "fast",
     defaultSystemPrompt,

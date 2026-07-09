@@ -402,10 +402,12 @@ export function resolveEffective(
     // カタログ不可時は判定材料が無いため従来どおり保存値をそのまま表示する。
     const catalogAvailable = catalog?.codex?.available === true;
     const tierIgnored = catalogAvailable && !(row?.tiers && row.tiers.length > 0);
+    // サーバ resolveCodexConn と同じクランプ（binding）: codex は "max" を受け付けないため実効は "xhigh"。
+    const codexEffort = tuning.effort === "max" ? "xhigh" : tuning.effort;
     return {
       provider,
       model,
-      effort: { value: tuning.effort ?? row?.defaultEffort ?? CODEX_DEFAULT_EFFORT, isDefault: tuning.effort === null },
+      effort: { value: codexEffort ?? row?.defaultEffort ?? CODEX_DEFAULT_EFFORT, isDefault: tuning.effort === null },
       tier: tierIgnored
         ? { value: "standard", isDefault: true }
         : { value: tuning.serviceTier ?? CODEX_DEFAULT_TIER, isDefault: tuning.serviceTier === null },

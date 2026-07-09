@@ -169,6 +169,12 @@ describe("resolveCodexConn（優先順位・binding: tuning > コード既定。
     });
   });
 
+  test('effort "max" は "xhigh" へクランプする（codex は max をリクエスト時に拒否するため・最終防衛線）', () => {
+    // 保存時検証をすり抜けた保存済み値（例: claude 時代に保存した global effort=max のまま
+    // プロバイダだけ codex へ切替）でも、実行時に毎ターン失敗する設定を作らせない。
+    expect(resolveCodexConn({}, "SYS", { effort: "max" }).reasoningEffort).toBe("xhigh");
+  });
+
   test("CODEX_MODELはenv由来のまま（接続レベル設定・tuningにmodelは無い＝全ロール単一モデル方針）", () => {
     expect(resolveCodexConn({ CODEX_MODEL: "gpt-5.5" }, "SYS").model).toBe("gpt-5.5");
   });

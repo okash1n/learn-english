@@ -213,7 +213,9 @@ cd app/client && bun run dev # UI :5173（/api をプロキシ）
 
 プリセットは3種で、直上で選ぶ**優先クラウド**（**Claude**〔既定〕/ **Codex**）がプリセットの「クラウド枠」に入る先を決める。**オールローカル**（全用途=ローカル・優先クラウドは無関係）、**バランス〔推奨〕**（会話・クイック支援・教材生成=ローカル / コーチング・測定=優先クラウド）、**最高品質**（全用途=優先クラウド）。優先クラウドを Codex にすると、バランス・最高品質のクラウド枠はすべて Codex に置き換わる（プリセットの説明文は実際に一致したクラウド名を表示する）。バランスが測定を優先クラウドにするのは、測定〔レベル測定・月次レビュー〕が品質差が最も大きく実行頻度も低いため（高頻度・低リスクの会話やクイック支援・教材生成はローカルで速く安く、品質が要る用途は課金先のクラウドに寄せる配分）。ローカルの接続先が未設定のときはローカルを使うプリセット・選択肢が中立に非活性化され、ロール割当保存時の「ローカル」枠も優先クラウドへフォールバックする。**最高品質を選んでもローカル接続の定義は保持**され、いつでもローカルに戻せる。優先クラウドはブラウザの localStorage に保存（既定 Claude・サーバ/DB には保存しない）。接続は `llm_settings`、ロール割当は `llm_role_settings` に保存し、APIキーは持たせない（`app/.env` のみ）。**設定を何も変えなければ挙動は現行と完全に同一**（既存のローカル接続・全用途ローカルの状態はそのまま表示・動作する）。
 
-**ロール別チューニング（モデル/effort/配信）と推奨マトリクス**: 各ロール行の「詳細設定」を開くと、Claude 割当のロールは**モデル**（既定/haiku/sonnet/opus）、Codex 割当のロールは**配信**（既定/fast/standard）、Claude・Codex どちらの割当でも**effort（思考の深さ）**を個別に指定できる（ローカル割当には対応項目なし）。effort の選択肢は割当先で異なる — Claude 割当は（既定/low/medium/high/xhigh/max）、Codex 割当は（既定/low/medium/high/xhigh、**max は選べない** — Codex のモデルは max に対応しておらず指定すると失敗するため保存時点で弾く）。未指定（既定）はコード側の固定値に従う — Claude は SDK 標準（thinking 予算 adaptive）、Codex は effort=medium・配信=fast。「推奨チューニングを適用」ボタンは、今の割当でクラウド（Claude/Codex）側になっているロールだけを次の推奨値に一括で書き換える（ローカル割当のロールは変更しない。押しただけでは保存されず「割当を保存」で確定する）:
+**Claude の既定モデル（全用途共通・v0.29〜）**: **モデル接続設定**タブの Claude セクションで「既定モデル（全用途共通）」を選べる。選択肢はモデルカタログ（SDK から動的取得）由来で、エイリアス（sonnet 等）だけでなく特定バージョン ID も選べる。Claude に割り当てた全ての用途に適用され、用途ごとのモデルタブのロール別モデルが設定されている用途ではそちらが優先される（解決順: ロール別 > 既定モデル > コード既定 sonnet）。
+
+**ロール別チューニング（モデル/effort/配信）と推奨マトリクス**: 各ロール行の「詳細設定」を開くと、Claude 割当のロールは**モデル**（既定 or モデルカタログ由来の選択式・v0.29 で3択固定から変更）、Codex 割当のロールは**配信**（既定/fast/standard）、Claude・Codex どちらの割当でも**effort（思考の深さ）**を個別に指定できる（ローカル割当には対応項目なし）。effort の選択肢は割当先で異なる — Claude 割当は（既定/low/medium/high/xhigh/max）、Codex 割当は（既定/low/medium/high/xhigh、**max は選べない** — Codex のモデルは max に対応しておらず指定すると失敗するため保存時点で弾き、万一保存済み値が残っていても実行時は xhigh に丸める）。未指定（既定）は「Claude の既定モデル（全用途共通）」→ それも未設定ならコード側の固定値に従う — Claude は SDK 標準（thinking 予算 adaptive）、Codex は effort=medium・配信=fast。「推奨チューニングを適用」ボタンは、今の割当でクラウド（Claude/Codex）側になっているロールだけを次の推奨値に一括で書き換える（ローカル割当のロールは変更しない。押しただけでは保存されず「割当を保存」で確定する）:
 
 | ロール | Claude 推奨（モデル/effort） | Codex 推奨（effort/配信） |
 | --- | --- | --- |
@@ -242,14 +244,16 @@ haiku は effort を指定しても実行時に黙って無視される（実測
 
 **破壊的変更（v0.24.0）**: これまでサーバが読んでいた `CLAUDE_MODEL` / `CLAUDE_EFFORT` / `CODEX_REASONING_EFFORT` / `CODEX_SERVICE_TIER` は、v0.24.0 以降サーバ本体では一切読まれません（UI に見えない裏設定を無くすため）。同名の env を `app/.env` に置いてもアプリ本体の挙動には影響しません（エラーにもならず、単に無視されます）。これらのチューニングは **⚙️ 設定 → 用途ごとのモデル** の詳細設定、または `scripts/generate-content.ts` 実行時の env（CLI 専用・下記「自分用にカスタマイズする」参照）でのみ有効です。
 
-| プロバイダ | UI での選択 | 必要な設定（UI 入力値・キーのみ env） |
+接続先ごとの設定（すべて **⚙️ 設定 → モデル接続設定**で入力する。env に置くのはキーのみ）:
+
+| プロバイダ | UI での選択 | UI に入力する値 / env に置くキー |
 |---|---|---|
-| Claude Agent SDK（既定） | 未設定 or `claude` | なし |
-| Ollama | `openai-compat` | `OPENAI_COMPAT_BASE_URL=http://localhost:11434/v1`, `OPENAI_COMPAT_MODEL` |
-| LM Studio | `openai-compat` | `OPENAI_COMPAT_BASE_URL=http://localhost:1234/v1`, `OPENAI_COMPAT_MODEL` |
-| OpenAI API | `openai-compat` | `OPENAI_COMPAT_BASE_URL=https://api.openai.com/v1`, `OPENAI_COMPAT_API_KEY`, `OPENAI_COMPAT_MODEL` |
-| GitHub Models | `openai-compat` | `OPENAI_COMPAT_BASE_URL=https://models.github.ai/inference`, `OPENAI_COMPAT_API_KEY`(PAT), `OPENAI_COMPAT_MODEL`（レート制限に注意） |
-| OpenAI Codex CLI | `codex` | 任意 `CODEX_MODEL`（未指定は codex config 既定） |
+| Claude Agent SDK（既定） | Claude | なし（既定モデルを変えたい場合のみ「既定モデル（全用途共通）」を選択） |
+| Ollama | ローカル（OpenAI 互換） | Base URL `http://localhost:11434/v1` + モデル名（一覧から選択） |
+| LM Studio | ローカル（OpenAI 互換） | Base URL `http://localhost:1234/v1` + モデル名 |
+| OpenAI API | ローカル（OpenAI 互換） | Base URL `https://api.openai.com/v1` + モデル名。キーは env `OPENAI_COMPAT_API_KEY` |
+| GitHub Models | ローカル（OpenAI 互換） | Base URL `https://models.github.ai/inference` + モデル名（レート制限に注意）。キーは env `OPENAI_COMPAT_API_KEY`(PAT) |
+| OpenAI Codex CLI | Codex | モデル（一覧から選択・未指定は codex config 既定） |
 
 - **GitHub Copilot は非対応**: 公式の汎用チャット API が無く、非公式プロキシは規約リスクがあるため。GitHub の LLM を使う場合は上記「GitHub Models」を利用する。
 - **品質の前提**: 各ドメインのプロンプトは Claude 向けに調整されており、多くが「STRICT JSON のみ」を要求する。弱いモデルでは JSON 逸脱や品質低下が起きうるが、全ドメインがパース失敗フォールバックを持つためアプリはクラッシュせず degrade する。ローカル小モデルでは出力品質が落ちる前提で使う。
