@@ -180,7 +180,7 @@ cd app/client && bun run dev # UI :5173（/api をプロキシ）
 
 もっとも手軽な使い方です。**GitHub Releases から dmg をダウンロードして起動するだけ**で動きます（Apple Silicon Mac 専用。サーバ・教材・whisper-cli を同梱済みのため、Bun や Homebrew のセットアップは不要です）。
 
-1. [Releases](https://github.com/okash1n/solo-eikaiwa/releases) から最新の dmg をダウンロード
+1. [Releases](https://github.com/btajp/solo-eikaiwa/releases) から最新の dmg をダウンロード
 2. dmg をマウントし、`solo-eikaiwa.app` を **`/Applications` など任意の場所へコピー**してから起動する（dmg 内から直接起動すると App Translocation の影響で不安定になることがあるため、必ずコピーしてから起動してください）
 3. ad-hoc 署名のため、初回起動は Gatekeeper に「"solo-eikaiwa" は開いていません（マルウェアが含まれていないことを検証できませんでした）」と止められます（実機確認済みの表示です）。**「ゴミ箱に入れる」は押さず「完了」を選び**、**システム設定 → プライバシーとセキュリティ**を下へスクロールして「"solo-eikaiwa" はブロックされました」の**「このまま開く」**をクリック → パスワード認証 → 確認ダイアログで「開く」を選んでください（macOS 15 以降は従来の「右クリック→開く」による回避が廃止されているため、この手順が必要です）
 4. 初回起動時、音声認識（whisper）モデルのダウンロード案内バナーが表示されます。**推奨の large-v3-turbo（1.6GB・現行と同じ精度）**または**軽量な small（約0.5GB・低スペック機向け・精度はやや下がります）**を選んでダウンロードしてください。中断しても再開でき、完了時にチェックサムを検証します

@@ -1,8 +1,8 @@
 import { STR, type Lang } from "../i18n";
 import { Card } from "../ui/Card";
 
-const LP_URL = "https://okash1n.github.io/solo-eikaiwa/";
-const GITHUB_URL = "https://github.com/okash1n/solo-eikaiwa";
+const LP_URL = "https://btajp.github.io/solo-eikaiwa/";
+const GITHUB_URL = "https://github.com/btajp/solo-eikaiwa";
 
 /** アプリ概要とLP/GitHubへの外部リンクだけを示す小さな情報画面（判定・ノルマ演出は置かない） */
 export function AboutScreen({ lang }: { lang: Lang }) {
