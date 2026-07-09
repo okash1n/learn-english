@@ -16,6 +16,7 @@ import type { LlmRole, LlmRoleSetting } from "../../llm-provider";
 import type { RoleTuning } from "../../llm-role-tuning-store";
 import type { CatalogResult, LlmCatalogProvider } from "../../providers/model-catalog";
 import type { LlmAuthModes } from "../../llm-auth-store";
+import type { DownloadState, ModelDownloadManager, WhisperModelId } from "../../model-download";
 
 export const FAKE_HEALTH = {
   ok: true, whisper: true, ffmpeg: true, claude: true, ttsKey: true, modelFile: true,
@@ -132,6 +133,21 @@ export function makeFakeFeedbackStore(overrides: Partial<FeedbackStore> = {}): F
   } satisfies FeedbackStore;
 }
 
+const FAKE_IDLE_DOWNLOAD_STATE: DownloadState = {
+  status: "idle", model: null, receivedBytes: 0, totalBytes: 0, error: null, resumable: false,
+};
+
+export function makeFakeModelDownloadManager(overrides: Partial<ModelDownloadManager> = {}): ModelDownloadManager {
+  return {
+    getState: () => FAKE_IDLE_DOWNLOAD_STATE,
+    start: (_model: WhisperModelId) => ({ ok: true, done: Promise.resolve() }),
+    cancel: () => {},
+    diskFreeBytes: () => 100_000_000_000,
+    installedModels: () => ({ "large-v3-turbo": true, small: false }),
+    ...overrides,
+  } satisfies ModelDownloadManager;
+}
+
 export function makeFakeTalkExplainCache(overrides: Partial<TalkExplainCache> = {}): TalkExplainCache {
   return {
     get: (_hash) => null,
@@ -230,6 +246,7 @@ export function makeTestDeps(overrides: Partial<RouteDeps> = {}): {
     getTtsSettings: () => null,
     saveTtsSettings: (_s) => {},
     ttsEnv: () => ({ apiKeyConfigured: false }),
+    modelDownload: makeFakeModelDownloadManager(),
     ...overrides,
   };
   return { deps, logFile, recordingsDir };

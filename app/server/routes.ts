@@ -21,6 +21,7 @@ import { makeFeedbackRoutes, type FeedbackRoutesDeps } from "./routes/feedback";
 import { makeLlmSettingsRoutes, type LlmSettingsRoutesDeps } from "./routes/llm-settings";
 import { makeLlmModelsRoutes, type LlmModelsRoutesDeps } from "./routes/llm-models";
 import { makeTtsSettingsRoutes, type TtsSettingsRoutesDeps } from "./routes/tts-settings";
+import { makeSetupRoutes, type SetupRoutesDeps } from "./routes/setup";
 
 /**
  * HTTP ハンドラが依存する副作用の総体。各ドメインの狭い Deps 型の交差で構成する。
@@ -33,7 +34,7 @@ export type RouteDeps =
   SettingsRoutesDeps & LibraryRoutesDeps & CoachRoutesDeps & SentenceRoutesDeps &
   ChunkRoutesDeps & ProgressRoutesDeps & PlacementRoutesDeps & MetricsRoutesDeps &
   AssessmentRoutesDeps & ListeningRoutesDeps & FeedbackRoutesDeps & LlmSettingsRoutesDeps &
-  LlmModelsRoutesDeps & TtsSettingsRoutesDeps & StaticRoutesDeps & DevRoutesDeps;
+  LlmModelsRoutesDeps & TtsSettingsRoutesDeps & SetupRoutesDeps & StaticRoutesDeps & DevRoutesDeps;
 
 /** 現在の index.ts の全ルーティング・ハンドラをソケットを開かずにテストできる形に切り出したもの */
 export function makeFetchHandler(deps: RouteDeps): (req: Request) => Promise<Response> {
@@ -56,6 +57,7 @@ export function makeFetchHandler(deps: RouteDeps): (req: Request) => Promise<Res
     ...makeLlmSettingsRoutes(deps),
     ...makeLlmModelsRoutes(deps),
     ...makeTtsSettingsRoutes(deps),
+    ...makeSetupRoutes(deps),
     ...makeDevRoutes(deps),
   ];
   return async function fetch(req: Request): Promise<Response> {

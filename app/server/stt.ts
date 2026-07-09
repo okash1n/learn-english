@@ -1,12 +1,33 @@
 import path from "node:path";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { MODELS_DIR } from "./paths";
 import { realSpawn, type SpawnFn } from "./spawn";
 import type { WhichFn } from "./health";
+import { WHISPER_MODEL_IDS, WHISPER_MODEL_REGISTRY } from "./model-download";
 export type { SpawnFn } from "./spawn";
 
-export const WHISPER_MODEL_PATH = path.join(MODELS_DIR, "ggml-large-v3-turbo.bin");
+/**
+ * Tauri Phase 2 Task 4: モデルは初回DLで選べる（large-v3-turbo優先・小型のsmallはフォールバック）。
+ * 優先順位どおりに存在確認し、最初に見つかったものを使う。どちらも無ければ従来どおり
+ * large-v3-turbo のパスを返す（未導入時のエラーメッセージが今までと同じ場所を指すようにするため）。
+ */
+export function resolveWhisperModelPath(
+  modelsDir: string = MODELS_DIR, existsFn: (p: string) => boolean = existsSync,
+): string {
+  for (const id of WHISPER_MODEL_IDS) {
+    const p = path.join(modelsDir, WHISPER_MODEL_REGISTRY[id].filename);
+    if (existsFn(p)) return p;
+  }
+  return path.join(modelsDir, WHISPER_MODEL_REGISTRY[WHISPER_MODEL_IDS[0]].filename);
+}
+
+/** health.modelFile: サポート対象モデルのいずれか1つでも導入済みならtrue。 */
+export function anyWhisperModelInstalled(
+  modelsDir: string = MODELS_DIR, existsFn: (p: string) => boolean = existsSync,
+): boolean {
+  return WHISPER_MODEL_IDS.some((id) => existsFn(path.join(modelsDir, WHISPER_MODEL_REGISTRY[id].filename)));
+}
 
 export function buildWhisperArgs(modelPath: string, wavPath: string, outBase: string): string[] {
   return ["-m", modelPath, "-f", wavPath, "-l", "en", "-oj", "-of", outBase, "-np"];
@@ -95,9 +116,10 @@ export function selectConverter(container: AudioContainer, opts: { whichFn?: Whi
 /** 入力音声（webm/wav/mp4/mp3等）を 16kHz mono WAV に変換して whisper で文字起こしする */
 export async function transcribeAudio(
   inputPath: string,
-  opts: { spawnFn?: SpawnFn; whichFn?: WhichFn; container?: AudioContainer } = {},
+  opts: { spawnFn?: SpawnFn; whichFn?: WhichFn; container?: AudioContainer; modelPath?: string } = {},
 ): Promise<Transcription> {
   const spawn = opts.spawnFn ?? realSpawn;
+  const modelPath = opts.modelPath ?? resolveWhisperModelPath();
   // container 省略時はブラウザ録音（webm）を仮定する既存前提を維持（呼び出し元は routes/system.ts が
   // 常に実コンテナを渡す。省略できるのは主にテストの後方互換のため）。
   const container = opts.container ?? "webm";
@@ -113,7 +135,7 @@ export async function transcribeAudio(
     if (conv.exitCode !== 0) throw new Error(`${converter} failed: ${conv.stderr.slice(-500)}`);
 
     const outBase = path.join(work, "out");
-    const wh = await spawn([whisperBin(), ...buildWhisperArgs(WHISPER_MODEL_PATH, wavPath, outBase)]);
+    const wh = await spawn([whisperBin(), ...buildWhisperArgs(modelPath, wavPath, outBase)]);
     if (wh.exitCode !== 0) throw new Error(`whisper failed: ${wh.stderr.slice(-500)}`);
 
     return parseWhisperJson(readFileSync(`${outBase}.json`, "utf8"));

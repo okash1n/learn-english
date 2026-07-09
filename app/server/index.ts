@@ -33,6 +33,7 @@ import { LLM_ROLES } from "./llm-provider";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { getCodexAppServerClient, __resetCodexAppServerRegistry } from "./providers/codex-app-server";
 import { makeClaudeCatalogFetcher, makeCodexCatalogFetcher, makeLocalCatalogFetcher, makeModelCatalogCache } from "./providers/model-catalog";
+import { modelDownloadManager } from "./model-download";
 
 ensureDirs();
 const PORT = resolvePort(Bun.env);
@@ -172,6 +173,7 @@ const realDeps: RouteDeps = {
   saveTtsSettings: (s) => ttsSettingsStore.save(s),
   // env 由来。TTS の APIキーは有無のみ開示（TTS_API_KEY 優先・無ければ OPENAI_API_KEY）。値は絶対に返さない。
   ttsEnv: () => ({ apiKeyConfigured: Boolean((Bun.env.TTS_API_KEY ?? Bun.env.OPENAI_API_KEY)?.trim()) }),
+  modelDownload: modelDownloadManager,
 };
 
 // 起動時: 保存済み認証モードを runner 側のランタイムキャッシュへ反映する（行不在なら既定 subscription/subscription

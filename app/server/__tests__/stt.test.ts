@@ -4,8 +4,8 @@ import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
-  buildWhisperArgs, detectAudioContainer, parseWhisperJson, selectConverter, transcribeAudio,
-  UnsupportedAudioContainerError, type SpawnFn,
+  anyWhisperModelInstalled, buildWhisperArgs, detectAudioContainer, parseWhisperJson,
+  resolveWhisperModelPath, selectConverter, transcribeAudio, UnsupportedAudioContainerError, type SpawnFn,
 } from "../stt";
 import { realSpawn } from "../spawn";
 
@@ -264,6 +264,38 @@ describe("transcribeAudio: 変換器選択（ffmpeg不在時の afconvert 経路
 
     expect(result.text).toBe("Hi.");
     expect(calls[0][0]).toBe("ffmpeg");
+  });
+});
+
+describe("resolveWhisperModelPath: Tauri Phase 2 Task 4 の初回DLモデル選択に対応した優先順位解決", () => {
+  test("large-v3-turboが存在すれば最優先で返す（smallも存在していても）", () => {
+    const p = resolveWhisperModelPath("/models", (path) =>
+      path === "/models/ggml-large-v3-turbo.bin" || path === "/models/ggml-small.bin");
+    expect(p).toBe("/models/ggml-large-v3-turbo.bin");
+  });
+
+  test("large-v3-turboが無くsmallのみ存在するならsmallを返す", () => {
+    const p = resolveWhisperModelPath("/models", (path) => path === "/models/ggml-small.bin");
+    expect(p).toBe("/models/ggml-small.bin");
+  });
+
+  test("どちらも存在しない場合は従来どおりlarge-v3-turboのパスを返す（未導入時のエラー箇所を変えないため）", () => {
+    const p = resolveWhisperModelPath("/models", () => false);
+    expect(p).toBe("/models/ggml-large-v3-turbo.bin");
+  });
+});
+
+describe("anyWhisperModelInstalled: health.modelFile用（サポート対象のいずれか1つでも導入済みか）", () => {
+  test("large-v3-turboのみ存在 → true", () => {
+    expect(anyWhisperModelInstalled("/models", (p) => p === "/models/ggml-large-v3-turbo.bin")).toBe(true);
+  });
+
+  test("smallのみ存在 → true", () => {
+    expect(anyWhisperModelInstalled("/models", (p) => p === "/models/ggml-small.bin")).toBe(true);
+  });
+
+  test("どちらも無い → false", () => {
+    expect(anyWhisperModelInstalled("/models", () => false)).toBe(false);
   });
 });
 

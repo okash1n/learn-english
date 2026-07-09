@@ -48,6 +48,24 @@ type AppShellStrings = { appShell: { backToMenu: string; textSize: string; langu
 type LlmNoticeStrings = {
   llmNotice: { body: string; linkLabel: string; dismissAriaLabel: string };
 };
+/**
+ * Tauri Phase 2 Task 4: whisperモデル未導入時（health.modelFile===false）のセットアップバナー文言。
+ * 情報的トーン（研究制約）: 「これが無いと文字起こしだけ動かない、他は使える」という事実を伝えるのみで、
+ * 未導入への叱責調・催促調は避ける。small選択時の精度低下は誇張も隠蔽もせず正直に書く。
+ */
+type SetupStrings = {
+  setup: {
+    intro: string;
+    modelChoiceLabel: string;
+    modelLarge: string; modelLargeNote: string;
+    modelSmall: string; modelSmallNote: string;
+    startButton: string; resumeButton: string; cancelButton: string;
+    verifying: string;
+    progress: (received: string, total: string) => string;
+    pollError: string;
+    dismissAriaLabel: string;
+  };
+};
 /** 難易度の実態を1語で開示するチップの文言。kind ("auto"/"band"/"all") は事実マップに厳密対応（嘘のチップは信頼を壊す） */
 type LevelChipStrings = { levelChip: { auto: string; band: string; all: string } };
 type UiScaleStrings = { uiScale: { small: string; medium: string; large: string; xlarge: string } };
@@ -322,7 +340,7 @@ type Strings =
   & WarmupStrings & Ftt432Strings & ReflectionStrings & ChunkListStrings
   & ShadowingStrings & LibraryStrings & RoleplayStrings & FreeTalkScreenStrings & ListeningScreenStrings
   & LevelChipStrings & FeedbackRowStrings & FeedbackScreenStrings & LlmPanelStrings & SettingsStrings
-  & AboutStrings & LlmNoticeStrings;
+  & AboutStrings & LlmNoticeStrings & SetupStrings;
 
 const WEEKDAYS_EN = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const MONTHS_EN = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -339,6 +357,21 @@ export const STR: Record<Lang, Strings> = {
     llmNotice: {
       body: "Claude, Codex, or a local LLM isn't set up. Conversation, corrections, and explanations won't work, but example sentences, listening, shadowing, and recording transcripts still work as-is.",
       linkLabel: "Setup guide",
+      dismissAriaLabel: "Dismiss",
+    },
+    setup: {
+      intro: "Speech-to-text needs a one-time model download. Recording transcripts won't work until it's installed — everything else (example sentences, listening, LLM features) works as-is.",
+      modelChoiceLabel: "Model",
+      modelLarge: "Recommended (1.6 GB)",
+      modelLargeNote: "Best accuracy — matches the app's current transcription quality.",
+      modelSmall: "Lightweight (0.5 GB)",
+      modelSmallNote: "Faster to download, but noticeably less accurate. Good for a slow connection or a lower-spec Mac.",
+      startButton: "Download",
+      resumeButton: "Resume download",
+      cancelButton: "Cancel",
+      verifying: "Verifying download…",
+      progress: (received, total) => `${received} / ${total}`,
+      pollError: "Couldn't reach the server to check progress. The download may still be running — this will retry automatically.",
       dismissAriaLabel: "Dismiss",
     },
     levelChip: { auto: "Adjusts to your level", band: "Pick by level band", all: "Same for all levels" },
@@ -711,6 +744,21 @@ export const STR: Record<Lang, Strings> = {
     llmNotice: {
       body: "Claude/Codex/ローカルLLMが未導入の場合、会話・添削・解説は使えません。例文・多聴・シャドーイング・録音の文字起こしはそのまま使えます。",
       linkLabel: "セットアップ手順",
+      dismissAriaLabel: "閉じる",
+    },
+    setup: {
+      intro: "音声のテキスト化にはモデルの初回ダウンロードが必要です。録音の文字起こし以外（例文・多聴・LLM機能など）はこのまま使えます。",
+      modelChoiceLabel: "モデル",
+      modelLarge: "推奨（1.6GB）",
+      modelLargeNote: "精度優先。現在のアプリの文字起こし品質と同等です。",
+      modelSmall: "軽量（約0.5GB）",
+      modelSmallNote: "ダウンロードは速いですが、精度ははっきり下がります。回線が遅い場合やスペックが低いMacに向いています。",
+      startButton: "ダウンロード",
+      resumeButton: "続きからダウンロード",
+      cancelButton: "キャンセル",
+      verifying: "検証中…",
+      progress: (received, total) => `${received} / ${total}`,
+      pollError: "進捗確認でサーバに接続できませんでした。ダウンロードは継続している可能性があります（自動的に再試行します）。",
       dismissAriaLabel: "閉じる",
     },
     levelChip: { auto: "Lvに自動調整", band: "Lv帯で選ぶ", all: "全レベル共通" },

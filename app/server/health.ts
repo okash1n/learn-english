@@ -1,5 +1,4 @@
-import { existsSync } from "node:fs";
-import { WHISPER_MODEL_PATH } from "./stt";
+import { anyWhisperModelInstalled } from "./stt";
 // package.json を静的 import することで compile（bun build --compile）時もバンドラーが値を
 // インライン化する — 実行時に fs でファイルを読みに行かないため、Resources レイアウトに依存しない。
 import pkg from "../package.json";
@@ -34,7 +33,7 @@ export function checkHealth(opts: {
 } = {}): Health {
   const which = opts.whichFn ?? ((b: string) => Bun.which(b));
   const env = opts.env ?? Bun.env;
-  const modelExists = opts.modelExists ?? (() => existsSync(WHISPER_MODEL_PATH));
+  const modelExists = opts.modelExists ?? (() => anyWhisperModelInstalled());
 
   const whisper = Boolean(which("whisper-cli") ?? which("whisper-cpp"));
   const ffmpeg = Boolean(which("ffmpeg"));

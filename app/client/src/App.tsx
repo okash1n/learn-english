@@ -19,9 +19,11 @@ import { SettingsScreen, type UiScale } from "./screens/SettingsScreen";
 import { Banner } from "./ui/Banner";
 import { Button } from "./ui/Button";
 import { LevelChip } from "./ui/LevelChip";
+import { SetupBanner } from "./ui/SetupBanner";
 import { localYmd } from "./dates";
 import { saveSupport, useSupport, type SupportToggle } from "./support";
 import { dismissLlmNotice, isLlmNoticeDismissed, shouldShowLlmNotice } from "./lib/llm-notice";
+import { dismissSetupBanner, isSetupBannerDismissed, shouldShowSetupBanner } from "./lib/whisper-setup";
 
 type Mode = { kind: "start" } | { kind: "free" } | { kind: "session"; source: MenuSource } | { kind: "library" } | { kind: "sentences" } | { kind: "listening" } | { kind: "placement" } | { kind: "progress" } | { kind: "feedback" } | { kind: "settings" } | { kind: "about" };
 
@@ -31,6 +33,8 @@ export function App() {
   // Claude/Codex/ローカルLLM未導入時の一度きりの案内バナー（研究制約: 情報的トーンのみ・ブロックしない）。
   // 既読状態はユーザーが実際に閉じるまで再訪のたびに出る（lib/llm-notice.ts 参照）
   const [llmNoticeDismissed, setLlmNoticeDismissed] = useState(() => isLlmNoticeDismissed());
+  // whisperモデル未導入時の一度きりのセットアップ案内（同じく情報的トーン・lib/whisper-setup.ts 参照）
+  const [setupBannerDismissed, setSetupBannerDismissed] = useState(() => isSetupBannerDismissed());
   const [mode, setMode] = useState<Mode>({ kind: "start" });
   const [lang, setLang] = useState<Lang>(() => loadLang());
   const t = STR[lang];
@@ -55,10 +59,14 @@ export function App() {
   // サイドバー「自主練」見出し横の ⓘ ポップオーバー開閉
   const [selfHintOpen, setSelfHintOpen] = useState(false);
 
-  useEffect(() => {
+  function refetchHealth() {
     getHealth()
       .then((h) => { setHealth(h); setServerDown(false); })
       .catch(() => { setHealth(null); setServerDown(true); });
+  }
+
+  useEffect(() => {
+    refetchHealth();
     if (!startedRef.current) {
       startedRef.current = true;
       sessionStart(sessionId);
@@ -180,6 +188,13 @@ export function App() {
         >
           {t.llmNotice.body}
         </Banner>
+      )}
+      {!serverDown && shouldShowSetupBanner(health, setupBannerDismissed) && (
+        <SetupBanner
+          lang={lang}
+          onDismiss={() => { dismissSetupBanner(); setSetupBannerDismissed(true); }}
+          onModelReady={refetchHealth}
+        />
       )}
       {mode.kind === "start" && <StartScreen onSelect={onSelect} lang={lang} />}
       {mode.kind === "session" && (
