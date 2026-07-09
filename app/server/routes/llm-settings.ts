@@ -315,12 +315,23 @@ async function handlePutRoles(req: Request, deps: LlmSettingsRoutesDeps): Promis
         return json({ error: `unknown role: ${role}` }, 400);
       }
       const r = role as TuningScope;
-      // "global" スコープの effort は global の実効プロバイダ（このリクエスト内の変更 > 保存済み > 既定 claude）で検証する。
+      // "global" スコープの effort 検証: global 行の effort はロール別未設定の全ロールへ
+      // プロバイダ横断でマージされる（converse.ts mergeTuning）ため、global の実効プロバイダに加えて
+      // 「codex に解決されるロールが1つでもあるか」（このリクエスト内の変更 > 保存済みの順・inherit は
+      // global へ解決）まで見て、あれば厳しい側（CODEX_EFFORTS）で検証する。
+      // これを global provider だけで判定すると「保存できるが実行時に codex で失敗する」設定を作れてしまう。
       const effortWhitelist =
         r === "global"
-          ? (parsedGlobal?.provider ?? storedGlobal?.provider ?? DEFAULT_LLM_SETTINGS.provider) === "codex"
-            ? CODEX_EFFORTS
-            : EFFORTS
+          ? (() => {
+              const globalProvider = parsedGlobal?.provider ?? storedGlobal?.provider ?? DEFAULT_LLM_SETTINGS.provider;
+              const providerOf = (rr: LlmRole): string =>
+                parsedRoles.find((p) => p.role === rr)?.value.provider ?? storedRoles[rr].provider;
+              const anyCodex = LLM_ROLES.some((rr) => {
+                const p = providerOf(rr);
+                return (p === "inherit" ? globalProvider : p) === "codex";
+              });
+              return globalProvider === "codex" || anyCodex ? CODEX_EFFORTS : EFFORTS;
+            })()
           : resolveEffortWhitelist(r, parsedRoles, parsedGlobal, storedRoles, storedGlobal, deps);
       const p = parseRoleTuning(tuningObj[role], effortWhitelist);
       if (!p.ok) return json({ error: `${role}: ${p.error}` }, 400);

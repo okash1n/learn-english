@@ -502,6 +502,29 @@ describe("llm-settings tuning API", () => {
     expect(savedPatches).toHaveLength(0);
   });
 
+  test("PUT /roles 400: global provider=claude でも、codex に解決されるロールが1つでもあれば tuning.global.effort \"max\" は拒否する", async () => {
+    // global 行の effort は全ロールへプロバイダ横断でマージされるため、codex 割当ロールが存在する状態で
+    // global effort=max を許すと「保存できるが実行時に codex で失敗する」設定を作れてしまう。
+    const savedPatches: unknown[] = [];
+    const { deps } = makeTestDeps({
+      getLlmSettings: () => ({ provider: "claude", baseUrl: null, model: null, codexModel: null }),
+      getLlmRoleSettings: () => ({
+        conversation: { provider: "codex", baseUrl: null, model: null, codexModel: "gpt-5.5" },
+        assist: { provider: "inherit", baseUrl: null, model: null, codexModel: null },
+        coaching: { provider: "inherit", baseUrl: null, model: null, codexModel: null },
+        generation: { provider: "inherit", baseUrl: null, model: null, codexModel: null },
+        assessment: { provider: "inherit", baseUrl: null, model: null, codexModel: null },
+      }),
+      saveLlmRoleTuning: (t) => savedPatches.push(t),
+      llmEnv: () => ({ apiKeyConfigured: false }),
+    });
+    const res = await makeFetchHandler(deps)(putJson("/api/llm-settings/roles", {
+      tuning: { global: { effort: "max" } },
+    }));
+    expect(res.status).toBe(400);
+    expect(savedPatches).toHaveLength(0);
+  });
+
   test("PUT /roles 400: global provider=codex のとき tuning.global.effort \"max\" は拒否する", async () => {
     const savedPatches: unknown[] = [];
     const { deps } = makeTestDeps({
