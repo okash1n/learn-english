@@ -17,7 +17,10 @@ import type { RoleTuning } from "../../llm-role-tuning-store";
 import type { CatalogResult, LlmCatalogProvider } from "../../providers/model-catalog";
 import type { LlmAuthModes } from "../../llm-auth-store";
 
-export const FAKE_HEALTH = { ok: true, whisper: true, ffmpeg: true, claude: true, ttsKey: true, modelFile: true };
+export const FAKE_HEALTH = {
+  ok: true, whisper: true, ffmpeg: true, claude: true, ttsKey: true, modelFile: true,
+  app: "solo-eikaiwa" as const, version: "0.0.0-test",
+};
 export const FAKE_MENU = {
   minutes: 60 as const,
   date: "2026-07-05",

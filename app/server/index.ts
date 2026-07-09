@@ -1,4 +1,5 @@
 import { CLIENT_DIST_DIR, ensureDirs, LISTENING_DIR, POC_STT_LOG_FILE, RECORDINGS_DIR, sessionLogPath, TOPICS_DIR, TOPIC_ASSETS_DIR } from "./paths";
+import { resolveHostname, resolvePort, serveOrExit } from "./serve";
 import { transcribeAudio } from "./stt";
 import { synthesize } from "./tts";
 import { converseTurn, applyLlmRoleSettings, runnerFor } from "./converse";
@@ -34,8 +35,8 @@ import { getCodexAppServerClient, __resetCodexAppServerRegistry } from "./provid
 import { makeClaudeCatalogFetcher, makeCodexCatalogFetcher, makeLocalCatalogFetcher, makeModelCatalogCache } from "./providers/model-catalog";
 
 ensureDirs();
-const PORT = 3111;
-const HOSTNAME = "127.0.0.1";
+const PORT = resolvePort(Bun.env);
+const HOSTNAME = resolveHostname(Bun.env);
 
 const db = openDb();
 const libraryStore = makeLibraryStore(db);
@@ -198,7 +199,7 @@ if (savedLlm || hasRoleOverride || hasTuningOverride) {
   }
 }
 
-Bun.serve({
+serveOrExit({
   port: PORT,
   hostname: HOSTNAME,
   idleTimeout: 120,
