@@ -104,10 +104,11 @@ assemble_whisper_bin() {
   cp -L "$brew_prefix/opt/ggml/lib/libggml.0.dylib" "$dest/lib/libggml.0.dylib"
   cp -L "$brew_prefix/opt/ggml/lib/libggml-base.0.dylib" "$dest/lib/libggml-base.0.dylib"
   cp -L "$brew_prefix/opt/libomp/lib/libomp.dylib" "$dest/lib/libomp.dylib"
-  for so in libggml-blas.so libggml-cpu-apple_m1.so libggml-cpu-apple_m2_m3.so libggml-cpu-apple_m4.so libggml-metal.so; do
+  local backend_sos=(libggml-blas.so libggml-cpu-apple_m1.so libggml-cpu-apple_m2_m3.so libggml-cpu-apple_m4.so libggml-metal.so)
+  for so in "${backend_sos[@]}"; do
     cp "$brew_prefix/opt/ggml/libexec/$so" "$dest/$so"
   done
-  chmod +w "$dest/whisper-cli" "$dest/lib"/*.dylib
+  chmod +w "$dest/whisper-cli" "$dest/lib"/*.dylib "$dest"/*.so
 
   local ggml_lib="$brew_prefix/opt/ggml/lib"
   local libomp_lib="$brew_prefix/opt/libomp/lib"
@@ -128,18 +129,39 @@ assemble_whisper_bin() {
 
   install_name_tool -id "@rpath/libomp.dylib" "$dest/lib/libomp.dylib"
 
-  # install_name_toolは署名を壊すので、ad-hoc署名をやり直す（Apple Siliconは署名必須）
-  codesign --force -s - "$dest/lib/libomp.dylib" "$dest/lib/libggml-base.0.dylib" "$dest/lib/libggml.0.dylib" \
-    "$dest/lib/libwhisper.1.dylib" "$dest/whisper-cli"
+  # ggmlのCPUバックエンドプラグイン（cpu-apple_m1/m2_m3/m4）は libggml-base.0.dylib とは別に
+  # 自分自身でも libomp への依存を持つ（otool -L で確認済み）。これを見落とすと、配布先に
+  # Homebrewが無い環境でCPUバックエンドのdlopenが失敗し、whisper_initが
+  # `GGML_ASSERT(device) failed` でSIGABRT（exit 134）= STT完全停止になる（2026-07-10 実機確認・
+  # sandbox-execで/opt/homebrewへのfile-readを遮断して再現）。blas.so/metal.soはlibomp依存を
+  # 持たないが、依存が無いファイルに対する-changeは無害（何も変更せず終了コード0）なので
+  # 5本まとめて適用する。
+  for so in "${backend_sos[@]}"; do
+    install_name_tool -change "$libomp_lib/libomp.dylib" "@rpath/libomp.dylib" "$dest/$so"
+  done
 
-  # 検証1: Mach-Oロードコマンドに絶対パス依存が残っていないか（otool -L）
-  if otool -L "$dest/whisper-cli" "$dest/lib"/*.dylib | grep -q "$brew_prefix"; then
+  # install_name_toolは署名を壊すので、ad-hoc署名をやり直す（Apple Siliconは署名必須）。
+  # 書き換えたbackend .so 5本も対象（漏れると署名不正でdlopen自体が失敗する）。
+  codesign --force -s - "$dest/lib/libomp.dylib" "$dest/lib/libggml-base.0.dylib" "$dest/lib/libggml.0.dylib" \
+    "$dest/lib/libwhisper.1.dylib" "$dest/whisper-cli" "$dest"/*.so
+
+  # 検証1: Mach-Oロードコマンドに絶対パス依存が残っていないか（otool -L）。
+  # backend .so（*.so）も対象に含める — これが今回の欠陥クラス（libomp直リンク漏れ）の
+  # 決定的な検出手段。
+  if otool -L "$dest/whisper-cli" "$dest/lib"/*.dylib "$dest"/*.so | grep -q "$brew_prefix"; then
     echo "ERROR: install_name_tool後もHomebrewへの絶対パス依存が残っています:" >&2
-    otool -L "$dest/whisper-cli" "$dest/lib"/*.dylib | grep "$brew_prefix" >&2
+    otool -L "$dest/whisper-cli" "$dest/lib"/*.dylib "$dest"/*.so | grep "$brew_prefix" >&2
     exit 1
   fi
 
-  # 検証2: 実際に動くか（この階層構成のまま実行できることの smoke test）
+  # 検証2: 実際に動くか（この階層構成のまま実行できることの smoke test）。
+  # 注意: この smoke test はbackendプラグインの可搬性を検証できない。ggmlの
+  # ggml_backend_load_best() はビルド機に焼き込まれた GGML_BACKEND_DIR
+  # （brewビルドでは/opt/homebrew/Cellar/...）を実行ファイル自身のディレクトリより先に
+  # 検索するため、ビルド機上ではこのディレクトリの.soが常に優先ロードされ、同梱した.soが
+  # 使われているかはここでは分からない（Homebrewが存在しない配布先でのみ本当の可搬性が
+  # 問われる）。可搬性そのものはCIやリリース前にsandbox-exec等で/opt/homebrewへの
+  # file-readを遮断した実変換テストで確認すること（README参照）。
   if ! (cd "$dest" && ./whisper-cli --help >/dev/null 2>&1); then
     echo "ERROR: 収集したwhisper-cliが実行できません（$dest で ./whisper-cli --help が失敗）" >&2
     exit 1
