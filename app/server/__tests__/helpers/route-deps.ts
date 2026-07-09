@@ -232,7 +232,7 @@ export function makeTestDeps(overrides: Partial<RouteDeps> = {}): {
     }),
     saveLlmRoleTuning: (_t) => {},
     applyLlmSettings: (_s) => {},
-    llmEnv: () => ({ provider: "claude", apiKeyConfigured: false }),
+    llmEnv: () => ({ apiKeyConfigured: false }),
     warmLlm: () => {},
     getLlmAuthModes: (): LlmAuthModes => ({ claude: "subscription", codex: "subscription" }),
     saveLlmAuthMode: (_provider, _mode) => {},

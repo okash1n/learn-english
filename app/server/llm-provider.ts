@@ -4,8 +4,11 @@ import { makeCodexRunner } from "./providers/codex";
 import { getCodexAppServerRunner } from "./providers/codex-app-server";
 import { withFallback, withTimeout } from "./providers/decorators";
 
-/** サイドバー設定UIで選べる LLM プロバイダ。"env" は「環境変数に従う」リセット用センチネル。 */
-export type LlmProvider = "env" | "claude" | "openai-compat" | "codex";
+/** サイドバー設定UIで選べる LLM プロバイダ。設定は UI/DB が唯一の真実（env フォールバック廃止・v0.29）。 */
+export type LlmProvider = "claude" | "openai-compat" | "codex";
+
+/** DB 行が無いときの既定設定（コード定数）。旧 "env"（環境変数に従う）センチネルは廃止し、store 読込時に claude へ正規化する。 */
+export const DEFAULT_LLM_SETTINGS: LlmSettings = { provider: "claude", baseUrl: null, model: null, codexModel: null };
 
 /**
  * LLM 呼び出しの用途ロール（5つ固定）。各ロールは全体設定を継承(inherit)するか、独自プロバイダを持つ。
@@ -138,30 +141,39 @@ export function selectRunner(args: SelectRunnerArgs): ClaudeRunner {
   }
 }
 
+/** 実 env から合成 env へ引き継ぐのは API キーのみ（キーは DB に持たせない衛生を1箇所で担保する）。 */
+const API_KEY_ENV_VARS = [
+  "ANTHROPIC_API_KEY",
+  "CODEX_API_KEY",
+  "OPENAI_API_KEY",
+  "OPENAI_COMPAT_API_KEY",
+  "TTS_API_KEY",
+] as const;
+
 /**
  * DB 由来の LlmSettings を selectRunner が読む env 形状へ写像する純関数。
- * - provider="env" は「環境変数に従う」ので、渡した env をそのまま返す（DB 値で一切上書きしない＝起動時の pure-env 挙動を完全再現）。
- * - それ以外は env を土台に LLM_PROVIDER / OPENAI_COMPAT_BASE_URL / OPENAI_COMPAT_MODEL / CODEX_MODEL を DB 値で上書きする。
- *   OPENAI_COMPAT_API_KEY は上書きせず env（.env）由来のまま — APIキーは DB に持たせない衛生を1箇所で担保する。
+ * 合成 env は「API キー5種（実 env 由来）+ 接続設定4種（DB 由来）」だけで構成し、実 env の
+ * LLM_PROVIDER / OPENAI_COMPAT_BASE_URL / OPENAI_COMPAT_MODEL / CODEX_MODEL その他は一切引き継がない
+ * （env フォールバック廃止・v0.29。設定の真実は UI/DB のみ）。
  */
 export function settingsToEnv(
   s: LlmSettings,
   env: Record<string, string | undefined> = Bun.env,
 ): Record<string, string | undefined> {
-  if (s.provider === "env") return env;
-  return {
-    ...env,
+  const out: Record<string, string | undefined> = {
     LLM_PROVIDER: s.provider,
     OPENAI_COMPAT_BASE_URL: s.baseUrl ?? undefined,
     OPENAI_COMPAT_MODEL: s.model ?? undefined,
     CODEX_MODEL: s.codexModel ?? undefined,
   };
+  for (const k of API_KEY_ENV_VARS) out[k] = env[k];
+  return out;
 }
 
 /**
  * health.llmReady 集約判定（Tauri Phase 2 T3 fix）が使う純関数: グローバル設定（DB行。無ければ
- * provider="env"としてsettingsToEnvの既定挙動＝env直接運用に委ねる）を反映した「有効env」上で、
- * openai-compatが実際に選択され、かつ接続に必要なbaseUrl/modelが揃っているかを判定する。
+ * DEFAULT_LLM_SETTINGS=claude）を反映した「有効env」上で、openai-compatが実際に選択され、
+ * かつ接続に必要なbaseUrl/modelが揃っているかを判定する。
  * selectRunner/resolveRoleRunnerが実際に使うのと同じ resolveProviderKey/settingsToEnv を再利用する
  * ことで、判定ロジックの二重実装（＝ドリフト）を避ける。
  */
@@ -169,10 +181,7 @@ export function isOpenAiCompatReady(
   settings: LlmSettings | null,
   env: Record<string, string | undefined> = Bun.env,
 ): boolean {
-  const effectiveEnv = settingsToEnv(
-    settings ?? { provider: "env", baseUrl: null, model: null, codexModel: null },
-    env,
-  );
+  const effectiveEnv = settingsToEnv(settings ?? DEFAULT_LLM_SETTINGS, env);
   return (
     resolveProviderKey(effectiveEnv) === "openai-compat" &&
     Boolean(effectiveEnv.OPENAI_COMPAT_BASE_URL?.trim()) &&

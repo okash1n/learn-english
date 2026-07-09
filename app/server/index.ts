@@ -29,7 +29,7 @@ import { makeLlmRoleTuningStore } from "./llm-role-tuning-store";
 import { makeLlmAuthStore, setActiveAuthModes } from "./llm-auth-store";
 import { ensureCodexApiKeyHome } from "./codex-auth";
 import { conversationWarmup } from "./llm-warmup";
-import { LLM_ROLES } from "./llm-provider";
+import { DEFAULT_LLM_SETTINGS, LLM_ROLES } from "./llm-provider";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { getCodexAppServerClient, __resetCodexAppServerRegistry } from "./providers/codex-app-server";
 import { makeClaudeCatalogFetcher, makeCodexCatalogFetcher, makeLocalCatalogFetcher, makeModelCatalogCache } from "./providers/model-catalog";
@@ -65,7 +65,8 @@ const modelCatalogCache = makeModelCatalogCache({
   // 解決される（converse.tsのclaudeRunnerと同じ解決値を共有）。非sidecarモードはundefinedのままでバイト等価。
   claude: makeClaudeCatalogFetcher(query, { claudeExecutablePath: CLAUDE_EXECUTABLE_PATH }),
   codex: makeCodexCatalogFetcher(() => getCodexAppServerClient()),
-  local: makeLocalCatalogFetcher(() => (llmSettingsStore.get()?.baseUrl ?? Bun.env.OPENAI_COMPAT_BASE_URL)?.trim() || null),
+  // ローカルLLMのカタログ取得先は保存済み設定（DB）のみから解決する（env フォールバック廃止・v0.29）。
+  local: makeLocalCatalogFetcher(() => llmSettingsStore.get()?.baseUrl?.trim() || null),
 });
 const assembleMonthData = makeAssembleMonthData({
   db,
@@ -151,9 +152,8 @@ const realDeps: RouteDeps = {
   // 「現在の全体設定 + 保存済みロール + 保存済みチューニング」で一括再解決する
   // （PUT /api/llm-settings, /api/llm-settings/roles の共通経路）。
   applyLlmSettings: (s) => applyLlmRoleSettings(s, llmRoleSettingsStore.getAll(), Bun.env, llmRoleTuningStore.getAll()),
-  // env 由来情報。APIキーは有無のみ（値は絶対に返さない）。
+  // env 由来情報。APIキーは有無のみ（値は絶対に返さない）。接続設定の env 読み取りは廃止済み（v0.29）。
   llmEnv: () => ({
-    provider: (Bun.env.LLM_PROVIDER ?? "claude").trim().toLowerCase() || "claude",
     apiKeyConfigured: Boolean(Bun.env.OPENAI_COMPAT_API_KEY?.trim()),
   }),
   warmLlm: () => conversationWarmup.maybeWarm(),
@@ -181,9 +181,9 @@ const realDeps: RouteDeps = {
 setActiveAuthModes(llmAuthStore.getAll());
 
 // 起動時: DB に LLM 設定（全体 or ロール別）があれば実行中プロセスへ適用する（fail-open）。
-// どちらも無ければ何もせず、converse.ts のモジュールロード時 env 既定のまま（現行と完全同一）。
-// provider="env" は settingsToEnv 経由で pure-env を再現する。UI 由来の不正値で LaunchAgent の
-// crash-loop を起こさないため、失敗は warn してフォールバックする（プロセスは落とさない）。
+// どちらも無ければ何もせず、converse.ts のモジュールロード時既定（claude）のまま。
+// UI 由来の不正値で LaunchAgent の crash-loop を起こさないため、失敗は warn して
+// フォールバックする（プロセスは落とさない）。
 const savedLlm = llmSettingsStore.get();
 const savedRoles = llmRoleSettingsStore.getAll();
 const savedTuning = llmRoleTuningStore.getAll();
@@ -195,7 +195,7 @@ const hasTuningOverride = LLM_ROLES.some((r) => {
 if (savedLlm || hasRoleOverride || hasTuningOverride) {
   try {
     applyLlmRoleSettings(
-      savedLlm ?? { provider: "env", baseUrl: null, model: null, codexModel: null },
+      savedLlm ?? DEFAULT_LLM_SETTINGS,
       savedRoles,
       Bun.env,
       savedTuning,

@@ -1,5 +1,5 @@
 import { json, parseJsonBody, exact, type RouteEntry } from "./http";
-import { LLM_ROLES, type LlmSettings, type LlmProvider, type LlmRole, type LlmRoleProvider, type LlmRoleSetting } from "../llm-provider";
+import { DEFAULT_LLM_SETTINGS, LLM_ROLES, type LlmSettings, type LlmProvider, type LlmRole, type LlmRoleProvider, type LlmRoleSetting } from "../llm-provider";
 import { CLAUDE_MODELS, EFFORTS, CODEX_EFFORTS, SERVICE_TIERS, type RoleTuning } from "../llm-role-tuning-store";
 import { AUTH_MODES, type AuthMode, type LlmAuthModes, type LlmAuthProvider } from "../llm-auth-store";
 
@@ -12,8 +12,8 @@ export type LlmSettingsRoutesDeps = {
   /** 渡されたロールだけを部分更新する（route 側でホワイトリスト検証済み）。 */
   saveLlmRoleTuning: (t: Partial<Record<LlmRole, Partial<RoleTuning>>>) => void;
   applyLlmSettings: (s: LlmSettings) => void;
-  /** env 由来の情報。値そのものは返さず、APIキーは presence(boolean) のみ。 */
-  llmEnv: () => { provider: string; apiKeyConfigured: boolean };
+  /** env 由来の情報。APIキーの presence(boolean) のみ（接続設定の env 読み取りは廃止済み・v0.29）。 */
+  llmEnv: () => { apiKeyConfigured: boolean };
   /** 受信入口の fire-and-forget フック（conversation が openai-compat のときローカルモデルを温める）。llm-settings ルート自体は使わない。 */
   warmLlm: () => void;
   /** 認証モード（DB 由来。行不在は "subscription"）。 */
@@ -30,7 +30,7 @@ export type LlmSettingsRoutesDeps = {
   killCodexAppServerRegistry: () => void;
 };
 
-const PROVIDERS = ["env", "claude", "openai-compat", "codex"] as const;
+const PROVIDERS = ["claude", "openai-compat", "codex"] as const;
 const ROLE_PROVIDERS = ["inherit", "claude", "openai-compat", "codex"] as const;
 
 function isHttpUrl(v: string): boolean {
@@ -80,7 +80,7 @@ function parseSettingsInput(
     if (codexModel === undefined) return { ok: false, error: "codexModel must be a string of at most 200 characters" };
     return { ok: true, value: { provider: "codex", baseUrl: null, model: null, codexModel } };
   }
-  // env / claude / inherit: 付随フィールドは持たない
+  // claude / inherit: 付随フィールドは持たない（claude のモデルはグローバルチューニング〔tuning.global〕が担う）
   return { ok: true, value: { provider: b.provider, baseUrl: null, model: null, codexModel: null } };
 }
 
@@ -88,7 +88,7 @@ function parseSettingsInput(
 function viewOf(deps: LlmSettingsRoutesDeps, applied?: boolean, error?: string | null) {
   const stored = deps.getLlmSettings();
   const env = deps.llmEnv();
-  const s: LlmSettings = stored ?? { provider: "env", baseUrl: null, model: null, codexModel: null };
+  const s: LlmSettings = stored ?? DEFAULT_LLM_SETTINGS;
   const roleSettings = deps.getLlmRoleSettings();
   const roles = {} as Record<LlmRole, { provider: LlmRoleProvider; baseUrl: string | null; model: string | null; codexModel: string | null }>;
   for (const role of LLM_ROLES) {
@@ -109,7 +109,6 @@ function viewOf(deps: LlmSettingsRoutesDeps, applied?: boolean, error?: string |
     model: s.model,
     codexModel: s.codexModel,
     apiKeyConfigured: env.apiKeyConfigured,
-    envProvider: env.provider,
     roles,
     tuning,
     authModes: { claude: authModes.claude, codex: authModes.codex },
@@ -204,10 +203,10 @@ function parseRoleTuning(
 
 /**
  * ロールの実効プロバイダ（このリクエスト内の変更 > 保存済み設定の順で解決）から effort ホワイトリストを選ぶ。
- * inherit は global の実効プロバイダへ解決する（このリクエスト内の global 変更 > 保存済み global の順）。
- * global が "env"（未設定含む）なら、実行時 env の実効プロバイダ（deps.llmEnv().provider・resolveProviderKey(Bun.env)
- * と同じロジックの結果）まで解決する。codex 以外（claude・openai-compat・未知値）は全て EFFORTS（"max" 込み）を許容する
- * — openai-compat は effort 自体を使わないため実害が無く、codex だけが実際に "max" で失敗するため。
+ * inherit は global の実効プロバイダへ解決する（このリクエスト内の global 変更 > 保存済み global >
+ * 既定 claude の順。env フォールバックは廃止済み）。codex 以外（claude・openai-compat・未知値）は
+ * 全て EFFORTS（"max" 込み）を許容する — openai-compat は effort 自体を使わないため実害が無く、
+ * codex だけが実際に "max" で失敗するため。
  *
  * assist→coaching 連鎖（binding）: converse.ts の applyLlmRoleSettings（コメント参照: converse.ts:280-286）が、
  * assist の設定行が inherit の間は assist を独自解決せず coaching の解決結果（プロバイダ・チューニングとも）を
@@ -229,14 +228,13 @@ function resolveEffortWhitelist(
   const chainRole: LlmRole = role === "assist" && providerOf("assist") === "inherit" ? "coaching" : role;
   const roleProvider = providerOf(chainRole);
   if (roleProvider !== "inherit") return roleProvider === "codex" ? CODEX_EFFORTS : EFFORTS;
-  const globalProvider = parsedGlobal?.provider ?? storedGlobal?.provider ?? "env";
-  const resolvedGlobal = globalProvider === "env" ? deps.llmEnv().provider : globalProvider;
-  return resolvedGlobal === "codex" ? CODEX_EFFORTS : EFFORTS;
+  const globalProvider = parsedGlobal?.provider ?? storedGlobal?.provider ?? DEFAULT_LLM_SETTINGS.provider;
+  return globalProvider === "codex" ? CODEX_EFFORTS : EFFORTS;
 }
 
 /** 「現在の全体設定 + 保存済みロール」で全ロール runner を再解決する。fail-open で applied/error を返す。 */
 function applyResolved(deps: LlmSettingsRoutesDeps): { applied: boolean; error: string | null } {
-  const effectiveGlobal = deps.getLlmSettings() ?? { provider: "env" as LlmProvider, baseUrl: null, model: null, codexModel: null };
+  const effectiveGlobal = deps.getLlmSettings() ?? DEFAULT_LLM_SETTINGS;
   try {
     deps.applyLlmSettings(effectiveGlobal);
     return { applied: true, error: null };
