@@ -9,10 +9,10 @@
 <body>
   <div class="card">
     <span class="badge">solo-eikaiwa</span>
-    <h1>サーバが起動していません</h1>
-    <p>ローカルサーバ（http://127.0.0.1:3111）に接続できませんでした。ターミナルで以下を実行して常駐サーバを起動してください。</p>
-    <p><code>./scripts/install-daemon.sh</code></p>
-    <p class="en">Could not reach the local server at http://127.0.0.1:3111. Run <code>./scripts/install-daemon.sh</code> from the repository root to start the background server, then retry.</p>
+    <h1 id="title">起動中です</h1>
+    <p id="message">ローカルサーバを準備しています。少々お待ちください。</p>
+    <p><code>~/Library/Application Support/com.local.solo-eikaiwa.desktop/logs/sidecar.log</code></p>
+    <p class="en" id="message-en">Starting the local server. Please wait a moment.</p>
     <button id="retry">再試行 / Retry</button>
     <div id="status"></div>
   </div>

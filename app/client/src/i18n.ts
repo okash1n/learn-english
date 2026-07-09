@@ -40,6 +40,46 @@ type NavStrings = {
   };
 };
 type AppShellStrings = { appShell: { backToMenu: string; textSize: string; language: string } };
+/**
+ * Tauri Phase 2: Claude/Codex/ローカルLLMがいずれも未導入のときの一度きりの案内バナー文言（情報的トーン・研究制約）。
+ * health.claude===false で表示し、ユーザーが閉じるまで再訪のたびに出る（サイドバー設定等と同じ「明示的に閉じるまで
+ * 表示し続ける」既読パターン。lib/llm-notice.ts 参照）。
+ */
+type LlmNoticeStrings = {
+  llmNotice: { body: string; linkLabel: string; dismissAriaLabel: string };
+};
+/**
+ * Tauri Phase 2: 依存不足エラー・サーバ未接続・TTSキー未設定の各バナー文言。
+ * 配布アプリ（desktop）とリポジトリ開発者向け（dev/browser）で案内内容が異なるため文脈別に分ける
+ * （配布ユーザーには setup.sh も bun も存在せず案内として成立しない）。lib/dep-banner.ts 参照。
+ */
+type BannerStrings = {
+  banners: {
+    depsMissingDev: (list: string) => string;
+    depsMissingDesktop: string;
+    serverDownDev: string;
+    serverDownDesktop: string;
+    ttsKeyMissing: string;
+  };
+};
+/**
+ * Tauri Phase 2 Task 4: whisperモデル未導入時（health.modelFile===false）のセットアップバナー文言。
+ * 情報的トーン（研究制約）: 「これが無いと文字起こしだけ動かない、他は使える」という事実を伝えるのみで、
+ * 未導入への叱責調・催促調は避ける。small選択時の精度低下は誇張も隠蔽もせず正直に書く。
+ */
+type SetupStrings = {
+  setup: {
+    intro: string;
+    modelChoiceLabel: string;
+    modelLarge: string; modelLargeNote: string;
+    modelSmall: string; modelSmallNote: string;
+    startButton: string; resumeButton: string; cancelButton: string;
+    verifying: string;
+    progress: (received: string, total: string) => string;
+    pollError: string;
+    dismissAriaLabel: string;
+  };
+};
 /** 難易度の実態を1語で開示するチップの文言。kind ("auto"/"band"/"all") は事実マップに厳密対応（嘘のチップは信頼を壊す） */
 type LevelChipStrings = { levelChip: { auto: string; band: string; all: string } };
 type UiScaleStrings = { uiScale: { small: string; medium: string; large: string; xlarge: string } };
@@ -314,7 +354,7 @@ type Strings =
   & WarmupStrings & Ftt432Strings & ReflectionStrings & ChunkListStrings
   & ShadowingStrings & LibraryStrings & RoleplayStrings & FreeTalkScreenStrings & ListeningScreenStrings
   & LevelChipStrings & FeedbackRowStrings & FeedbackScreenStrings & LlmPanelStrings & SettingsStrings
-  & AboutStrings;
+  & AboutStrings & LlmNoticeStrings & SetupStrings & BannerStrings;
 
 const WEEKDAYS_EN = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const MONTHS_EN = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -328,6 +368,33 @@ export const STR: Record<Lang, Strings> = {
       selfStudyHint: "Your main path is Today's practice. Self-study fits spare moments — a good order: listen (Listening) → memorize (Sentences) → speak (Free talk).",
     },
     appShell: { backToMenu: "← Back to menu", textSize: "Text size", language: "Language" },
+    llmNotice: {
+      body: "Claude, Codex, or a local LLM isn't set up. Conversation, corrections, and explanations won't work, but example sentences, listening, shadowing, and recording transcripts still work as-is.",
+      linkLabel: "Setup guide",
+      dismissAriaLabel: "Dismiss",
+    },
+    banners: {
+      depsMissingDev: (list) => `Missing dependencies: ${list} — run \`scripts/setup.sh\` to install them.`,
+      depsMissingDesktop: "A bundled app file is missing (whisper). Please reinstall the app.",
+      serverDownDev: "Can't connect to the API server — run `cd app && bun run dev` to start it.",
+      serverDownDesktop: "Can't connect to the local server. Please restart the app.",
+      ttsKeyMissing: "OPENAI_API_KEY isn't set, so text-to-speech falls back to macOS's say command.",
+    },
+    setup: {
+      intro: "Speech-to-text needs a one-time model download. Recording transcripts won't work until it's installed — everything else (example sentences, listening, LLM features) works as-is.",
+      modelChoiceLabel: "Model",
+      modelLarge: "Recommended (1.6 GB)",
+      modelLargeNote: "Best accuracy — matches the app's current transcription quality.",
+      modelSmall: "Lightweight (0.5 GB)",
+      modelSmallNote: "Faster to download, but noticeably less accurate. Good for a slow connection or a lower-spec Mac.",
+      startButton: "Download",
+      resumeButton: "Resume download",
+      cancelButton: "Cancel",
+      verifying: "Verifying download…",
+      progress: (received, total) => `${received} / ${total}`,
+      pollError: "Couldn't reach the server to check progress. The download may still be running — this will retry automatically.",
+      dismissAriaLabel: "Dismiss",
+    },
     levelChip: { auto: "Adjusts to your level", band: "Pick by level band", all: "Same for all levels" },
     uiScale: { small: "A−", medium: "A", large: "A＋", xlarge: "A＋＋" },
     support: {
@@ -695,6 +762,33 @@ export const STR: Record<Lang, Strings> = {
       selfStudyHint: "メインは「今日の練習」。自主練はすきま時間に。目安の順番: 聞く(多聴) → 覚える(暗記例文) → 話す(自由会話)。",
     },
     appShell: { backToMenu: "← メニューに戻る", textSize: "文字サイズ", language: "言語" },
+    llmNotice: {
+      body: "Claude/Codex/ローカルLLMが未導入の場合、会話・添削・解説は使えません。例文・多聴・シャドーイング・録音の文字起こしはそのまま使えます。",
+      linkLabel: "セットアップ手順",
+      dismissAriaLabel: "閉じる",
+    },
+    banners: {
+      depsMissingDev: (list) => `不足している依存: ${list} — \`scripts/setup.sh\` を実行してください`,
+      depsMissingDesktop: "アプリの同梱ファイルが見つかりません（whisper）。アプリを再インストールしてください。",
+      serverDownDev: "APIサーバに接続できません — `cd app && bun run dev` で起動してください",
+      serverDownDesktop: "ローカルサーバに接続できません。アプリを再起動してください。",
+      ttsKeyMissing: "OPENAI_API_KEY 未設定のため TTS は say フォールバックです",
+    },
+    setup: {
+      intro: "音声のテキスト化にはモデルの初回ダウンロードが必要です。録音の文字起こし以外（例文・多聴・LLM機能など）はこのまま使えます。",
+      modelChoiceLabel: "モデル",
+      modelLarge: "推奨（1.6GB）",
+      modelLargeNote: "精度優先。現在のアプリの文字起こし品質と同等です。",
+      modelSmall: "軽量（約0.5GB）",
+      modelSmallNote: "ダウンロードは速いですが、精度ははっきり下がります。回線が遅い場合やスペックが低いMacに向いています。",
+      startButton: "ダウンロード",
+      resumeButton: "続きからダウンロード",
+      cancelButton: "キャンセル",
+      verifying: "検証中…",
+      progress: (received, total) => `${received} / ${total}`,
+      pollError: "進捗確認でサーバに接続できませんでした。ダウンロードは継続している可能性があります（自動的に再試行します）。",
+      dismissAriaLabel: "閉じる",
+    },
     levelChip: { auto: "Lvに自動調整", band: "Lv帯で選ぶ", all: "全レベル共通" },
     uiScale: { small: "小", medium: "中", large: "大", xlarge: "特大" },
     support: {

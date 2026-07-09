@@ -1,7 +1,8 @@
 import { CLIENT_DIST_DIR, ensureDirs, LISTENING_DIR, POC_STT_LOG_FILE, RECORDINGS_DIR, sessionLogPath, TOPICS_DIR, TOPIC_ASSETS_DIR } from "./paths";
+import { resolveHostname, resolvePort, serveOrExit } from "./serve";
 import { transcribeAudio } from "./stt";
 import { synthesize } from "./tts";
-import { converseTurn, applyLlmRoleSettings, runnerFor } from "./converse";
+import { converseTurn, applyLlmRoleSettings, runnerFor, CLAUDE_EXECUTABLE_PATH } from "./converse";
 import { checkHealth } from "./health";
 import { buildQuickMenu, buildTodayMenu, invalidateTodayMenuCache } from "./menu";
 import { findScenario, findTopic } from "./content";
@@ -32,10 +33,11 @@ import { LLM_ROLES } from "./llm-provider";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { getCodexAppServerClient, __resetCodexAppServerRegistry } from "./providers/codex-app-server";
 import { makeClaudeCatalogFetcher, makeCodexCatalogFetcher, makeLocalCatalogFetcher, makeModelCatalogCache } from "./providers/model-catalog";
+import { modelDownloadManager } from "./model-download";
 
 ensureDirs();
-const PORT = 3111;
-const HOSTNAME = "127.0.0.1";
+const PORT = resolvePort(Bun.env);
+const HOSTNAME = resolveHostname(Bun.env);
 
 const db = openDb();
 const libraryStore = makeLibraryStore(db);
@@ -59,7 +61,9 @@ const llmAuthStore = makeLlmAuthStore(db);
 // local の baseUrl は「保存済み openai-compat 設定 → 無ければ env」の順で解決する（グローバル設定に閉じる。
 // ロール別 baseUrl は対象外＝カタログは接続単位ではなくプロバイダ単位の一覧のため）。
 const modelCatalogCache = makeModelCatalogCache({
-  claude: makeClaudeCatalogFetcher(query),
+  // sidecarモード（SOLO_EIKAIWA_RESOURCES_DIR設定時）ではCLAUDE_EXECUTABLE_PATHがBun.which("claude")の絶対パスに
+  // 解決される（converse.tsのclaudeRunnerと同じ解決値を共有）。非sidecarモードはundefinedのままでバイト等価。
+  claude: makeClaudeCatalogFetcher(query, { claudeExecutablePath: CLAUDE_EXECUTABLE_PATH }),
   codex: makeCodexCatalogFetcher(() => getCodexAppServerClient()),
   local: makeLocalCatalogFetcher(() => (llmSettingsStore.get()?.baseUrl ?? Bun.env.OPENAI_COMPAT_BASE_URL)?.trim() || null),
 });
@@ -75,7 +79,9 @@ const realDeps: RouteDeps = {
   transcribe: transcribeAudio,
   synthesize,
   converse: (args) => converseTurn({ ...args, runner: runnerFor("conversation") }),
-  health: () => checkHealth(),
+  // llmSettings: health.llmReady（claude/codex/openai-compatのいずれかが実際に使えるかの集約判定）が
+  // openai-compat経路の判定に使う。DB未設定時はcheckHealth側でenv直接運用として扱う。
+  health: () => checkHealth({ llmSettings: llmSettingsStore.get() }),
   logFile: () => sessionLogPath(new Date()),
   recordingsDir: RECORDINGS_DIR,
   staticDir: CLIENT_DIST_DIR,
@@ -167,6 +173,7 @@ const realDeps: RouteDeps = {
   saveTtsSettings: (s) => ttsSettingsStore.save(s),
   // env 由来。TTS の APIキーは有無のみ開示（TTS_API_KEY 優先・無ければ OPENAI_API_KEY）。値は絶対に返さない。
   ttsEnv: () => ({ apiKeyConfigured: Boolean((Bun.env.TTS_API_KEY ?? Bun.env.OPENAI_API_KEY)?.trim()) }),
+  modelDownload: modelDownloadManager,
 };
 
 // 起動時: 保存済み認証モードを runner 側のランタイムキャッシュへ反映する（行不在なら既定 subscription/subscription
@@ -198,7 +205,7 @@ if (savedLlm || hasRoleOverride || hasTuningOverride) {
   }
 }
 
-Bun.serve({
+serveOrExit({
   port: PORT,
   hostname: HOSTNAME,
   idleTimeout: 120,

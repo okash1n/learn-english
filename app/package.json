@@ -1,5 +1,6 @@
 {
   "name": "solo-eikaiwa-app",
+  "version": "0.28.0",
   "private": true,
   "type": "module",
   "scripts": {
