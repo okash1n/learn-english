@@ -297,6 +297,94 @@ describe("model-download: checksum不一致", () => {
   });
 });
 
+describe("model-download: 完了済み.partの416ループ回避（レビュー指摘の再発防止）", () => {
+  test("既に.partが完了サイズ(sizeBytes)ならstart()は再ネットワーク取得せず検証から再開する", async () => {
+    const content = makeContent(500);
+    const registry = fakeRegistry(content);
+    const dir = tmpModelsDir();
+    // 「verify中にcancelされた」「検証完了直前でプロセスが落ちた」状態を直接再現する:
+    // .partは全バイト揃っているがrename前
+    writeFileSync(path.join(dir, "ggml-small.bin.part"), content);
+
+    let fetchCalls = 0;
+    const fetchFn: typeof fetch = (async () => {
+      fetchCalls++;
+      return new Response(content as unknown as BodyInit, { status: 200 });
+    }) as unknown as typeof fetch;
+    const mgr = createModelDownloadManager({ modelsDir: dir, registry, fetchFn });
+
+    const result = mgr.start("small");
+    expect(result.ok).toBe(true);
+    // 修正前は最初の状態が"downloading"のままRange: bytes=500-を送り、実サーバなら416で
+    // ループしていた。修正後は直ちに"verifying"へ入り、fetchは一切呼ばれない。
+    expect(mgr.getState().status).toBe("verifying");
+    if (result.ok) await result.done;
+
+    expect(fetchCalls).toBe(0);
+    const final = mgr.getState();
+    expect(final.status).toBe("done");
+    expect(existsSync(path.join(dir, "ggml-small.bin"))).toBe(true);
+    expect(existsSync(path.join(dir, "ggml-small.bin.part"))).toBe(false);
+  });
+
+  test("416応答（既存.part>0）は検証にフォールバックする。内容が実際には不完全ならchecksum不一致で.partを片付け、ループを断つ", async () => {
+    const full = makeContent(1000, 3);
+    const partial = full.slice(0, 500); // .partは500バイトしか無い（本当は不完全）
+    const registry = fakeRegistry(full); // sizeBytes=1000・sha256=full全体のハッシュ
+    const dir = tmpModelsDir();
+    writeFileSync(path.join(dir, "ggml-small.bin.part"), partial);
+
+    // どんなRangeでも416を返す壊れたサーバを模す（start()の直行分岐が効かない状況、
+    // 例えばレジストリのsizeBytesが実サーバとズレているケース、を再現するための直接的なfetch fake）
+    const fetchFn: typeof fetch = (async () => new Response("range not satisfiable", { status: 416 })) as unknown as typeof fetch;
+    const mgr = createModelDownloadManager({ modelsDir: dir, registry, fetchFn });
+
+    const result = mgr.start("small");
+    expect(result.ok).toBe(true);
+    expect(mgr.getState().status).toBe("downloading"); // existingBytes(500) < sizeBytes(1000) なので直行分岐は通らない
+    if (result.ok) await result.done;
+
+    const state = mgr.getState();
+    expect(state.status).toBe("error");
+    expect(state.error).toContain("checksum mismatch");
+    expect(state.resumable).toBe(false);
+    // .partが削除されている = 次回start()はRangeを送らず最初から取得する（416ループが解消されている）
+    expect(existsSync(path.join(dir, "ggml-small.bin.part"))).toBe(false);
+  });
+});
+
+describe("model-download: 再開時の空き容量チェック", () => {
+  test("既存.partの分を差し引いた残り必要分だけをチェックする（差し引かなければ通らない設定で検証）", () => {
+    const content = makeContent(1000);
+    const registry = fakeRegistry(content); // sizeBytes=1000
+    const dir = tmpModelsDir();
+    writeFileSync(path.join(dir, "ggml-small.bin.part"), content.slice(0, 900)); // 残り100バイト
+
+    // 残り100バイト×1.2倍=120は満たすが、全体1000バイト×1.2倍=1200は満たさない空き容量
+    const mgr = createModelDownloadManager({
+      modelsDir: dir, registry, fetchFn: makeSimpleFetch(content), freeBytesFn: () => 150,
+    });
+
+    const result = mgr.start("small");
+    expect(result.ok).toBe(true);
+  });
+
+  test("既存.partが無い場合は従来どおりsizeBytes全体×1.2倍で判定する", () => {
+    const content = makeContent(1000);
+    const registry = fakeRegistry(content);
+    const dir = tmpModelsDir();
+
+    const mgr = createModelDownloadManager({
+      modelsDir: dir, registry, fetchFn: makeSimpleFetch(content), freeBytesFn: () => 150,
+    });
+
+    const result = mgr.start("small");
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.status).toBe(507);
+  });
+});
+
 describe("model-download: cancel", () => {
   test("ダウンロード中にcancelすると即座にidleへ戻り、後続チャンクは無視される", async () => {
     const content = makeContent(100);

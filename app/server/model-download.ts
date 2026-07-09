@@ -115,7 +115,13 @@ export function createModelDownloadManager(opts: {
     }
 
     mkdirSync(modelsDir, { recursive: true });
-    const required = Math.ceil(entry.sizeBytes * MIN_FREE_MULTIPLIER);
+    const partPath = partPathOf(entry);
+    let existingBytes = existsSync(partPath) ? statSync(partPath).size : 0;
+    if (existingBytes > entry.sizeBytes) existingBytes = 0; // 破損/別モデルの残骸なら最初からやり直す
+
+    // 空き容量は「これから新規に書く分」だけで見積もる（既存.partの分は既に消費済みで追加不要）。
+    const remainingBytes = entry.sizeBytes - existingBytes;
+    const required = Math.ceil(remainingBytes * MIN_FREE_MULTIPLIER);
     const free = freeBytesFn(modelsDir);
     if (free < required) {
       return {
@@ -124,17 +130,20 @@ export function createModelDownloadManager(opts: {
       };
     }
 
-    const partPath = partPathOf(entry);
-    let existingBytes = existsSync(partPath) ? statSync(partPath).size : 0;
-    if (existingBytes > entry.sizeBytes) existingBytes = 0; // 破損/別モデルの残骸なら最初からやり直す
-
     const handle: RunHandle = { controller: new AbortController(), cancelled: false };
     current = handle;
     state = {
-      status: "downloading", model, receivedBytes: existingBytes, totalBytes: entry.sizeBytes,
+      // .partが既に全バイト受信済み（verify中のcancelや途中終了後の再startで起こりうる）なら、
+      // 再ダウンロードせず検証から再開する。これをしないと Range: bytes=<sizeBytes>- を実サーバへ
+      // 送ることになり、416 Range Not Satisfiable → error → 次のstart()でも同じ416、という
+      // 抜け出せないループになる（実HuggingFace CDNで再現確認済み）。
+      status: remainingBytes === 0 ? "verifying" : "downloading",
+      model, receivedBytes: existingBytes, totalBytes: entry.sizeBytes,
       error: null, resumable: true,
     };
-    const done = runDownload(entry, partPath, existingBytes, handle).catch(() => { /* 結果は state 側に反映済み */ });
+    const done = (
+      remainingBytes === 0 ? verifyAndFinish(entry, partPath, handle) : runDownload(entry, partPath, existingBytes, handle)
+    ).catch(() => { /* 結果は state 側に反映済み */ });
     return { ok: true, done };
   }
 
@@ -156,6 +165,17 @@ export function createModelDownloadManager(opts: {
       if (existingBytes > 0) headers.Range = `bytes=${existingBytes}-`;
       const res = await fetchFn(entry.url, { headers, signal: handle.controller.signal });
       if (handle.cancelled) return;
+
+      // 防御: start()側の事前分岐（.part=sizeBytesなら検証直行）が効いていれば通常はここに来ないが、
+      // レジストリのsizeBytesが実サーバの実サイズとズレている等の理由で Range 開始位置が既にリソース末尾
+      // 以降になっていた場合、実サーバ（HuggingFace CDN含む）は416 Range Not Satisfiableを返す。416を
+      // 「これ以上受信すべきものは無い」の裏付けとして扱い、再ダウンロードはせず検証へ回す
+      // （中身が実際には不完全なら、検証のchecksum不一致経路が.partを削除して抜け出せない416ループを断つ）。
+      if (res.status === 416 && existingBytes > 0) {
+        const actualSize = existsSync(partPath) ? statSync(partPath).size : existingBytes;
+        if (handle === current) state = { ...state, receivedBytes: actualSize };
+        return verifyAndFinish(entry, partPath, handle);
+      }
       if (!res.ok) throw new Error(`download failed: HTTP ${res.status}`);
 
       const resumed = res.status === 206;
@@ -181,6 +201,25 @@ export function createModelDownloadManager(opts: {
         throw new Error(`download incomplete: received ${received} of ${entry.sizeBytes} bytes`);
       }
 
+      await verifyAndFinish(entry, partPath, handle);
+    } catch (err) {
+      if (handle.cancelled) return;
+      if (handle === current) {
+        state = {
+          status: "error", model: entry.id, receivedBytes: received, totalBytes: entry.sizeBytes,
+          error: err instanceof Error ? err.message : String(err), resumable: true,
+        };
+        current = null;
+      }
+    } finally {
+      try { await fh?.close(); } catch { /* 既にcloseされている場合は無視 */ }
+    }
+  }
+
+  /** ダウンロード済み（.partが全バイト揃っている）ファイルの検証→原子rename、または不一致時の破棄。
+   * start()の直行分岐とrunDownloadの416防御分岐の両方から呼ばれる共通の末尾処理。 */
+  async function verifyAndFinish(entry: ModelRegistryEntry, partPath: string, handle: RunHandle): Promise<void> {
+    try {
       if (handle === current) state = { ...state, status: "verifying" };
       const digest = await sha256File(partPath, handle);
       if (handle.cancelled) return;
@@ -208,13 +247,11 @@ export function createModelDownloadManager(opts: {
       if (handle.cancelled) return;
       if (handle === current) {
         state = {
-          status: "error", model: entry.id, receivedBytes: received, totalBytes: entry.sizeBytes,
+          status: "error", model: entry.id, receivedBytes: entry.sizeBytes, totalBytes: entry.sizeBytes,
           error: err instanceof Error ? err.message : String(err), resumable: true,
         };
         current = null;
       }
-    } finally {
-      try { await fh?.close(); } catch { /* 既にcloseされている場合は無視 */ }
     }
   }
 
