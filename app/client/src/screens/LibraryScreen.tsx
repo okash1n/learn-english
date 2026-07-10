@@ -1,7 +1,7 @@
 import { fetchModelTalkLibrary, fetchTalkExplanation, type ModelTalkEntry } from "../api";
 import { STR, type Lang } from "../i18n";
 import { localizedTitle } from "../localized-title";
-import { localYmdFromTimestamp } from "../dates";
+import { formatYmdShort, localYmdFromTimestamp } from "../dates";
 import { useLoad } from "../useLoad";
 import { usePlayRow } from "../usePlayRow";
 import { useExplain } from "../useExplain";
@@ -58,7 +58,7 @@ function LibraryEntry({ entry, lang, row }: {
             playAriaLabel={t.playAria(title)}
           />{" "}
           {title}{" "}
-          <span className="text-sm text-muted">{localYmdFromTimestamp(entry.createdAt)}</span>
+          <span className="text-sm text-muted">{formatYmdShort(localYmdFromTimestamp(entry.createdAt), lang)}</span>
         </>
       }
     >

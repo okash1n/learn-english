@@ -249,7 +249,13 @@ type SessionCardStrings = {
   fullSession: { title: string; minutes: string; desc: string };
   shortSession: { title: string; minutes: string; desc: string };
 };
-type CalendarStrings = { calendar: { title: string; legendLess: string; legendMore: string } };
+type CalendarStrings = {
+  calendar: {
+    title: string; legendLess: string; legendMore: string;
+    loading: string; loadError: string; retry: string;
+    dayLabel: (date: string, xp: number) => string;
+  };
+};
 type FreeTalkHeaderStrings = { freeTalk: { title: string; desc: string } };
 type ProgressStrings = {
   progress: {
@@ -277,6 +283,8 @@ type ProgressStrings = {
     monthlyReview: string;
     mrGenerate: string; mrGenerating: string;
     mrEmpty: string; mrError: string;
+    mrLoading: string; mrLoadError: string;
+    mrHistoryLoading: string; mrHistoryLoadError: string;
     mrPast: string;
     mrDate: (ymd: string) => string;
     mrAlreadyThisMonth: string;
@@ -661,7 +669,11 @@ export const STR: Record<Lang, Strings> = {
     },
     fullSession: { title: "Full Session", minutes: "60 min", desc: "Five blocks of solid practice" },
     shortSession: { title: "Short Session", minutes: "30 min", desc: "Focused training when you have time" },
-    calendar: { title: "Days with practice", legendLess: "Less", legendMore: "More" },
+    calendar: {
+      title: "Days with practice", legendLess: "Less", legendMore: "More",
+      loading: "Loading practice days…", loadError: "Couldn't load practice days.", retry: "Retry",
+      dayLabel: (date, xp) => xp > 0 ? `${date} · ${xp} XP` : date,
+    },
     freeTalk: { title: "Free Talk", desc: "Talk about anything in English — press the button to start and stop recording" },
     progress: {
       levelLabel: (n) => `Lv ${n}`,
@@ -693,8 +705,12 @@ export const STR: Record<Lang, Strings> = {
       mrGenerating: "Writing your review…",
       mrEmpty: "Once a month, a short written review of your speaking practice appears here.",
       mrError: "Couldn't generate the review. Please try again.",
-      mrPast: "Past reviews",
-      mrDate: (ymd) => `Generated on ${ymd}`,
+      mrLoading: "Loading the latest review…",
+      mrLoadError: "Couldn't load the latest review.",
+      mrHistoryLoading: "Loading review history…",
+      mrHistoryLoadError: "Couldn't load review history.",
+      mrPast: "Review history",
+      mrDate: (date) => `Generated on ${date}`,
       mrAlreadyThisMonth: "This month's review is already written — showing the latest.",
     },
     placement: {
@@ -1147,7 +1163,11 @@ export const STR: Record<Lang, Strings> = {
     },
     fullSession: { title: "通しセッション", minutes: "60分", desc: "5ブロックで総合的にしっかり練習" },
     shortSession: { title: "短縮セッション", minutes: "30分", desc: "時間がある日の集中トレーニング" },
-    calendar: { title: "練習した日", legendLess: "少", legendMore: "多" },
+    calendar: {
+      title: "練習した日", legendLess: "少", legendMore: "多",
+      loading: "練習記録を読み込んでいます…", loadError: "練習記録を読み込めませんでした。", retry: "再試行",
+      dayLabel: (date, xp) => xp > 0 ? `${date} ・ ${xp} XP` : date,
+    },
     freeTalk: { title: "自由会話", desc: "英語でなんでも話しかけてください — 録音ボタンで開始・停止" },
     progress: {
       levelLabel: (n) => `Lv ${n}`,
@@ -1179,8 +1199,12 @@ export const STR: Record<Lang, Strings> = {
       mrGenerating: "レビューを書いています…",
       mrEmpty: "月に一度、スピーキング練習の振り返りレポートがここに表示されます。",
       mrError: "レビューを生成できませんでした。もう一度お試しください。",
-      mrPast: "過去のレビュー",
-      mrDate: (ymd) => `${ymd} 生成`,
+      mrLoading: "最新のレビューを読み込んでいます…",
+      mrLoadError: "最新のレビューを読み込めませんでした。",
+      mrHistoryLoading: "レビュー履歴を読み込んでいます…",
+      mrHistoryLoadError: "レビュー履歴を読み込めませんでした。",
+      mrPast: "レビュー履歴",
+      mrDate: (date) => `${date}に生成`,
       mrAlreadyThisMonth: "今月のレビューは生成済みです — 最新の内容を表示しています。",
     },
     placement: {

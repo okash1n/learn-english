@@ -4,10 +4,12 @@ import {
   type LevelProposal, type PlacementLatest, type PracticeDaysView, type ProgressSummary, type QuickDrillKind, type RoleplayDomain,
 } from "../api";
 import { STR, type DrillKey, type Lang } from "../i18n";
+import { formatYmdLong, formatYmdShort, localYmd } from "../dates";
+import { useLoad, type LoadState } from "../useLoad";
+import { Banner } from "../ui/Banner";
 import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
 import { type MenuSource } from "./SessionRunner";
-import { localYmd } from "../dates";
 import { calendarLevel } from "../lib/calendar-level";
 
 export type StartSelection =
@@ -35,14 +37,15 @@ const WEEKDAY_LETTERS: Record<Lang, string[]> = {
  * 練習日カレンダー（GitHub風: 列=週・行=曜日、横幅に入るだけ週列を表示）。
  * 実施日の表示のみ — 情報的フィードバックに徹し、連続日数・喪失演出は置かない。
  */
-function PracticeCalendar({ days, xpByDay, lang }: { days: string[]; xpByDay: Record<string, number>; lang: Lang }) {
+function PracticeCalendar({ state, lang, onRetry }: {
+  state: LoadState<PracticeDaysView>; lang: Lang; onRetry: () => void;
+}) {
   const t = STR[lang];
-  const set = new Set(days);
-  const today = new Date();
   // 横幅に入るだけ週列を表示（セル18px+隙間5px=23px/列、曜日ラベル分を差し引く）
   const calRef = useRef<HTMLDivElement | null>(null);
   const [weekCount, setWeekCount] = useState(8);
   useEffect(() => {
+    if (state.status !== "ready") return;
     const el = calRef.current;
     if (!el) return;
     const compute = () => {
@@ -54,7 +57,24 @@ function PracticeCalendar({ days, xpByDay, lang }: { days: string[]; xpByDay: Re
     const ro = new ResizeObserver(compute);
     ro.observe(el);
     return () => ro.disconnect();
-  }, []);
+  }, [state.status]);
+
+  if (state.status === "loading") {
+    return <Card header={t.calendar.title}><p className="text-muted">{t.calendar.loading}</p></Card>;
+  }
+  if (state.status === "error") {
+    return (
+      <Card header={t.calendar.title}>
+        <Banner kind="error" action={<Button onClick={onRetry}>{t.calendar.retry}</Button>}>
+          {t.calendar.loadError}
+        </Banner>
+      </Card>
+    );
+  }
+
+  const set = new Set(state.data.days);
+  const xpByDay = state.data.xpByDay;
+  const today = new Date();
   // 今週の月曜（getDay: 日=0..土=6 → 月曜始まりに補正）
   const monday = new Date(today);
   monday.setDate(today.getDate() - ((today.getDay() + 6) % 7));
@@ -81,10 +101,7 @@ function PracticeCalendar({ days, xpByDay, lang }: { days: string[]; xpByDay: Re
           const isLast = i === weeks.length - 1;
           // 右端（今週）を起点に隔週でラベル表示
           const showLabel = (weeks.length - 1 - i) % 2 === 0;
-          const mondayLabel = (() => {
-            const [, m, d] = col[0].ymd.split("-");
-            return `${Number(m)}/${Number(d)}`;
-          })();
+          const mondayLabel = formatYmdShort(col[0].ymd, lang);
           return (
             <div key={i} className="cal-week">
               {showLabel && <span className={`cal-week-label${isLast ? " is-last" : ""}`}>{mondayLabel}</span>}
@@ -94,7 +111,7 @@ function PracticeCalendar({ days, xpByDay, lang }: { days: string[]; xpByDay: Re
                 return (
                   <div
                     key={c.ymd}
-                    title={c.isFuture ? undefined : xp > 0 ? `${c.ymd} · ${xp} XP` : c.ymd}
+                    title={c.isFuture ? undefined : t.calendar.dayLabel(formatYmdLong(c.ymd, lang), xp)}
                     data-level={level > 0 ? level : undefined}
                     className={`day${c.isToday ? " is-today" : ""}${c.isFuture ? " is-future" : ""}`}
                   />
@@ -116,7 +133,7 @@ function PracticeCalendar({ days, xpByDay, lang }: { days: string[]; xpByDay: Re
 export function StartScreen(props: { onSelect: (sel: StartSelection) => void; lang: Lang }) {
   const t = STR[props.lang];
   const tp = STR[props.lang].placement;
-  const [daysView, setDaysView] = useState<PracticeDaysView>({ days: [], xpByDay: {} });
+  const practiceDays = useLoad(fetchPracticeDays);
   const [summary, setSummary] = useState<ProgressSummary | null>(null);
   const [proposalError, setProposalError] = useState(false);
   const [placementLatest, setPlacementLatest] = useState<PlacementLatest | "unloaded">("unloaded");
@@ -127,8 +144,6 @@ export function StartScreen(props: { onSelect: (sel: StartSelection) => void; la
     aliveRef.current = true;
     if (!fetchedRef.current) {
       fetchedRef.current = true;
-      // カレンダーは補助情報 — 取得失敗でスタート画面を壊さない
-      fetchPracticeDays().then((d) => { if (aliveRef.current) setDaysView(d); }).catch(() => {});
       fetchProgressSummary().then((s) => { if (aliveRef.current) setSummary(s); }).catch(() => {});
       fetchPlacementLatest().then((r) => { if (aliveRef.current) setPlacementLatest(r); }).catch(() => {});
     }
@@ -227,7 +242,7 @@ export function StartScreen(props: { onSelect: (sel: StartSelection) => void; la
         />
       )}
 
-      <PracticeCalendar days={daysView.days} xpByDay={daysView.xpByDay} lang={props.lang} />
+      <PracticeCalendar state={practiceDays.state} lang={props.lang} onRetry={practiceDays.reload} />
     </div>
   );
 }

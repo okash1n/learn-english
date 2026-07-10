@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import {
   fetchLatestMonthlyReport, fetchMetricsSummary, fetchMonthlyReportList, requestMonthlyReport,
-  type MonthlyReport, type MonthlyReportPreview,
+  type MonthlyReport,
 } from "../api";
 import { STR, type Lang } from "../i18n";
-import { canGenerateMonthlyReview } from "../dates";
+import { canGenerateMonthlyReview, formatYmdLong, formatYmdShort } from "../dates";
+import { monthlyReviewDisplay } from "../monthly-review-display";
 import { useLoad } from "../useLoad";
 import { Banner } from "../ui/Banner";
 import { Button } from "../ui/Button";
@@ -67,9 +68,9 @@ export function ProgressScreen({ lang }: { lang: Lang }) {
       <Card header={t.speakingTime}>
         <div className="metric-bars">
           {days.map((d) => (
-            <div key={d.ymd} className="metric-bar-col" title={`${d.ymd}: ${fmtMin(d.speakingSec)}${t.speakingMinUnit}`}>
+            <div key={d.ymd} className="metric-bar-col" title={`${formatYmdLong(d.ymd, lang)}: ${fmtMin(d.speakingSec)}${t.speakingMinUnit}`}>
               <div className="metric-bar" style={{ height: `${Math.round((d.speakingSec / maxSec) * 100)}%` }} />
-              <span className="metric-bar-label">{Number(d.ymd.slice(8, 10))}</span>
+              <span className="metric-bar-label">{formatYmdShort(d.ymd, lang)}</span>
             </div>
           ))}
         </div>
@@ -79,7 +80,7 @@ export function ProgressScreen({ lang }: { lang: Lang }) {
         <div className="stack-sm">
           {days.filter((d) => d.utterances > 0).map((d) => (
             <div key={d.ymd} className="hbar-row">
-              <span className="hbar-label">{d.ymd.slice(5)}</span>
+              <span className="hbar-label">{formatYmdShort(d.ymd, lang)}</span>
               <div className="hbar-track">
                 <div className="hbar" style={{ width: `${Math.round((d.avgArticulationWpm / maxWpm) * 100)}%` }} />
               </div>
@@ -107,7 +108,7 @@ export function ProgressScreen({ lang }: { lang: Lang }) {
         {summary.level.history.length > 0 && (
           <ul className="level-history">
             {summary.level.history.map((h) => (
-              <li key={h.ymd}><span className="text-muted">{h.ymd}</span> → Lv {h.level}</li>
+              <li key={h.ymd}><span className="text-muted">{formatYmdLong(h.ymd, lang)}</span> → Lv {h.level}</li>
             ))}
           </ul>
         )}
@@ -121,83 +122,71 @@ export function ProgressScreen({ lang }: { lang: Lang }) {
 /** 月次レビュー: 最新の全文 + 生成導線 + 過去一覧。自己完結（メトリクス取得の失敗と独立） */
 function MonthlyReview({ lang }: { lang: Lang }) {
   const t = STR[lang].progress;
-  const [report, setReport] = useState<MonthlyReport | null>(null);
-  const [past, setPast] = useState<MonthlyReportPreview[]>([]);
+  const latest = useLoad(fetchLatestMonthlyReport);
+  const history = useLoad(fetchMonthlyReportList);
+  const [generatedReport, setGeneratedReport] = useState<MonthlyReport | null>(null);
   const [generating, setGenerating] = useState(false);
-  const [error, setError] = useState(false);
+  const [generateError, setGenerateError] = useState(false);
   const [alreadyGenerated, setAlreadyGenerated] = useState(false);
   const [expandedId, setExpandedId] = useState<number | null>(null);
-  const aliveRef = useRef(true);
-  const fetchedRef = useRef(false);
-
-  useEffect(() => {
-    aliveRef.current = true;
-    if (!fetchedRef.current) {
-      fetchedRef.current = true;
-      load();
-    }
-    return () => { aliveRef.current = false; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  async function load() {
-    try {
-      const [latest, list] = await Promise.all([fetchLatestMonthlyReport(), fetchMonthlyReportList()]);
-      if (!aliveRef.current) return;
-      setReport(latest);
-      setPast(list.filter((r) => r.id !== latest?.id));
-    } catch (err) {
-      console.warn("monthly review load failed:", err);
-    }
-  }
 
   async function generate() {
     setGenerating(true);
-    setError(false);
+    setGenerateError(false);
     setAlreadyGenerated(false);
     try {
       const { report: r, cached } = await requestMonthlyReport();
-      if (!aliveRef.current) return;
-      setReport(r);
-      // 一覧は次回表示時に更新されれば十分だが、その場で整合させる
-      setPast((p) => p.filter((x) => x.id !== r.id));
+      setGeneratedReport(r);
       // 今月分が既にある場合はサーバが既存を返す（cached）。無反応に見えないよう情報表示する
       if (cached) setAlreadyGenerated(true);
     } catch (err) {
       console.warn("monthly review generate failed:", err);
-      if (aliveRef.current) setError(true);
+      setGenerateError(true);
     } finally {
-      if (aliveRef.current) setGenerating(false);
+      setGenerating(false);
     }
   }
 
-  const canGenerate = canGenerateMonthlyReview(report?.ymd ?? null);
+  const display = monthlyReviewDisplay(latest.state, history.state, generatedReport);
+  const canGenerate = display.latestKnown && canGenerateMonthlyReview(display.report?.ymd ?? null);
 
   return (
     <Card header={t.monthlyReview}>
-      {report ? (
+      {display.latestStatus === "loading" && <p className="text-muted">{t.mrLoading}</p>}
+      {display.latestStatus === "error" && (
+        <Banner kind="error" action={<Button onClick={latest.reload}>{t.retry}</Button>}>
+          {t.mrLoadError}
+        </Banner>
+      )}
+      {display.latestStatus === "ready" && (display.report ? (
         <>
-          <p className="text-sm text-muted">{t.mrDate(report.ymd)}</p>
-          <p className="report-text">{report.text}</p>
+          <p className="text-sm text-muted">{t.mrDate(formatYmdLong(display.report.ymd, lang))}</p>
+          <p className="report-text">{display.report.text}</p>
         </>
       ) : (
         <p className="text-muted">{t.mrEmpty}</p>
-      )}
+      ))}
       {canGenerate && (
         <Button variant="secondary" onClick={generate} loading={generating} disabled={generating}>
           {generating ? t.mrGenerating : t.mrGenerate}
         </Button>
       )}
-      {error && <Banner kind="error">{t.mrError}</Banner>}
+      {generateError && <Banner kind="error">{t.mrError}</Banner>}
       {alreadyGenerated && <Banner kind="info">{t.mrAlreadyThisMonth}</Banner>}
-      {past.length > 0 && (
+      {display.historyStatus === "loading" && <p className="text-muted">{t.mrHistoryLoading}</p>}
+      {display.historyStatus === "error" && (
+        <Banner kind="error" action={<Button onClick={history.reload}>{t.retry}</Button>}>
+          {t.mrHistoryLoadError}
+        </Banner>
+      )}
+      {display.past.length > 0 && (
         <div className="mr-past">
           <p className="text-sm text-muted">{t.mrPast}</p>
           <ul className="mr-past-list">
-            {past.map((r) => (
+            {display.past.map((r) => (
               <li key={r.id}>
                 <button className="mr-past-item" onClick={() => setExpandedId(expandedId === r.id ? null : r.id)}>
-                  <span className="text-muted">{r.ymd}</span> {expandedId === r.id ? "" : `${r.preview}…`}
+                  <span className="text-muted">{formatYmdShort(r.ymd, lang)}</span> {expandedId === r.id ? "" : `${r.preview}…`}
                 </button>
                 {expandedId === r.id && <p className="report-text">{r.text}</p>}
               </li>
