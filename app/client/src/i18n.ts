@@ -247,7 +247,7 @@ type PlacementStrings = {
     introTitle: string; introBody: string; introStart: string;
     taskLabel: (i: number, total: number) => string;
     promptLabel: string;
-    recordStart: string; recordStop: string; transcribing: string;
+    recordStart: string; recordStarting: string; recordStop: string; transcribing: string;
     yourAnswer: string; redo: string; next: string; submit: string;
     submitting: string; submitError: string; retry: string;
     resultTitle: string; resultStage: (stage: number) => string;
@@ -309,7 +309,7 @@ type Ftt432Strings = { ftt432: {
   aeTitle: string; aeLoading: string; aeNoRecording: string; startRound2: (min: string) => string;
   doneBody: (count: number) => string;
   roundHeading: (n: number, min: string, topic: string) => string;
-  timeUp: string; recStop: string; recTranscribing: string; recStart: string; roundFinish: string;
+  timeUp: string; recStop: string; recStarting: string; recTranscribing: string; recStart: string; roundFinish: string;
   micError: (detail: string) => string;
   explainMore: string; explainLoading: string; explainError: string;
 } };
@@ -330,7 +330,7 @@ type LibraryStrings = { library: {
 } };
 type RoleplayStrings = { roleplay: { starters: string } };
 type FreeTalkScreenStrings = { freeTalkScreen: {
-  idle: string; recording: string; transcribing: string; thinking: string; speaking: string; errorLabel: string;
+  idle: string; starting: string; recording: string; transcribing: string; thinking: string; speaking: string; errorLabel: string;
   micError: (detail: string) => string; notHeard: string;
   hintLabel: string; hintPlaceholder: string; hintButton: string; hintThinking: string; hintError: string; retry: string;
   you: string; ai: string; translate: string; translating: string; translateError: string;
@@ -615,7 +615,8 @@ export const STR: Record<Lang, Strings> = {
       introStart: "Start task 1",
       taskLabel: (i, total) => `Task ${i} of ${total}`,
       promptLabel: "Your prompt",
-      recordStart: "🎙 Start speaking", recordStop: "⏹ Stop recording", transcribing: "📝 Transcribing…",
+      recordStart: "🎙 Start speaking", recordStarting: "Requesting microphone…",
+      recordStop: "⏹ Stop recording", transcribing: "📝 Transcribing…",
       yourAnswer: "Your answer", redo: "Record again", next: "Next task →", submit: "Get my result →",
       submitting: "Scoring your three tasks…",
       submitError: "Scoring didn't come back cleanly. Your recordings are kept — just submit again.",
@@ -713,7 +714,7 @@ export const STR: Record<Lang, Strings> = {
       aeNoRecording: "No recording, so there's no feedback", startRound2: (min) => `Start Round 2 (${min})`,
       doneBody: (count) => `4/3/2 done! You told the same story ${count} times, a little faster each round.`,
       roundHeading: (n, min, topic) => `Round ${n} (${min}) — ${topic}`,
-      timeUp: "— Time reached", recStop: "⏹ Stop recording", recTranscribing: "📝 Transcribing…",
+      timeUp: "— Time reached", recStop: "⏹ Stop recording", recStarting: "Requesting microphone…", recTranscribing: "📝 Transcribing…",
       recStart: "🎙 Start speaking", roundFinish: "End this round →",
       micError: (detail) => `Can't access the microphone: ${detail}`,
       explainMore: "💡 Explain more", explainLoading: "Writing an explanation…", explainError: "Couldn't load the explanation.",
@@ -740,7 +741,7 @@ export const STR: Record<Lang, Strings> = {
     },
     roleplay: { starters: "You could open with:" },
     freeTalkScreen: {
-      idle: "🎙 Speak (click to start recording)", recording: "⏹ Recording… (click to send)",
+      idle: "🎙 Speak (click to start recording)", starting: "Requesting microphone…", recording: "⏹ Recording… (click to send)",
       transcribing: "📝 Transcribing…", thinking: "🤔 Thinking…", speaking: "🔊 Playing…", errorLabel: "🎙 Speak again",
       micError: (detail) => `Can't access the microphone: ${detail}`, notHeard: "Couldn't catch that. Please try again.",
       hintLabel: "Stuck? Type what you want to say in Japanese and I'll suggest ways to say it in English",
@@ -1026,7 +1027,8 @@ export const STR: Record<Lang, Strings> = {
       introStart: "タスク1を始める",
       taskLabel: (i, total) => `タスク ${i} / ${total}`,
       promptLabel: "お題",
-      recordStart: "🎙 話し始める", recordStop: "⏹ 録音を止める", transcribing: "📝 文字起こし中…",
+      recordStart: "🎙 話し始める", recordStarting: "マイクを準備中…",
+      recordStop: "⏹ 録音を止める", transcribing: "📝 文字起こし中…",
       yourAnswer: "あなたの回答", redo: "録音し直す", next: "次のタスクへ →", submit: "結果を見る →",
       submitting: "3つのタスクを採点しています…",
       submitError: "採点結果をうまく受け取れませんでした。録音は保持されています — もう一度送信してください。",
@@ -1124,7 +1126,7 @@ export const STR: Record<Lang, Strings> = {
       aeNoRecording: "録音がなかったのでフィードバックはありません", startRound2: (min) => `Round 2 を始める（${min}）`,
       doneBody: (count) => `4/3/2 完了！同じ話を${count}回、少しずつ速く話せました。`,
       roundHeading: (n, min, topic) => `Round ${n}（${min}） — ${topic}`,
-      timeUp: "— 目安の時間になりました", recStop: "⏹ 録音を止める", recTranscribing: "📝 文字起こし中…",
+      timeUp: "— 目安の時間になりました", recStop: "⏹ 録音を止める", recStarting: "マイクを準備中…", recTranscribing: "📝 文字起こし中…",
       recStart: "🎙 話し始める", roundFinish: "このラウンドを終える →",
       micError: (detail) => `マイクにアクセスできません: ${detail}`,
       explainMore: "💡 もっと詳しく", explainLoading: "解説を書いています…", explainError: "解説を取得できませんでした。",
@@ -1151,7 +1153,7 @@ export const STR: Record<Lang, Strings> = {
     },
     roleplay: { starters: "こう切り出せます:" },
     freeTalkScreen: {
-      idle: "🎙 話す（クリックで録音開始）", recording: "⏹ 録音中…（クリックで送信）",
+      idle: "🎙 話す（クリックで録音開始）", starting: "マイクを準備中…", recording: "⏹ 録音中…（クリックで送信）",
       transcribing: "📝 文字起こし中…", thinking: "🤔 考え中…", speaking: "🔊 再生中…", errorLabel: "🎙 もう一度話す",
       micError: (detail) => `マイクにアクセスできません: ${detail}`, notHeard: "音声を聞き取れませんでした。もう一度話してください。",
       hintLabel: "うまく言えないときは、言いたいことを日本語で入力すると英語の言い方を提案します",

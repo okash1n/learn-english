@@ -7,7 +7,7 @@ import { Button } from "../ui/Button";
 import { FeedbackRow } from "../ui/FeedbackRow";
 
 type Turn = { role: "you" | "ai"; text: string };
-type Status = "idle" | "recording" | "transcribing" | "thinking" | "speaking" | "error";
+type Status = "idle" | "starting" | "recording" | "transcribing" | "thinking" | "speaking" | "error";
 
 /** 会話ループ画面。scenarioId を渡すとロールプレイモードになる（M1の自由会話UIを抽出したもの） */
 export function FreeTalkScreen(props: {
@@ -15,10 +15,11 @@ export function FreeTalkScreen(props: {
 }) {
   const t = STR[props.lang].freeTalkScreen;
   const LABELS: Record<Status, string> = {
-    idle: t.idle, recording: t.recording, transcribing: t.transcribing,
+    idle: t.idle, starting: t.starting, recording: t.recording, transcribing: t.transcribing,
     thinking: t.thinking, speaking: t.speaking, error: t.errorLabel,
   };
   const [status, setStatus] = useState<Status>("idle");
+  const statusRef = useRef<Status>("idle");
   const [turns, setTurns] = useState<Turn[]>([]);
   const [errorMsg, setErrorMsg] = useState("");
   const sessionIdRef = useRef<string | undefined>(undefined);
@@ -36,33 +37,41 @@ export function FreeTalkScreen(props: {
   // 録音中/再生中に画面を離脱してもマイク・音声が解放されるよう、アンマウント時に停止する
   useEffect(() => { aliveRef.current = true; return () => { aliveRef.current = false; recorderRef.current.cancel(); stopPlayback(); }; }, []);
 
+  function updateStatus(next: Status) {
+    statusRef.current = next;
+    setStatus(next);
+  }
+
   async function onMainButton() {
     setErrorMsg("");
-    if (status === "idle" || status === "error") {
+    if (statusRef.current === "idle" || statusRef.current === "error") {
+      updateStatus("starting");
       try {
         await recorderRef.current.start();
-        setStatus("recording");
+        if (!aliveRef.current) return;
+        updateStatus("recording");
       } catch (err) {
+        if (!aliveRef.current) return;
         setErrorMsg(t.micError(err instanceof Error ? err.message : String(err)));
-        setStatus("error");
+        updateStatus("error");
       }
       return;
     }
-    if (status !== "recording") return;
+    if (statusRef.current !== "recording") return;
     try {
-      setStatus("transcribing");
+      updateStatus("transcribing");
       const blob = await recorderRef.current.stop();
       if (!aliveRef.current) return;
       const text = await sttUpload(blob);
       if (!aliveRef.current) return;
       if (!text) {
         setErrorMsg(t.notHeard);
-        setStatus("error");
+        updateStatus("error");
         return;
       }
       setTurns((prev) => [...prev, { role: "you", text }]);
 
-      setStatus("thinking");
+      updateStatus("thinking");
       const { replyText, sessionId } = await converse(
         text, props.activitySessionId, sessionIdRef.current, props.scenarioId,
       );
@@ -71,16 +80,16 @@ export function FreeTalkScreen(props: {
       props.onSessionId?.(sessionId);
       setTurns((prev) => [...prev, { role: "ai", text: replyText }]);
 
-      setStatus("speaking");
+      updateStatus("speaking");
       const audioBlob = await ttsFetch(replyText);
       if (!aliveRef.current) return;
       await playBlob(audioBlob);
       if (!aliveRef.current) return;
-      setStatus("idle");
+      updateStatus("idle");
     } catch (err) {
       if (!aliveRef.current) return;
       setErrorMsg(err instanceof Error ? err.message : String(err));
-      setStatus("error");
+      updateStatus("error");
     }
   }
 
@@ -117,7 +126,7 @@ export function FreeTalkScreen(props: {
         variant="primary"
         size="lg"
         onClick={onMainButton}
-        disabled={status === "transcribing" || status === "thinking" || status === "speaking"}
+        disabled={status === "starting" || status === "transcribing" || status === "thinking" || status === "speaking"}
       >
         {LABELS[status]}
       </Button>

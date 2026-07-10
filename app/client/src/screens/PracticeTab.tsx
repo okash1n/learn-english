@@ -83,6 +83,8 @@ export function PracticeTab({ lang, hideNote, clozeDefault, audioFirst = false, 
   async function grade(g: "good" | "soso" | "bad") {
     if (gradingRef.current) return;
     gradingRef.current = true;
+    // 評価APIを待っている間に旧カードのTTS取得が完了しても、再生を開始させない。
+    stopPlayback();
     setBusy(true);
     setErrorMsg("");
     try {
@@ -93,7 +95,6 @@ export function PracticeTab({ lang, hideNote, clozeDefault, audioFirst = false, 
       else await gradeSentence(current.no, pending.grade, pending.answerId);
       if (!aliveRef.current) return;
       pendingAnswerRef.current = null;
-      stopPlayback();
       setGradedCount((n) => n + 1);
       setIdx((i) => i + 1);
       setPhase(initialPhase(audioFirst, clozeDefault));

@@ -34,7 +34,7 @@ function minNum(seconds: number): string {
 }
 
 type Phase = { kind: "prep" } | { kind: "round"; index: number } | { kind: "ae" } | { kind: "done" };
-type RecState = "idle" | "recording" | "transcribing";
+type RecState = "idle" | "starting" | "recording" | "transcribing";
 type PrepState = "loading" | "ready" | "error";
 
 /**
@@ -80,22 +80,33 @@ export function FourThreeTwoScreen(props: {
   const prepFetchedRef = useRef(false); // StrictMode の二重マウントで prep を二重フェッチしない
   const prepTimer = useCountdown(PREP_SECONDS);
   const recorderRef = useRef(new Recorder());
-  const timer = useCountdown(roundsSec[0]);
   const roundStartedRef = useRef(false);
   const aliveRef = useRef(true);
   const roundIndexRef = useRef(0);
-  const remainingRef = useRef(timer.remaining);
+  const recStateRef = useRef<RecState>("idle");
+  const stopInFlightRef = useRef(false);
+  const finishInFlightRef = useRef(false);
+  const elapsedSecRef = useRef<number[]>(Array(roundsSec.length).fill(0));
+  const segmentStartedAtRef = useRef(0);
+  const timer = useCountdown(roundsSec[0], {
+    onExpire: () => { void stopRecording(roundIndexRef.current); },
+  });
 
   const roundIndex = phase.kind === "round" ? phase.index : 0;
   useEffect(() => { roundIndexRef.current = roundIndex; }, [roundIndex]);
-  useEffect(() => { remainingRef.current = timer.remaining; }, [timer.remaining]);
+
+  function updateRecState(next: RecState) {
+    recStateRef.current = next;
+    setRecState(next);
+  }
 
   useEffect(() => {
     aliveRef.current = true;
+    // StrictMode の setup→cleanup→setup でも準備タイマーを再開する。
+    if (!prepTimer.expired && !prepTimer.running) prepTimer.start();
     if (!prepFetchedRef.current) {
       prepFetchedRef.current = true;
       loadPrep();
-      prepTimer.start();
       if (autoPlay) {
         prefetchModelTalkAudio(props.topic.id, (stage) => {
           if (aliveRef.current) setModelState(stage);
@@ -111,19 +122,22 @@ export function FourThreeTwoScreen(props: {
       }
     }
     return () => {
+      const idx = roundIndexRef.current;
+      const liveElapsed = recStateRef.current === "recording"
+        ? Math.max(0.1, Math.round((performance.now() - segmentStartedAtRef.current) / 100) / 10)
+        : 0;
       aliveRef.current = false;
       recorderRef.current.cancel();
       stopPlayback();
       if (roundStartedRef.current) {
         roundStartedRef.current = false;
-        const idx = roundIndexRef.current;
         sendSessionEvent("round_end", props.sessionId, {
           blockId: props.blockId,
           block: "four-three-two",
           round: idx + 1,
           aborted: true,
           transcript: transcriptsRef.current[idx],
-          elapsedSec: roundsSec[idx] - remainingRef.current,
+          elapsedSec: elapsedSecRef.current[idx] + liveElapsed,
           ...(sttFailedRef.current[idx] ? { sttFailed: true } : {}),
         });
       }
@@ -168,88 +182,120 @@ export function FourThreeTwoScreen(props: {
 
   async function toggleRecording() {
     setErrorMsg("");
-    if (recState === "idle") {
+    const index = roundIndexRef.current;
+    if (recStateRef.current === "idle") {
+      if (timer.expired) return;
+      updateRecState("starting");
       try {
         stopPlayback();
         await recorderRef.current.start();
-        setRecState("recording");
+        if (!aliveRef.current || roundIndexRef.current !== index) {
+          recorderRef.current.cancel();
+          return;
+        }
+        segmentStartedAtRef.current = performance.now();
+        updateRecState("recording");
         if (!timer.running && !timer.expired) {
           timer.start();
+        }
+        if (!roundStartedRef.current) {
           roundStartedRef.current = true;
-          sendSessionEvent("round_start", props.sessionId, { blockId: props.blockId, block: "four-three-two", round: roundIndex + 1 });
+          sendSessionEvent("round_start", props.sessionId, {
+            blockId: props.blockId, block: "four-three-two", round: index + 1,
+          });
         }
       } catch (err) {
+        if (!aliveRef.current) return;
         setErrorMsg(t.micError(err instanceof Error ? err.message : String(err)));
+        updateRecState("idle");
       }
       return;
     }
-    if (recState !== "recording") return;
+    if (recStateRef.current === "recording") await stopRecording(index);
+  }
+
+  async function stopRecording(index: number) {
+    if (recStateRef.current !== "recording" || stopInFlightRef.current || roundIndexRef.current !== index) return;
+    stopInFlightRef.current = true;
+    updateRecState("transcribing");
+    timer.pause();
     try {
-      setRecState("transcribing");
-      const blob = await recorderRef.current.stop();
+      const { blob, durationSec } = await recorderRef.current.stopTimed();
+      elapsedSecRef.current[index] += durationSec;
       if (!aliveRef.current) return;
       const text = await sttUpload(blob);
-      if (!aliveRef.current) return;
+      if (!aliveRef.current || roundIndexRef.current !== index) return;
       // 同一ラウンド内で失敗後に録り直して成功した場合、直前の失敗印を引きずらないよう解除する
-      sttFailedRef.current[roundIndex] = false;
-      transcriptsRef.current[roundIndex] = [transcriptsRef.current[roundIndex], text]
+      sttFailedRef.current[index] = false;
+      transcriptsRef.current[index] = [transcriptsRef.current[index], text]
         .filter(Boolean)
         .join(" ");
       setTranscripts([...transcriptsRef.current]);
-      setRecState("idle");
     } catch (err) {
       if (!aliveRef.current) return;
       // STT呼び出しの失敗でtranscriptが空のままround_endが記録され得るため印を付ける
       // （技術障害を英語力の低さのシグナルとして扱わないため。サーバ側 fttOutputSignals で観測対象外にする）
-      sttFailedRef.current[roundIndex] = true;
+      sttFailedRef.current[index] = true;
       setErrorMsg(err instanceof Error ? err.message : String(err));
-      setRecState("idle");
+    } finally {
+      stopInFlightRef.current = false;
+      if (aliveRef.current && roundIndexRef.current === index) updateRecState("idle");
     }
   }
 
   async function finishRound() {
-    if (recState === "recording") await toggleRecording();
-    if (!aliveRef.current) return;
-    timer.pause();
-    if (roundStartedRef.current) {
-      roundStartedRef.current = false;
-      sendSessionEvent("round_end", props.sessionId, {
-        blockId: props.blockId,
-        block: "four-three-two",
-        round: roundIndex + 1,
-        transcript: transcriptsRef.current[roundIndex],
-        elapsedSec: roundsSec[roundIndex] - timer.remaining,
-        ...(sttFailedRef.current[roundIndex] ? { sttFailed: true } : {}),
-      });
-    }
-    if (roundIndex === 0) {
-      setPhase({ kind: "ae" });
-      const transcript = transcriptsRef.current[0];
-      if (!transcript.trim()) {
-        setAeSkippedNoRecording(true);
-        setAe(null);
-      } else {
-        setAeSkippedNoRecording(false);
-        setAeLoading(true);
-        try {
-          const feedback = await fetchAeFeedback(transcript, props.topic.title);
-          if (!aliveRef.current) return;
-          setAe(feedback);
-        } catch (err) {
-          if (!aliveRef.current) return;
-          setErrorMsg(err instanceof Error ? err.message : String(err));
-        } finally {
-          if (aliveRef.current) setAeLoading(false);
-        }
+    if (finishInFlightRef.current) return;
+    const index = roundIndexRef.current;
+    if (recStateRef.current === "starting" || recStateRef.current === "transcribing") return;
+    finishInFlightRef.current = true;
+    try {
+      if (recStateRef.current === "recording") await stopRecording(index);
+      if (!aliveRef.current || roundIndexRef.current !== index) return;
+      timer.pause();
+      if (roundStartedRef.current) {
+        roundStartedRef.current = false;
+        sendSessionEvent("round_end", props.sessionId, {
+          blockId: props.blockId,
+          block: "four-three-two",
+          round: index + 1,
+          transcript: transcriptsRef.current[index],
+          elapsedSec: elapsedSecRef.current[index],
+          ...(sttFailedRef.current[index] ? { sttFailed: true } : {}),
+        });
       }
-    } else if (roundIndex < roundsSec.length - 1) {
-      startRound(roundIndex + 1);
-    } else {
-      setPhase({ kind: "done" });
+      if (index === 0) {
+        setPhase({ kind: "ae" });
+        const transcript = transcriptsRef.current[0];
+        if (!transcript.trim()) {
+          setAeSkippedNoRecording(true);
+          setAe(null);
+        } else {
+          setAeSkippedNoRecording(false);
+          setAeLoading(true);
+          try {
+            const feedback = await fetchAeFeedback(transcript, props.topic.title);
+            if (!aliveRef.current) return;
+            setAe(feedback);
+          } catch (err) {
+            if (!aliveRef.current) return;
+            setErrorMsg(err instanceof Error ? err.message : String(err));
+          } finally {
+            if (aliveRef.current) setAeLoading(false);
+          }
+        }
+      } else if (index < roundsSec.length - 1) {
+        startRound(index + 1);
+      } else {
+        setPhase({ kind: "done" });
+      }
+    } finally {
+      finishInFlightRef.current = false;
     }
   }
 
   function startRound(index: number) {
+    roundIndexRef.current = index;
+    updateRecState("idle");
     setPhase({ kind: "round", index });
     timer.reset(roundsSec[index]);
     roundStartedRef.current = false;
@@ -389,11 +435,17 @@ export function FourThreeTwoScreen(props: {
         <button
           className={`btn btn-primary btn-lg record-btn${recState === "recording" ? " is-recording" : ""}`}
           onClick={toggleRecording}
-          disabled={recState === "transcribing"}
+          disabled={recState === "starting" || recState === "transcribing" || (timer.expired && recState === "idle")}
         >
-          {recState === "recording" ? t.recStop : recState === "transcribing" ? t.recTranscribing : t.recStart}
+          {recState === "recording"
+            ? t.recStop
+            : recState === "starting"
+              ? t.recStarting
+              : recState === "transcribing"
+                ? t.recTranscribing
+                : t.recStart}
         </button>
-        <Button onClick={finishRound} disabled={recState === "transcribing"}>
+        <Button onClick={finishRound} disabled={recState === "starting" || recState === "transcribing"}>
           {t.roundFinish}
         </Button>
       </div>
