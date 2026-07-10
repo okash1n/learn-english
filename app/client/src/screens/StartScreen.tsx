@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   fetchPlacementLatest, fetchPracticeDays, fetchProgressSummary, progressLevelAction,
-  type LevelProposal, type PlacementLatest, type PracticeDaysView, type ProgressSummary, type QuickDrillKind, type RoleplayDomain,
+  type LevelProposal, type PracticeDaysView, type ProgressSummary, type QuickDrillKind, type RoleplayDomain,
 } from "../api";
 import { STR, type DrillKey, type Lang } from "../i18n";
 import { formatYmdLong, formatYmdShort, localYmd } from "../dates";
@@ -11,6 +11,11 @@ import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
 import { type MenuSource } from "./SessionRunner";
 import { calendarLevel } from "../lib/calendar-level";
+import {
+  placementCalloutKind,
+  reservesInitialPlacementSpace,
+  type PlacementLatestState,
+} from "./placement-callout-state";
 
 export type StartSelection =
   | { type: "session"; source: MenuSource }
@@ -136,7 +141,7 @@ export function StartScreen(props: { onSelect: (sel: StartSelection) => void; la
   const practiceDays = useLoad(fetchPracticeDays);
   const [summary, setSummary] = useState<ProgressSummary | null>(null);
   const [proposalError, setProposalError] = useState(false);
-  const [placementLatest, setPlacementLatest] = useState<PlacementLatest | "unloaded">("unloaded");
+  const [placementLatest, setPlacementLatest] = useState<PlacementLatestState>("loading");
   const aliveRef = useRef(true);
   const fetchedRef = useRef(false);
 
@@ -145,18 +150,16 @@ export function StartScreen(props: { onSelect: (sel: StartSelection) => void; la
     if (!fetchedRef.current) {
       fetchedRef.current = true;
       fetchProgressSummary().then((s) => { if (aliveRef.current) setSummary(s); }).catch(() => {});
-      fetchPlacementLatest().then((r) => { if (aliveRef.current) setPlacementLatest(r); }).catch(() => {});
+      fetchPlacementLatest()
+        .then((r) => { if (aliveRef.current) setPlacementLatest(r); })
+        .catch(() => { if (aliveRef.current) setPlacementLatest("unavailable"); });
     }
     return () => { aliveRef.current = false; };
   }, []);
 
   // プレースメント導線: 未測定→初回測定 / 前回から30日以上→月次測定 / それ以外は出さない（スペック§6.3, §9）
-  const placementCard: "new" | "monthly" | "none" = (() => {
-    if (placementLatest === "unloaded") return "none";
-    if (placementLatest === null) return "new";
-    const days = Math.floor((Date.now() - new Date(placementLatest.ts).getTime()) / 86400000);
-    return days >= 30 ? "monthly" : "none";
-  })();
+  const placementCard = placementCalloutKind(placementLatest, Date.now());
+  const reservePlacementSpace = reservesInitialPlacementSpace(placementLatest);
 
   const today = new Date();
   const dateLabel = t.hero.date(today);
@@ -172,10 +175,23 @@ export function StartScreen(props: { onSelect: (sel: StartSelection) => void; la
 
       {showBedtime && <p className="hero-bedtime text-sm text-muted">{t.hero.bedtime}</p>}
 
-      {/* 未測定の測定導線は「最初の一歩」なのでヒーロー直下。練習メニュー群とは別物として扱う */}
-      {placementCard === "new" && (
-        <PlacementCallout kind="new" tp={tp} level={summary?.level} onGo={() => props.onSelect({ type: "placement" })} />
+      {/* 結果待ちの枠を先に置くため、未測定CTAが後から挿入されても練習カードを押し下げない。 */}
+      {(reservePlacementSpace || placementCard === "new") && (
+        <div className={`placement-slot${reservePlacementSpace ? " is-loading" : ""}`} aria-busy={reservePlacementSpace || undefined}>
+          {reservePlacementSpace
+            ? <>
+                <PlacementCallout kind="new" tp={tp} level={summary?.level ?? 1} onGo={() => {}} hidden />
+                <p className="text-muted">{tp.loading}</p>
+              </>
+            : <PlacementCallout kind="new" tp={tp} level={summary?.level} onGo={() => props.onSelect({ type: "placement" })} />}
+        </div>
       )}
+
+      <HomeChoiceGuide
+        quick={t.quick}
+        warmup={t.drills.warmup}
+        onChoose={() => props.onSelect({ type: "session", source: { type: "quick", drill: "warmup" } })}
+      />
 
       <div>
         <p className="section-label">{t.quick.label} <span className="section-note">{t.quick.note}</span></p>
@@ -188,6 +204,7 @@ export function StartScreen(props: { onSelect: (sel: StartSelection) => void; la
                 <span className="drill-body">
                   <span className="drill-title">{d.title} <span className="drill-min">{d.minutes}</span></span>
                   <span className="drill-desc">{d.desc}</span>
+                  <span className="drill-meta">{d.requires}</span>
                 </span>
                 <span className="drill-arrow" aria-hidden="true">→</span>
               </button>
@@ -205,6 +222,7 @@ export function StartScreen(props: { onSelect: (sel: StartSelection) => void; la
             <span className="drill-body">
               <span className="drill-title">{t.shortSession.title} <span className="drill-min">{t.shortSession.minutes}</span></span>
               <span className="drill-desc">{t.shortSession.desc}</span>
+              <span className="drill-meta">{t.shortSession.requires}</span>
             </span>
             <span className="drill-arrow" aria-hidden="true">→</span>
           </button>
@@ -213,6 +231,7 @@ export function StartScreen(props: { onSelect: (sel: StartSelection) => void; la
             <span className="drill-body">
               <span className="drill-title">{t.fullSession.title} <span className="drill-min">{t.fullSession.minutes}</span></span>
               <span className="drill-desc">{t.fullSession.desc}</span>
+              <span className="drill-meta">{t.fullSession.requires}</span>
             </span>
             <span className="drill-arrow" aria-hidden="true">→</span>
           </button>
@@ -247,6 +266,25 @@ export function StartScreen(props: { onSelect: (sel: StartSelection) => void; la
   );
 }
 
+/** 迷った利用者へ任意の最初の一歩を提示する。選ばなくても通常のカードから自由に始められる。 */
+function HomeChoiceGuide(props: {
+  quick: (typeof STR)["en"]["quick"];
+  warmup: (typeof STR)["en"]["drills"]["warmup"];
+  onChoose: () => void;
+}) {
+  const { quick, warmup } = props;
+  return (
+    <div className="home-choice" role="note">
+      <p className="text-sm text-muted">{quick.oneEnough}</p>
+      <button className="home-choice-action" onClick={props.onChoose}>
+        <span className="home-choice-label">{quick.suggestionLabel}</span>
+        <span className="home-choice-title">{warmup.title} <span className="drill-min">{warmup.minutes}</span></span>
+        <span className="home-choice-reason">{quick.suggestionReason}</span>
+      </button>
+    </div>
+  );
+}
+
 /** レベル測定への導線。練習メニューではなく「測定」なので drill-card とは別の見た目にする */
 function PlacementCallout(props: {
   kind: "new" | "monthly";
@@ -254,10 +292,12 @@ function PlacementCallout(props: {
   onGo: () => void;
   /** kind==="new"の既定Lv表示に使う現在値（summary未取得の間は表示を見送る） */
   level?: number;
+  /** 読込中の高さ確保に使う、支援技術・操作から外したプレースホルダー。 */
+  hidden?: boolean;
 }) {
-  const { kind, tp, level } = props;
+  const { kind, tp, level, hidden } = props;
   return (
-    <button className="placement-callout" onClick={props.onGo}>
+    <button className="placement-callout" onClick={props.onGo} aria-hidden={hidden || undefined} tabIndex={hidden ? -1 : undefined}>
       <span className="placement-callout-icon" aria-hidden="true">📐</span>
       <span className="drill-body">
         <span className="drill-title">{kind === "new" ? tp.cardTitleNew : tp.cardTitleMonthly}</span>

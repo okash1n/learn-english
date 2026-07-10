@@ -242,12 +242,15 @@ type SettingsStrings = {
 };
 type StatStrings = { stat: { title: string; thisWeekUnit: string; total: (n: number) => string } };
 type HeroStrings = { hero: { title: string; date: (d: Date) => string; bedtime: string } };
-type QuickStrings = { quick: { label: string; note: string } };
+type QuickStrings = { quick: {
+  label: string; note: string; oneEnough: string;
+  suggestionLabel: string; suggestionReason: string;
+} };
 type IntensiveStrings = { intensive: { label: string; note: string } };
-type DrillsStrings = { drills: Record<DrillKey, { title: string; minutes: string; desc: string }> };
+type DrillsStrings = { drills: Record<DrillKey, { title: string; minutes: string; desc: string; requires: string }> };
 type SessionCardStrings = {
-  fullSession: { title: string; minutes: string; desc: string };
-  shortSession: { title: string; minutes: string; desc: string };
+  fullSession: { title: string; minutes: string; desc: string; requires: string };
+  shortSession: { title: string; minutes: string; desc: string; requires: string };
 };
 type CalendarStrings = {
   calendar: {
@@ -659,18 +662,23 @@ export const STR: Record<Lang, Strings> = {
       date: (d) => `${WEEKDAYS_EN[d.getDay()]}, ${MONTHS_EN[d.getMonth()]} ${d.getDate()}`,
       bedtime: "A little review before bed helps it stick.",
     },
-    quick: { label: "Quick drills (5–10 min)", note: "short but daily wins" },
-    intensive: { label: "Intensive sessions", note: "1–2 times a week" },
-    drills: {
-      warmup: { title: "Read-Aloud Warm-up", minutes: "6 min", desc: "Read today's phrases out loud" },
-      "ftt-mini": { title: "Repeat Talk (4/3/2)", minutes: "8 min", desc: "Tell the same story twice, faster each time" },
-      shadowing: { title: "Shadowing", minutes: "5 min", desc: "Listen and repeat in real time" },
-      "roleplay-daily": { title: "Daily Role-play", minutes: "10 min", desc: "Restaurants, travel, small talk" },
-      "roleplay-business": { title: "Business Role-play", minutes: "10 min", desc: "Meetings, scheduling, workplace talk" },
-      "roleplay-it": { title: "IT Role-play", minutes: "10 min", desc: "Tech discussions, incidents, vendors" },
+    quick: {
+      label: "Quick drills (5–10 min)", note: "Choose any one that fits today",
+      oneEnough: "One practice is enough for today. You can stop whenever it feels right.",
+      suggestionLabel: "Not sure where to start? Try this (optional)",
+      suggestionReason: "A short way to get your voice moving with today's phrases.",
     },
-    fullSession: { title: "Full Session", minutes: "60 min", desc: "Five blocks of solid practice" },
-    shortSession: { title: "Short Session", minutes: "30 min", desc: "Focused training when you have time" },
+    intensive: { label: "Intensive sessions", note: "Choose one when you have more time" },
+    drills: {
+      warmup: { title: "Read-Aloud Warm-up", minutes: "6 min", desc: "Read today's phrases out loud", requires: "No microphone" },
+      "ftt-mini": { title: "Repeat Talk (4/3/2)", minutes: "8 min", desc: "Tell the same story twice, faster each time", requires: "Microphone + AI" },
+      shadowing: { title: "Shadowing", minutes: "5 min", desc: "Listen and repeat in real time", requires: "No microphone" },
+      "roleplay-daily": { title: "Daily Role-play", minutes: "10 min", desc: "Restaurants, travel, small talk", requires: "Microphone + AI" },
+      "roleplay-business": { title: "Business Role-play", minutes: "10 min", desc: "Meetings, scheduling, workplace talk", requires: "Microphone + AI" },
+      "roleplay-it": { title: "IT Role-play", minutes: "10 min", desc: "Tech discussions, incidents, vendors", requires: "Microphone + AI" },
+    },
+    fullSession: { title: "Full Session", minutes: "60 min", desc: "Five blocks of solid practice", requires: "Microphone + AI" },
+    shortSession: { title: "Short Session", minutes: "30 min", desc: "Focused training when you have time", requires: "Microphone + AI" },
     calendar: {
       title: "Days with practice", legendLess: "Less", legendMore: "More",
       loading: "Loading practice days…", loadError: "Couldn't load practice days.", retry: "Retry",
@@ -1156,18 +1164,23 @@ export const STR: Record<Lang, Strings> = {
       date: (d) => `${d.getMonth() + 1}月${d.getDate()}日（${WEEKDAYS_JA[d.getDay()]}）`,
       bedtime: "寝る前の復習は、記憶の定着に少し有利です。",
     },
-    quick: { label: "クイックドリル（5〜10分）", note: "短くても毎日が正解" },
-    intensive: { label: "強化セッション", note: "週1〜2回おすすめ" },
-    drills: {
-      warmup: { title: "音読ウォームアップ", minutes: "6分", desc: "今日の準備フレーズを声に出して読む" },
-      "ftt-mini": { title: "くり返しトーク（4/3/2）", minutes: "8分", desc: "同じ話を2回、制限時間を短くしながら流暢に" },
-      shadowing: { title: "シャドーイング", minutes: "5分", desc: "聞こえた英語に重ねて言う" },
-      "roleplay-daily": { title: "日常ロールプレイ", minutes: "10分", desc: "レストラン・旅行・雑談の場面練習" },
-      "roleplay-business": { title: "ビジネスロールプレイ", minutes: "10分", desc: "会議・日程調整・職場の会話" },
-      "roleplay-it": { title: "ITロールプレイ", minutes: "10分", desc: "技術討議・障害対応・ベンダー対応" },
+    quick: {
+      label: "クイックドリル（5〜10分）", note: "今日は気になるものを1つ",
+      oneEnough: "今日は1つで十分です。やりたいところで終えてかまいません。",
+      suggestionLabel: "迷ったら、これから（任意）",
+      suggestionReason: "今日の準備フレーズを声に出す、短いスタートです。",
     },
-    fullSession: { title: "通しセッション", minutes: "60分", desc: "5ブロックで総合的にしっかり練習" },
-    shortSession: { title: "短縮セッション", minutes: "30分", desc: "時間がある日の集中トレーニング" },
+    intensive: { label: "強化セッション", note: "時間がある日に" },
+    drills: {
+      warmup: { title: "音読ウォームアップ", minutes: "6分", desc: "今日の準備フレーズを声に出して読む", requires: "録音なし" },
+      "ftt-mini": { title: "くり返しトーク（4/3/2）", minutes: "8分", desc: "同じ話を2回、制限時間を短くしながら流暢に", requires: "マイク・AI" },
+      shadowing: { title: "シャドーイング", minutes: "5分", desc: "聞こえた英語に重ねて言う", requires: "録音なし" },
+      "roleplay-daily": { title: "日常ロールプレイ", minutes: "10分", desc: "レストラン・旅行・雑談の場面練習", requires: "マイク・AI" },
+      "roleplay-business": { title: "ビジネスロールプレイ", minutes: "10分", desc: "会議・日程調整・職場の会話", requires: "マイク・AI" },
+      "roleplay-it": { title: "ITロールプレイ", minutes: "10分", desc: "技術討議・障害対応・ベンダー対応", requires: "マイク・AI" },
+    },
+    fullSession: { title: "通しセッション", minutes: "60分", desc: "5ブロックで総合的にしっかり練習", requires: "マイク・AI" },
+    shortSession: { title: "短縮セッション", minutes: "30分", desc: "時間がある日の集中トレーニング", requires: "マイク・AI" },
     calendar: {
       title: "練習した日", legendLess: "少", legendMore: "多",
       loading: "練習記録を読み込んでいます…", loadError: "練習記録を読み込めませんでした。", retry: "再試行",
