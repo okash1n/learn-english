@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { localYmd } from "../dates";
 import { makeFetchHandler } from "../routes";
 import { MAX_STT_BODY_BYTES, MAX_TTS_TEXT_CHARS } from "../routes/system";
+import { makeSttGate } from "../stt-gate";
 import { UnsupportedAudioContainerError } from "../stt";
 import { FAKE_HEALTH, makeTestDeps } from "./helpers/route-deps";
 import { getReq, postJson } from "./helpers/http";
@@ -59,7 +60,7 @@ describe("routes: stt", () => {
     expect(existsSync(dayDir)).toBe(true);
     const files = readdirSync(dayDir);
     expect(files).toHaveLength(1);
-    expect(files[0]).toMatch(/^\d+\.webm$/);
+    expect(files[0]).toMatch(/^\d+-[0-9a-f-]{36}\.webm$/);
   });
 
   test("content-typeにwavを含むと拡張子はwav", async () => {
@@ -75,7 +76,7 @@ describe("routes: stt", () => {
     // handleStt は録音ディレクトリをサーバローカル日付で切る（UTCだとJST早朝にズレる）
     const day = localYmd();
     const files = readdirSync(path.join(recordingsDir, day));
-    expect(files[0]).toMatch(/^\d+\.wav$/);
+    expect(files[0]).toMatch(/^\d+-[0-9a-f-]{36}\.wav$/);
   });
 
   test("content-typeにmp4を含むと拡張子はmp4", async () => {
@@ -90,7 +91,50 @@ describe("routes: stt", () => {
     );
     const day = localYmd();
     const files = readdirSync(path.join(recordingsDir, day));
-    expect(files[0]).toMatch(/^\d+\.mp4$/);
+    expect(files[0]).toMatch(/^\d+-[0-9a-f-]{36}\.mp4$/);
+  });
+
+  test("同一時刻の並列requestも別ファイルを所有し、音声を上書きしない", async () => {
+    const seen: Array<{ file: string; bytes: number[] }> = [];
+    let id = 0;
+    const { deps, recordingsDir } = makeTestDeps({
+      sttGate: makeSttGate({ maxConcurrent: 2, maxQueue: 0, waitTimeoutMs: 1_000, runTimeoutMs: 1_000 }),
+      sttNow: () => 123,
+      sttId: () => `00000000-0000-4000-8000-${String(++id).padStart(12, "0")}`,
+      transcribe: async (file) => {
+        seen.push({ file: path.basename(file), bytes: Array.from(readFileSync(file)) });
+        return { text: path.basename(file), segments: [] };
+      },
+    });
+    const h = makeFetchHandler(deps);
+    const request = (bytes: number[]) => h(new Request("http://localhost/api/stt", {
+      method: "POST", headers: { "content-type": "audio/webm" }, body: new Uint8Array(bytes),
+    }));
+    const [a, b] = await Promise.all([request([1, 1, 1]), request([2, 2, 2])]);
+    expect([a.status, b.status]).toEqual([200, 200]);
+    expect(seen).toHaveLength(2);
+    expect(new Set(seen.map((item) => item.file)).size).toBe(2);
+    expect(seen.map((item) => item.bytes).sort()).toEqual([[1, 1, 1], [2, 2, 2]]);
+    expect(readdirSync(path.join(recordingsDir, localYmd()))).toHaveLength(2);
+  });
+
+  test("STT gateが満杯なら追加requestを429にする", async () => {
+    const release = deferred<void>();
+    let started = 0;
+    const { deps } = makeTestDeps({
+      sttGate: makeSttGate({ maxConcurrent: 1, maxQueue: 0, waitTimeoutMs: 1_000, runTimeoutMs: 1_000 }),
+      transcribe: async () => { started++; await release.promise; return { text: "ok", segments: [] }; },
+    });
+    const h = makeFetchHandler(deps);
+    const req = () => new Request("http://localhost/api/stt", {
+      method: "POST", headers: { "content-type": "audio/webm" }, body: new Uint8Array([1]),
+    });
+    const first = h(req());
+    while (started === 0) await Promise.resolve();
+    const second = await h(req());
+    expect(second.status).toBe(429);
+    release.resolve();
+    expect((await first).status).toBe(200);
   });
 
   test("この環境で使える変換器が無い（UnsupportedAudioContainerError）場合は500ではなく400を返す", async () => {
@@ -112,6 +156,12 @@ describe("routes: stt", () => {
     expect(body.error).toMatch(/mp4 録音が必要/);
   });
 });
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((res) => { resolve = res; });
+  return { promise, resolve };
+}
 
 describe("routes: tts", () => {
   test("textが空なら400", async () => {

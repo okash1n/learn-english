@@ -131,6 +131,20 @@ describe("stt", () => {
     const workDir = path.dirname(wavPath);
     expect(existsSync(workDir)).toBe(false);
   });
+
+  test("AbortSignalをconverter/whisper subprocessへ伝える", async () => {
+    const controller = new AbortController();
+    let seen: AbortSignal | undefined;
+    const spawnFn: SpawnFn = async (_cmd, opts) => {
+      seen = opts?.signal;
+      throw new DOMException("cancelled", "AbortError");
+    };
+    controller.abort();
+    await expect(transcribeAudio("/in/input.webm", {
+      spawnFn, whichFn: fakeFfmpegAvailable, signal: controller.signal,
+    })).rejects.toThrow();
+    expect(seen).toBe(controller.signal);
+  });
 });
 
 /**
@@ -327,4 +341,14 @@ describe("afconvert: 実ファイル検証（`say -o` で生成した実m4aフ�
       rmSync(work, { recursive: true, force: true });
     }
   }, 15000);
+});
+
+describe("realSpawn", () => {
+  test("AbortSignalで実子プロセスを中止する", async () => {
+    const controller = new AbortController();
+    const reason = new Error("test cancellation");
+    const running = realSpawn(["/bin/sleep", "10"], { signal: controller.signal });
+    controller.abort(reason);
+    await expect(running).rejects.toBe(reason);
+  });
 });

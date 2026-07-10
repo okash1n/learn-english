@@ -20,7 +20,7 @@ type Step =
   | { kind: "submitting" }
   | { kind: "submit-error"; message: string }
   | { kind: "result"; result: PlacementResult };
-type RecState = "idle" | "recording" | "transcribing";
+type RecState = "idle" | "starting" | "recording" | "transcribing";
 
 function wordCountOf(text: string): number {
   return text.trim().split(/\s+/).filter(Boolean).length;
@@ -45,10 +45,19 @@ export function PlacementScreen(props: { lang: Lang; onExit: () => void }) {
   const [confirmError, setConfirmError] = useState(false);
 
   const recorderRef = useRef(new Recorder());
-  const recordStartRef = useRef(0);
+  const recStateRef = useRef<RecState>("idle");
+  const stopInFlightRef = useRef(false);
+  const activeTaskIndexRef = useRef(0);
   const aliveRef = useRef(true);
   const fetchedRef = useRef(false);
-  const timer = useCountdown(60);
+  const timer = useCountdown(60, {
+    onExpire: () => { void stopRecording(activeTaskIndexRef.current, true); },
+  });
+
+  function updateRecState(next: RecState) {
+    recStateRef.current = next;
+    setRecState(next);
+  }
 
   useEffect(() => {
     aliveRef.current = true;
@@ -80,40 +89,56 @@ export function PlacementScreen(props: { lang: Lang; onExit: () => void }) {
 
   function startTask(index: number) {
     setErrorMsg("");
-    setRecState("idle");
+    activeTaskIndexRef.current = index;
+    updateRecState("idle");
     timer.reset(tasks[index].durationSec);
     setStep({ kind: "task", index });
   }
 
   async function toggleRecording(index: number) {
     setErrorMsg("");
-    if (recState === "idle") {
+    if (recStateRef.current === "idle") {
+      activeTaskIndexRef.current = index;
+      updateRecState("starting");
       try {
         await recorderRef.current.start();
-        recordStartRef.current = Date.now();
-        setRecState("recording");
+        if (!aliveRef.current || activeTaskIndexRef.current !== index) {
+          recorderRef.current.cancel();
+          return;
+        }
+        updateRecState("recording");
         if (!timer.running && !timer.expired) timer.start();
       } catch (err) {
+        if (!aliveRef.current) return;
         setErrorMsg(t.micError(err instanceof Error ? err.message : String(err)));
+        updateRecState("idle");
       }
       return;
     }
-    if (recState !== "recording") return;
+    if (recStateRef.current === "recording") await stopRecording(index);
+  }
+
+  async function stopRecording(index: number, fromExpiry = false) {
+    if (recStateRef.current !== "recording" || stopInFlightRef.current) return;
+    stopInFlightRef.current = true;
+    updateRecState("transcribing");
+    timer.pause();
     try {
-      setRecState("transcribing");
-      const blob = await recorderRef.current.stop();
-      const elapsed = Math.max(1, Math.round((Date.now() - recordStartRef.current) / 1000));
+      const { blob, durationSec } = await recorderRef.current.stopTimed();
       if (!aliveRef.current) return;
       const text = await sttUpload(blob);
-      if (!aliveRef.current) return;
+      if (!aliveRef.current || activeTaskIndexRef.current !== index) return;
       // 測定なので録り直しは「置き換え」（追記しない）
       setTranscripts((prev) => prev.map((v, i) => (i === index ? text : v)));
-      setDurations((prev) => prev.map((v, i) => (i === index ? elapsed : v)));
-      setRecState("idle");
+      setDurations((prev) => prev.map((v, i) => (i === index ? durationSec : v)));
+      updateRecState("idle");
     } catch (err) {
       if (!aliveRef.current) return;
       setErrorMsg(err instanceof Error ? err.message : String(err));
-      setRecState("idle");
+      if (fromExpiry) timer.reset(tasks[index]?.durationSec ?? 60);
+      updateRecState("idle");
+    } finally {
+      stopInFlightRef.current = false;
     }
   }
 
@@ -196,9 +221,15 @@ export function PlacementScreen(props: { lang: Lang; onExit: () => void }) {
           <button
             className={`btn btn-primary btn-lg record-btn${recState === "recording" ? " is-recording" : ""}`}
             onClick={() => toggleRecording(i)}
-            disabled={recState === "transcribing"}
+            disabled={recState === "starting" || recState === "transcribing"}
           >
-            {recState === "recording" ? t.recordStop : recState === "transcribing" ? t.transcribing : t.recordStart}
+            {recState === "recording"
+              ? t.recordStop
+              : recState === "starting"
+                ? t.recordStarting
+                : recState === "transcribing"
+                  ? t.transcribing
+                  : t.recordStart}
           </button>
           {hasAnswer && recState === "idle" && (
             <Button onClick={() => redo(i)}>{t.redo}</Button>

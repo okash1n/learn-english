@@ -1,9 +1,13 @@
 import path from "node:path";
 import { mkdirSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { localYmd } from "../dates";
 import { RECORDINGS_DIR } from "../paths";
 import { appendEvent } from "../session-log";
 import { detectAudioContainer, transcribeAudio, UnsupportedAudioContainerError, type Transcription } from "../stt";
+import {
+  makeSttGate, SttCancelledError, SttQueueFullError, SttRunTimeoutError, SttWaitTimeoutError, type SttGate,
+} from "../stt-gate";
 import { synthesize } from "../tts";
 import type { TtsProvider } from "../tts";
 import type { TtsSettings } from "../tts";
@@ -14,6 +18,12 @@ import { json, parseJsonBody, readRequestBody, exact, bestEffort, type RouteEntr
 export const MAX_STT_BODY_BYTES = 24 * 1024 * 1024;
 export const MAX_TTS_TEXT_CHARS = 8_000;
 const MAX_TTS_VOICE_CHARS = 100;
+const defaultSttGate = makeSttGate({
+  maxConcurrent: 1,
+  maxQueue: 2,
+  waitTimeoutMs: 15_000,
+  runTimeoutMs: 180_000,
+});
 
 function isSupportedAudioMediaType(contentType: string | null): boolean {
   if (!contentType) return false;
@@ -35,6 +45,11 @@ export type SystemRoutesDeps = {
   logFile: () => string;
   /** 省略時は実データディレクトリ（RECORDINGS_DIR）を使う。テストでは temp dir を注入する。 */
   recordingsDir?: string;
+  /** whisper の同時実行・待機・timeoutを制御する。省略時はプロセス共通gateを使う。 */
+  sttGate?: SttGate;
+  /** 録音ファイル名を決める注入点。 */
+  sttNow?: () => number;
+  sttId?: () => string;
 };
 
 async function handleStt(req: Request, deps: SystemRoutesDeps): Promise<Response> {
@@ -54,13 +69,19 @@ async function handleStt(req: Request, deps: SystemRoutesDeps): Promise<Response
   const dir = path.join(deps.recordingsDir ?? RECORDINGS_DIR, day);
   mkdirSync(dir, { recursive: true });
   const ext = container === "unknown" ? "webm" : container;
-  const file = path.join(dir, `${Date.now()}.${ext}`);
-  await Bun.write(file, bytes);
+  const file = path.join(dir, `${(deps.sttNow ?? Date.now)()}-${(deps.sttId ?? randomUUID)()}.${ext}`);
   let result: Transcription;
   try {
-    result = await deps.transcribe(file, { container });
+    result = await (deps.sttGate ?? defaultSttGate).run(async (signal) => {
+      await Bun.write(file, bytes);
+      return deps.transcribe(file, { container, signal });
+    }, req.signal);
   } catch (err) {
     if (err instanceof UnsupportedAudioContainerError) return json({ error: err.message }, 400);
+    if (err instanceof SttQueueFullError) return json({ error: err.message }, 429);
+    if (err instanceof SttWaitTimeoutError) return json({ error: err.message }, 503);
+    if (err instanceof SttRunTimeoutError) return json({ error: err.message }, 504);
+    if (err instanceof SttCancelledError) return json({ error: err.message }, 499);
     throw err;
   }
   const { text, segments } = result;

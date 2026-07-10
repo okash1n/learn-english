@@ -116,7 +116,13 @@ export function selectConverter(container: AudioContainer, opts: { whichFn?: Whi
 /** 入力音声（webm/wav/mp4/mp3等）を 16kHz mono WAV に変換して whisper で文字起こしする */
 export async function transcribeAudio(
   inputPath: string,
-  opts: { spawnFn?: SpawnFn; whichFn?: WhichFn; container?: AudioContainer; modelPath?: string } = {},
+  opts: {
+    spawnFn?: SpawnFn;
+    whichFn?: WhichFn;
+    container?: AudioContainer;
+    modelPath?: string;
+    signal?: AbortSignal;
+  } = {},
 ): Promise<Transcription> {
   const spawn = opts.spawnFn ?? realSpawn;
   const modelPath = opts.modelPath ?? resolveWhisperModelPath();
@@ -130,12 +136,18 @@ export async function transcribeAudio(
   try {
     const wavPath = path.join(work, "in.wav");
     const conv = converter === "ffmpeg"
-      ? await spawn(["ffmpeg", "-i", inputPath, "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", wavPath, "-y"])
-      : await spawn(["afconvert", "-f", "WAVE", "-d", "LEI16@16000", "-c", "1", inputPath, wavPath]);
+      ? await spawn(
+        ["ffmpeg", "-i", inputPath, "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", wavPath, "-y"],
+        { signal: opts.signal },
+      )
+      : await spawn(
+        ["afconvert", "-f", "WAVE", "-d", "LEI16@16000", "-c", "1", inputPath, wavPath],
+        { signal: opts.signal },
+      );
     if (conv.exitCode !== 0) throw new Error(`${converter} failed: ${conv.stderr.slice(-500)}`);
 
     const outBase = path.join(work, "out");
-    const wh = await spawn([whisperBin(), ...buildWhisperArgs(modelPath, wavPath, outBase)]);
+    const wh = await spawn([whisperBin(), ...buildWhisperArgs(modelPath, wavPath, outBase)], { signal: opts.signal });
     if (wh.exitCode !== 0) throw new Error(`whisper failed: ${wh.stderr.slice(-500)}`);
 
     return parseWhisperJson(readFileSync(`${outBase}.json`, "utf8"));

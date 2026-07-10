@@ -1,4 +1,4 @@
-import { playBlob } from "../audio";
+import { beginPlaybackRequest, isPlaybackRequestCurrent, playBlobForRequest } from "../audio";
 import { ttsFetch } from "./converse";
 import { fetchModelTalk } from "./coach";
 
@@ -10,24 +10,31 @@ import { fetchModelTalk } from "./coach";
 const ttsBlobCache = new Map<string, Promise<Blob>>();
 
 export async function playTtsCached(text: string): Promise<void> {
+  const generation = beginPlaybackRequest();
   let p = ttsBlobCache.get(text);
   if (!p) {
     p = ttsFetch(text);
     p.catch(() => ttsBlobCache.delete(text));
     ttsBlobCache.set(text, p);
   }
-  await playBlob(await p);
+  const blob = await p;
+  if (!isPlaybackRequestCurrent(generation)) return;
+  await playBlobForRequest(blob, generation);
 }
 
 /**
  * ttsBlobCache を温めるだけの先読み（再生はしない）。次段落の音声を現在の再生中に用意しておき、
  * 段落間の無音ギャップを縮めるために使う。失敗は握りつぶす（本再生時に playTtsCached が再試行する）。
  */
-export function prefetchTts(text: string): void {
-  if (ttsBlobCache.has(text)) return;
-  const p = ttsFetch(text);
-  p.catch(() => ttsBlobCache.delete(text));
-  ttsBlobCache.set(text, p);
+export function prefetchTts(text: string): Promise<void> {
+  let p = ttsBlobCache.get(text);
+  if (!p) {
+    p = ttsFetch(text);
+    p.catch(() => ttsBlobCache.delete(text));
+    ttsBlobCache.set(text, p);
+  }
+  // 呼び出し側は fire-and-forget でき、テストや準備処理は完了を待てる。
+  return p.then(() => undefined, () => undefined);
 }
 
 /**
