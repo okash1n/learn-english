@@ -87,6 +87,17 @@ describe("画面導線と学習素材の呼称", () => {
     expect(STR.ja.nav.selfStudyHint).toContain(STR.ja.listeningScreen.title);
   });
 
+  test("ホームは任意の1件選択と必要な準備を日英で示す", () => {
+    expect(STR.en.quick.oneEnough).toContain("enough");
+    expect(STR.en.quick.suggestionLabel).toContain("optional");
+    expect(STR.en.drills.warmup.requires).toBe("No microphone");
+    expect(STR.en.drills["roleplay-daily"].requires).toContain("Microphone");
+    expect(STR.ja.quick.oneEnough).toContain("1つで十分");
+    expect(STR.ja.quick.suggestionLabel).toContain("任意");
+    expect(STR.ja.drills.warmup.requires).toBe("録音なし");
+    expect(STR.ja.drills["roleplay-daily"].requires).toContain("マイク");
+  });
+
   test("収集フレーズと準備フレーズを概念ごとに一貫して呼ぶ", () => {
     expect(STR.en.sentences.chunkLabel).toBe("Your phrase");
     expect(STR.en.sentences.myChunks).toContain("My phrases");
