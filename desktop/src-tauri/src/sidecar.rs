@@ -20,6 +20,7 @@ use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
 
 use crate::attach;
+use crate::diagnostic_log::RotatingLog;
 
 /// サーバの既定ポート（LaunchAgentデーモン・sidecar共通）。
 pub(crate) const DEFAULT_PORT: u16 = 3111;
@@ -299,12 +300,6 @@ fn capture_login_shell_path() -> Option<String> {
     extract_marked_path(&stdout)
 }
 
-fn timestamp() -> String {
-    time::OffsetDateTime::now_utc()
-        .format(&time::format_description::well_known::Rfc3339)
-        .unwrap_or_else(|_| "unknown-time".to_string())
-}
-
 /// `CommandEvent`を1行のログテキストに整形する（stdout/stderr/エラー/終了の4種）。純粋関数。
 /// `#[non_exhaustive]`な列挙なので将来の変種は無視する（ログが1行減るだけで安全側に倒れる）。
 pub(crate) fn format_command_event(event: &CommandEvent) -> Option<String> {
@@ -318,12 +313,6 @@ pub(crate) fn format_command_event(event: &CommandEvent) -> Option<String> {
         )),
         _ => None,
     }
-}
-
-fn append_log_line(file: &mut Option<std::fs::File>, line: &str) {
-    let Some(f) = file.as_mut() else { return };
-    let _ = writeln!(f, "{} {}", timestamp(), line);
-    let _ = f.flush();
 }
 
 /// solo-serverをsidecarとして指定ポートで起動する。成功したら（子プロセスハンドル,
@@ -371,13 +360,13 @@ fn spawn_solo_server(
     let exited_writer = exited.clone();
     let log_path = log_path.to_path_buf();
     tauri::async_runtime::spawn(async move {
-        let mut log_file = std::fs::OpenOptions::new().create(true).append(true).open(&log_path).ok();
-        if log_file.is_none() {
+        let mut log_file = RotatingLog::open(&log_path);
+        if !log_file.is_available() {
             log::error!("sidecar: failed to open log file {log_path:?}; sidecar output will not be persisted");
         }
         while let Some(event) = rx.recv().await {
             if let Some(line) = format_command_event(&event) {
-                append_log_line(&mut log_file, &line);
+                log_file.write_line(&line);
             }
             if matches!(event, CommandEvent::Terminated(_)) {
                 exited_writer.store(true, Ordering::SeqCst);

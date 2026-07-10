@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import {
   chmodSync,
   copyFileSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -78,6 +79,17 @@ async function runDaemonWithDeadline(env: Record<string, string>) {
   } finally {
     clearTimeout(timer);
   }
+}
+
+async function waitForLog(file: string): Promise<string> {
+  for (let attempt = 0; attempt < 50; attempt++) {
+    if (existsSync(file)) {
+      const text = readFileSync(file, "utf8");
+      if (text.length > 0) return text;
+    }
+    await Bun.sleep(10);
+  }
+  return existsSync(file) ? readFileSync(file, "utf8") : "";
 }
 
 function writeExecutable(file: string, contents: string) {
@@ -207,6 +219,7 @@ describe("repository guards", () => {
     const capturedBin = path.join(dir, "captured-bin");
     mkdirSync(capturedBin);
     const fakeShell = path.join(dir, "fake-zsh");
+    const logDir = path.join(dir, "logs");
     writeExecutable(path.join(capturedBin, "bun"), "#!/bin/sh\nprintf 'fake-bun:%s\\n' \"$*\"\n");
     writeExecutable(
       fakeShell,
@@ -218,12 +231,14 @@ describe("repository guards", () => {
       HOME: dir,
       FAKE_LOGIN_PATH: `${capturedBin}:/usr/bin:/bin`,
       SOLO_EIKAIWA_LOGIN_SHELL_BIN: fakeShell,
+      SOLO_EIKAIWA_LOG_DIR: logDir,
     });
 
     expect(result.killedByTest).toBe(false);
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain("fake-bun:server/index.ts");
-    expect(result.stderr).not.toContain("timeout");
+    expect(await waitForLog(path.join(logDir, "server.stdout.log"))).toContain("fake-bun:server/index.ts");
+    const stderrLog = path.join(logDir, "server.stderr.log");
+    expect(existsSync(stderrLog) ? readFileSync(stderrLog, "utf8") : "").not.toContain("timeout");
   });
 
   test("LaunchAgent wrapperはハングしたログインシェルをkillして既知のbunで継続する", async () => {
@@ -232,6 +247,7 @@ describe("repository guards", () => {
     const homeBin = path.join(dir, ".bun", "bin");
     mkdirSync(homeBin, { recursive: true });
     const fakeShell = path.join(dir, "hanging-zsh");
+    const logDir = path.join(dir, "logs");
     writeExecutable(path.join(homeBin, "bun"), "#!/bin/sh\nprintf 'fallback-bun:%s\\n' \"$*\"\n");
     writeExecutable(fakeShell, "#!/bin/sh\nexec /bin/sleep 10\n");
 
@@ -241,12 +257,13 @@ describe("repository guards", () => {
       SOLO_EIKAIWA_LOGIN_SHELL_BIN: fakeShell,
       SOLO_EIKAIWA_LOGIN_SHELL_PATH_TIMEOUT_ATTEMPTS: "2",
       SOLO_EIKAIWA_LOGIN_SHELL_PATH_POLL_INTERVAL: "0.01",
+      SOLO_EIKAIWA_LOG_DIR: logDir,
     });
 
     expect(result.killedByTest).toBe(false);
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain("fallback-bun:server/index.ts");
-    expect(result.stderr).toContain("PATH取得がtimeout");
+    expect(await waitForLog(path.join(logDir, "server.stdout.log"))).toContain("fallback-bun:server/index.ts");
+    expect(await waitForLog(path.join(logDir, "server.stderr.log"))).toContain("PATH取得がtimeout");
   });
 
   test("releaseは共通verify後にbuildし、その後にもcleanを強制する", () => {

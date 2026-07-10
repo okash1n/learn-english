@@ -171,6 +171,15 @@ echo "127.0.0.1 solo-eikaiwa" | sudo tee -a /etc/hosts   # https://solo-eikaiwa 
 - Caddyfile を変更したら Caddy に再読み込みさせる: brew services 構成なら `brew services restart caddy`、共有 Caddy デーモン構成なら `sudo launchctl kickstart -k system/com.local.https.caddy`
 - Firefox で証明書警告が出る場合: `about:config` で `security.enterprise_roots.enabled` を `true` に（Firefox は macOS キーチェーンを標準では参照しないため）
 
+#### 診断ログと保持方針
+
+- LaunchAgent版: `data/logs/server.stdout.log` と `data/logs/server.stderr.log`
+- デスクトップ版の同梱サーバ: `~/Library/Application Support/com.local.solo-eikaiwa.desktop/logs/sidecar.log`
+
+各ファイルは5 MiBで切り替わり、現行＋`.1`〜`.3`の3世代（1系統あたり最大20 MiB）を保持します。LaunchAgent版はstdout/stderr合計最大40 MiB、デスクトップ版の同梱サーバは最大20 MiBです。rotation中もサーバを停止せず、最新ログは拡張子なし、直前のログは`.1`で確認できます。APIキー・Authorization header・発話本文を示す行は保存前にredactします。この保持対象は診断ログだけで、会話履歴などの学習データは削除しません。
+
+直近の原因を調べるときは、LaunchAgent版なら`tail -n 200 data/logs/server.stderr.log`、デスクトップ版なら`tail -n 200 "$HOME/Library/Application Support/com.local.solo-eikaiwa.desktop/logs/sidecar.log"`を確認してください。Tauriシェル自身のログは`~/Library/Logs/com.local.solo-eikaiwa.desktop/`にあり、別途プラグイン既定の上限で管理されます。
+
 ### 起動: 開発
 
 ```bash

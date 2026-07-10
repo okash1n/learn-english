@@ -6,10 +6,17 @@
 set -euo pipefail
 
 REPO_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." >/dev/null 2>&1 && pwd -P)"
+LOG_DIR="${SOLO_EIKAIWA_LOG_DIR:-$REPO_DIR/data/logs}"
+ROTATING_LOGGER="$REPO_DIR/scripts/rotate-log-stream.sh"
 LOGIN_SHELL_BIN="${SOLO_EIKAIWA_LOGIN_SHELL_BIN:-/bin/zsh}"
 LOGIN_SHELL_PATH_TIMEOUT_ATTEMPTS="${SOLO_EIKAIWA_LOGIN_SHELL_PATH_TIMEOUT_ATTEMPTS:-30}"
 LOGIN_SHELL_PATH_POLL_INTERVAL="${SOLO_EIKAIWA_LOGIN_SHELL_PATH_POLL_INTERVAL:-0.1}"
 INHERITED_PATH="${PATH:-/usr/bin:/bin:/usr/sbin:/sbin}"
+
+mkdir -p "$LOG_DIR"
+# launchdが開いた固定file descriptorをここで置き換え、Bunの生存中も行単位でrotationできるようにする。
+exec > >("$ROTATING_LOGGER" "$LOG_DIR/server.stdout.log") \
+  2> >("$ROTATING_LOGGER" "$LOG_DIR/server.stderr.log")
 
 # テスト注入値や誤った手動設定でtimeout自体が無効にならないよう既定値へ戻す。
 if ! [[ "$LOGIN_SHELL_PATH_TIMEOUT_ATTEMPTS" =~ ^[1-9][0-9]*$ ]]; then
