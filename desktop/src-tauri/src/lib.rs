@@ -1,4 +1,5 @@
 mod attach;
+mod diagnostic_log;
 mod sidecar;
 mod updater;
 
