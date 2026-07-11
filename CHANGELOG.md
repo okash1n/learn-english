@@ -517,6 +517,8 @@
 - 学習データ（録音・トランスクリプト・進捗・DB・キャッシュ）は `data/` のローカルファイルで、リポジトリにコミットされない
 - 音声データはマシン外に出ない（外部送信はテキストのみ: Claude への発話テキスト、OpenAI TTS への応答テキスト）
 
+[Unreleased]: https://github.com/btajp/solo-eikaiwa/compare/v0.29.0...HEAD
+[0.29.0]: https://github.com/btajp/solo-eikaiwa/compare/v0.28.0...v0.29.0
 [0.21.0]: https://github.com/btajp/solo-eikaiwa/compare/v0.20.0...v0.21.0
 [0.20.0]: https://github.com/btajp/solo-eikaiwa/compare/v0.19.0...v0.20.0
 [0.19.0]: https://github.com/btajp/solo-eikaiwa/compare/v0.18.0...v0.19.0
