@@ -63,6 +63,7 @@ prepare_desktop_fixtures() {
   remember_dir "$src/resources/dist"
   remember_dir "$src/resources/content"
   remember_dir "$src/resources/whisper-bin"
+  remember_dir "$src/resources/provenance"
 }
 
 cleanup_desktop_fixtures() {

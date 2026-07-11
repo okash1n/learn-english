@@ -87,6 +87,8 @@ test("Tauri bundle は配布provenanceをResourcesへ配置する", () => {
     bundle: { resources: Record<string, string> };
   };
   expect(config.bundle.resources["resources/provenance"]).toBe("provenance");
+  const verifyScript = readFileSync(resolve(import.meta.dir, "..", "verify.sh"), "utf8");
+  expect(verifyScript).toContain('remember_dir "$src/resources/provenance"');
 });
 
 test("native build は cache の source hash 不一致で build 前に停止する", () => {
