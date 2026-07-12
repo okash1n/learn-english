@@ -27,6 +27,17 @@ required() {
   local name="$1"
   [[ -n "${!name:-}" ]] || { echo "ERROR: $name が必要です" >&2; exit 1; }
 }
+codesign_with_retry() {
+  local attempt
+  for attempt in 1 2 3; do
+    if codesign "$@"; then
+      return 0
+    fi
+    [[ "$attempt" -lt 3 ]] || return 1
+    log "codesign再試行 ($((attempt + 1))/3)"
+    sleep "$attempt"
+  done
+}
 
 if [[ "$MODE" != "sandbox" ]]; then
   RELEASE_ENV="$HOME/.config/solo-eikaiwa/release.env"
@@ -66,7 +77,7 @@ if [[ "$MODE" != "sandbox" ]]; then
   /usr/libexec/PlistBuddy -c "Add :keychain-access-groups array" "$GENERATED_ENTITLEMENTS"
   /usr/libexec/PlistBuddy -c "Add :keychain-access-groups:0 string $APPLE_TEAM_ID.$APP_STORE_BUNDLE_ID" "$GENERATED_ENTITLEMENTS"
   security cms -D -i "$APPLE_APPSTORE_PROFILE_PATH" > "$TARGET_DIR/profile.plist"
-  profile_app_id="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' "$TARGET_DIR/profile.plist")"
+  profile_app_id="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:com.apple.application-identifier' "$TARGET_DIR/profile.plist")"
   [[ "$profile_app_id" == "$APPLE_TEAM_ID.$APP_STORE_BUNDLE_ID" ]] || {
     echo "ERROR: provisioning profile とBundle ID/Team IDが一致しません" >&2
     exit 1
@@ -96,6 +107,16 @@ log "Tauri app bundle build（自己更新なし）"
 
 [[ -d "$APP" ]] || { echo "ERROR: app bundle が生成されませんでした" >&2; exit 1; }
 rm -f "$APP/Contents/MacOS/verify-updater-signature"
+if [[ "$MODE" != "sandbox" ]]; then
+  chmod 0644 "$APP/Contents/embedded.provisionprofile"
+fi
+
+unreadable_path="$(find "$APP" -type f ! -perm -004 -print -quit)"
+untraversable_path="$(find "$APP" -type d \( ! -perm -004 -o ! -perm -001 \) -print -quit)"
+[[ -z "$unreadable_path" && -z "$untraversable_path" ]] || {
+  echo "ERROR: app bundle に一般ユーザーが読み取れない項目があります" >&2
+  exit 1
+}
 
 runtime_sign_args=(--force --options runtime --entitlements "$RUNTIME_ENTITLEMENTS" --sign "$APPLE_APP_DISTRIBUTION_IDENTITY")
 helper_sign_args=(--force --options runtime --entitlements "$HELPER_ENTITLEMENTS" --sign "$APPLE_APP_DISTRIBUTION_IDENTITY")
@@ -104,17 +125,17 @@ if [[ "$APPLE_APP_DISTRIBUTION_IDENTITY" != "-" ]]; then
   helper_sign_args+=(--timestamp)
 fi
 [[ -x "$APP/Contents/MacOS/solo-server" ]] || { echo "ERROR: 必須runtimeがありません" >&2; exit 1; }
-codesign "${runtime_sign_args[@]}" "$APP/Contents/MacOS/solo-server"
+codesign_with_retry "${runtime_sign_args[@]}" "$APP/Contents/MacOS/solo-server"
 for helper in \
   "$APP/Contents/MacOS/solo-keychain" \
   "$APP/Contents/Resources/whisper-bin/whisper-cli"; do
   [[ -x "$helper" ]] || { echo "ERROR: 必須helperがありません" >&2; exit 1; }
-  codesign "${helper_sign_args[@]}" "$helper"
+  codesign_with_retry "${helper_sign_args[@]}" "$helper"
 done
 
 app_sign_args=(--force --options runtime --entitlements "$GENERATED_ENTITLEMENTS" --sign "$APPLE_APP_DISTRIBUTION_IDENTITY")
 if [[ "$APPLE_APP_DISTRIBUTION_IDENTITY" != "-" ]]; then app_sign_args+=(--timestamp); fi
-codesign "${app_sign_args[@]}" "$APP"
+codesign_with_retry "${app_sign_args[@]}" "$APP"
 codesign --verify --deep --strict "$APP"
 
 actual_identifier="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Contents/Info.plist")"
