@@ -3,7 +3,9 @@ import {
   detectBannedCategories,
   looksAbstractTitle,
   checkTopicAnchor,
+  auditTopicAnchors,
   BANNED_CATEGORIES,
+  LEGACY_UNANCHORED_TOPIC_IDS,
   type TopicAnchorCandidate,
 } from "../topic-anchor-check";
 import { loadContent } from "../content";
@@ -180,5 +182,60 @@ describe("checkTopicAnchor: 禁止カテゴリ・抽象タイトルの統合", (
   test("具体的な題材はexperienceAnchorに禁止語が無ければ禁止カテゴリの理由は付かない", () => {
     const result = checkTopicAnchor(validCandidate);
     expect(result.reasons.some((r) => r.includes("禁止カテゴリ"))).toBe(false);
+  });
+});
+
+// #182: 4/3/2候補（content/topics 全件）の「既知の内容」アンカー検証ゲート。
+// アンカー未整備の既存お題は LEGACY_UNANCHORED_TOPIC_IDS でgrandfatherし（再生成バッチで解消予定）、
+// 一覧に無い未検証お題（新規追加）だけを violation として非ゼロ終了の対象にする。
+describe("auditTopicAnchors（4/3/2お題のアンカー検証ゲート・#182）", () => {
+  const anchoredTopic = (id: string) => ({
+    id,
+    title: "Making Coffee at Home",
+    experienceAnchor: "毎朝コーヒーをいれる経験から新しい知識なしで話せる。",
+    memoryCue: "今朝キッチンでコーヒーをいれた場面を思い出す。",
+    commonObjectsOrActions: ["kettle", "mug", "pour hot water"],
+  });
+
+  test("checkTopicAnchorをPASSするお題はverifiedに入る", () => {
+    const audit = auditTopicAnchors([anchoredTopic("coffee-at-home")]);
+    expect(audit.verified).toEqual(["coffee-at-home"]);
+    expect(audit.legacyUnanchored).toEqual([]);
+    expect(audit.violations).toEqual([]);
+  });
+
+  test("legacy一覧にある未アンカーお題はlegacyUnanchoredとして列挙され、violationにはならない", () => {
+    const legacyId = LEGACY_UNANCHORED_TOPIC_IDS[0];
+    const audit = auditTopicAnchors([{ id: legacyId, title: "Some Legacy Topic" }]);
+    expect(audit.legacyUnanchored).toEqual([legacyId]);
+    expect(audit.violations).toEqual([]);
+  });
+
+  test("legacy一覧に無い未アンカーお題はviolation（新規お題はアンカー必須）", () => {
+    const audit = auditTopicAnchors([{ id: "brand-new-topic", title: "Brand New Topic" }]);
+    expect(audit.verified).toEqual([]);
+    expect(audit.violations).toHaveLength(1);
+    expect(audit.violations[0].id).toBe("brand-new-topic");
+    expect(audit.violations[0].reasons.length).toBeGreaterThan(0);
+  });
+
+  test("アンカーがあっても禁止カテゴリ該当ならviolation（legacy一覧外）", () => {
+    const audit = auditTopicAnchors([{
+      ...anchoredTopic("bad-anchor"),
+      experienceAnchor: "breaking news about the election を毎日追っている。",
+    }]);
+    expect(audit.violations).toHaveLength(1);
+    expect(audit.violations[0].reasons.some((r) => r.includes("禁止カテゴリ"))).toBe(true);
+  });
+
+  test("実在の content/topics 全件で violation ゼロ（未検証はlegacy一覧で全数管理されている）", () => {
+    const topics = loadContent(TOPICS_DIR);
+    expect(topics.length).toBeGreaterThanOrEqual(62);
+    const audit = auditTopicAnchors(topics);
+    expect(audit.violations).toEqual([]);
+    expect(audit.verified.length + audit.legacyUnanchored.length).toBe(topics.length);
+    // legacy一覧の全idが現物に存在する（改名・削除でリストが陳腐化したら気づけるようにする）
+    const ids = new Set(topics.map((t) => t.id));
+    expect(LEGACY_UNANCHORED_TOPIC_IDS.filter((id) => !ids.has(id))).toEqual([]);
   });
 });

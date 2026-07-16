@@ -91,7 +91,24 @@ export type MenuDeps = {
   level?: number;
   /** クイックロールプレイのドメイン明示指定。省略時はラウンドロビン */
   domain?: Domain;
+  /**
+   * シャドーイング素材の追加候補フィルタ（#192: LLM未導入時に「同梱/キャッシュ済みモデルトークを
+   * LLMなしで解決できるtopic」へ限定する等）。シャドーイングの選定にのみ作用し、warmup/4/3/2/roleplayの
+   * 選定・ローテーションは変えない。フィルタで候補が空になる場合は従来の全候補へフォールバックする
+   * （選べないより従来挙動を優先する安全弁）。省略時は無条件（従来どおり）。
+   */
+  shadowingTopicFilter?: (topic: ContentItem) => boolean;
 };
+
+/** shadowingTopicFilter の適用（候補が空になるならフィルタ無しの従来候補へフォールバック） */
+function applyShadowingTopicFilter(
+  pool: ContentItem[],
+  filter: ((topic: ContentItem) => boolean) | undefined,
+): ContentItem[] {
+  if (!filter) return pool;
+  const usable = pool.filter(filter);
+  return usable.length > 0 ? usable : pool;
+}
 
 export function buildTodayMenu(minutes: 60 | 30, deps: MenuDeps = {}): Menu {
   const topicsDir = deps.topicsDir ?? TOPICS_DIR;
@@ -123,10 +140,11 @@ export function buildTodayMenu(minutes: 60 | 30, deps: MenuDeps = {}): Menu {
   const { item: mainTopic, fallback: topicFallback } = pickNextByDomainWithFallback(topics, state, ymd, stage, "topic");
   const { item: scenario, fallback: scenarioFallback } = pickNextByDomainWithFallback(scenarios, state, ymd, stage, "scenario");
   // シャドーイング素材は「次にローテーションが選ぶトピック」のプレビュー。
-  // 使用済みマーク・ドメインカーソルの前進はしない（帯域フィルタだけ適用）
+  // 使用済みマーク・ドメインカーソルの前進はしない（帯域フィルタ + shadowingTopicFilter だけ適用）
   const others = topics.filter((t) => t.id !== mainTopic.id);
   const shadowPool = others.length > 0 ? filterInBand(others, stage) : others;
-  const shadowTopic = shadowPool.length > 0 ? pickNext(shadowPool, state.usage, ymd) : mainTopic;
+  const shadowCandidates = applyShadowingTopicFilter(shadowPool, deps.shadowingTopicFilter);
+  const shadowTopic = shadowCandidates.length > 0 ? pickNext(shadowCandidates, state.usage, ymd) : mainTopic;
 
   markUsed(state.usage, mainTopic.id, ymd);
   markUsed(state.usage, scenario.id, ymd);
@@ -198,7 +216,10 @@ export function buildQuickMenu(kind: QuickKind, deps: MenuDeps = {}): Menu {
       topicTitle: scenario.title, minutes: 10, params: { scenario }, fallback: fallback ?? undefined,
     };
   } else {
-    const { item: topic, fallback } = pickNextByDomainWithFallback(loadContent(topicsDir), state, ymd, stage, "topic");
+    const allTopics = loadContent(topicsDir);
+    // シャドーイングのみ #192 の注入フィルタで候補を絞る（warmup/ftt-mini の選定・ローテーションは不変）
+    const pool = kind === "shadowing" ? applyShadowingTopicFilter(allTopics, deps.shadowingTopicFilter) : allTopics;
+    const { item: topic, fallback } = pickNextByDomainWithFallback(pool, state, ymd, stage, "topic");
     markUsed(state.usage, topic.id, ymd);
     if (kind === "warmup") {
       block = { id: "q1", kind: "warmup-reading", title: "音読ウォームアップ", titleKey: "warmup", minutes: 6, params: { topic, hintMode: prepSupport.hintLang }, fallback: fallback ?? undefined };

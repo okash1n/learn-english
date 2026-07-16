@@ -463,6 +463,8 @@ type ShadowingStrings = { shadowing: {
   play: string; showScript: string; playbackError: string; playbackRetry: string;
   spokenPrompt: string; confirmSpoken: string; spokenConfirmed: string;
   explainMore: string; explainLoading: string; explainError: string;
+  /** #192: 素材準備の失敗時の復旧導線（同梱アセットの無いお題はLLM接続が必要になるため設定へ誘導する） */
+  llmSetupHint: string; openLlmSettings: string;
 } };
 type LibraryStrings = { library: {
   title: string; loading: string; retry: string; empty: string;
@@ -540,7 +542,7 @@ export const STR: Record<Lang, Strings> = {
       moved: (screen) => `Moved to ${screen}.`,
     },
     llmNotice: {
-      body: "Claude, Codex, or a local LLM isn't set up. Conversation, corrections, and explanations won't work, but example sentences, listening, shadowing, and recording transcripts still work as-is.",
+      body: "Claude, Codex, or a local LLM isn't set up. Conversation, corrections, and explanations won't work. Example sentences, listening, and recording transcripts still work as-is, and shadowing automatically uses the topics that ship with bundled model-talk audio.",
       linkLabel: "Setup guide",
       dismissAriaLabel: "Dismiss",
     },
@@ -1048,6 +1050,8 @@ export const STR: Record<Lang, Strings> = {
       spokenConfirmed: "Logged as speaking practice",
       explainMore: "💡 Translation & notes", explainLoading: "Writing the translation and notes…",
       explainError: "Couldn't load the explanation. Please try again.",
+      llmSetupHint: "If retrying doesn't help, this topic's model talk may need an LLM connection (Claude, Codex, OpenAI, or a local LLM) to generate.",
+      openLlmSettings: "Open model connection settings",
     },
     library: {
       title: "Model Talks", loading: "Loading…", retry: "Retry",
@@ -1131,7 +1135,7 @@ export const STR: Record<Lang, Strings> = {
       moved: (screen) => `${screen}に移動しました。`,
     },
     llmNotice: {
-      body: "Claude/Codex/ローカルLLMが未導入の場合、会話・添削・解説は使えません。例文・リスニング・シャドーイング・録音の文字起こしはそのまま使えます。",
+      body: "Claude/Codex/ローカルLLMが未導入の場合、会話・添削・解説は使えません。例文・リスニング・録音の文字起こしはそのまま使え、シャドーイングはお手本音声を同梱したお題が自動で選ばれます。",
       linkLabel: "セットアップ手順",
       dismissAriaLabel: "閉じる",
     },
@@ -1639,6 +1643,8 @@ export const STR: Record<Lang, Strings> = {
       spokenConfirmed: "発話練習として記録しました",
       explainMore: "💡 日本語訳と解説", explainLoading: "日本語訳と解説を書いています…",
       explainError: "解説を取得できませんでした。もう一度お試しください。",
+      llmSetupHint: "再試行しても失敗する場合、このお題のモデルトーク作成にはLLM接続（Claude / Codex / OpenAI / ローカルLLM）が必要なことがあります。",
+      openLlmSettings: "モデル接続設定を開く",
     },
     library: {
       title: "モデルトーク", loading: "読み込み中…", retry: "再試行",

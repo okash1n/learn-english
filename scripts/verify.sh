@@ -44,6 +44,8 @@ verify_core() {
   log "spoken register"
   (cd "$REPO_DIR" && bun scripts/check-spoken-register.ts)
 
+  log "topic anchors"
+  (cd "$REPO_DIR" && bun scripts/check-topic-anchors.ts)
   # CI の accessibility ジョブと同じ Playwright 検査（axe による a11y 回帰を含む）。
   # CI の core ジョブは専用の accessibility ジョブが同一検査を必須チェックとして実行するため、
   # VERIFY_SKIP_A11Y=1 で重複実行だけを省略する（ローカルと release では常に実行）。

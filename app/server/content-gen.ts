@@ -13,7 +13,10 @@ import { categoryBadRates, pickWorstCategories } from "./srs-analytics";
 import { spokenStyleFor, type SpokenBand } from "./spoken-style";
 import { BAND_STAGE_RANGE, BANDS, computeBandCoverageStatuses, prioritizeFillTasks, type Band } from "./content-coverage";
 import { checkTopicAnchor } from "./topic-anchor-check";
-import { checkScenarioStarter, checkSpokenRegister, countWords, findWrittenVocabHits } from "./spoken-register-check";
+import {
+  checkListeningWordCount, checkScenarioStarter, checkSpokenRegister, countWords, findWrittenVocabHits,
+  LISTENING_WORD_RANGE,
+} from "./spoken-register-check";
 import {
   writeContentCandidates,
   writeListeningCandidates,
@@ -43,8 +46,35 @@ export function deprecatedContentCommandMessage(subcommand: string | undefined):
 }
 
 /**
+ * 近似重複検定（#219）の閾値: 正規化トークン集合のJaccard係数がこの値以上なら「実質同じ文」として不採用。
+ * 実データ較正: 既知の準重複ペア（#171≒#332=0.80・#175≒#260≈0.818）を検出し、正当な類似文
+ * （例: "The server went down." vs "The server is down." = 0.6）は許容する値としてテストで固定している。
+ */
+export const NEAR_DUPLICATE_JACCARD_THRESHOLD = 0.8;
+
+/**
+ * normalizeEn（小文字化・句読点/アポストロフィ除去・空白正規化）後のトークン集合。
+ * 冠詞・所有格などの表層フレームの違いを吸収した上で語の重なりを比較するための正規化。
+ */
+export function normalizedTokenSet(en: string): Set<string> {
+  return new Set(normalizeEn(en).split(" ").filter((t) => t.length > 0));
+}
+
+/** トークン集合のJaccard係数（|A∩B| / |A∪B|）。両方空は1（完全一致扱い＝安全側で不採用に倒す） */
+export function tokenJaccard(a: ReadonlySet<string>, b: ReadonlySet<string>): number {
+  if (a.size === 0 && b.size === 0) return 1;
+  let intersection = 0;
+  for (const t of a) if (b.has(t)) intersection++;
+  const union = a.size + b.size - intersection;
+  return union === 0 ? 0 : intersection / union;
+}
+
+/**
  * 生成候補を検証して Sentence[] に整形する。1件でも不正・重複があれば null（全体不採用 → 再生成を促す）。
  * no は既存最大+1 から連番。
+ * 重複検定は2段構え（#219）: ①正規化後の完全一致 ②正規化トークンJaccard>=0.8の近似重複
+ * （冠詞・所有格1語違いや語句の付け足しだけの「実質同じ文」がSRSに二重に載るのを防ぐ）。
+ * どちらも既存文だけでなく同一バッチ内の先行候補とも比較する。
  */
 export function validateNewSentences(
   cands: unknown,
@@ -54,6 +84,7 @@ export function validateNewSentences(
 ): Sentence[] | null {
   if (!Array.isArray(cands) || cands.length === 0) return null;
   const norms = new Set(existing.map((s) => normalizeEn(s.en)));
+  const tokenSets = existing.map((s) => normalizedTokenSet(s.en));
   let no = Math.max(...existing.map((s) => s.no));
   const out: Sentence[] = [];
   for (const raw of cands) {
@@ -66,7 +97,10 @@ export function validateNewSentences(
     if (!ja) return null;
     const norm = normalizeEn(en);
     if (!norm || norms.has(norm)) return null;
+    const tokens = normalizedTokenSet(en);
+    if (tokenSets.some((existingTokens) => tokenJaccard(tokens, existingTokens) >= NEAR_DUPLICATE_JACCARD_THRESHOLD)) return null;
     norms.add(norm);
+    tokenSets.push(tokens);
     no++;
     out.push({
       no, category_no: categoryNo, category,
@@ -567,7 +601,7 @@ export async function genListeningForTarget(deps: GenListeningForTargetDeps): Pr
   const candidates: Array<NewListeningCandidate & { domain: string; level: [number, number] }> = [];
 
   for (let i = 0; i < deps.count; i++) {
-    const system = `You write an original short LISTENING script for a Japanese learner of English to listen to (about 2-4 minutes when read aloud, roughly 250-450 words).
+    const system = `You write an original short LISTENING script for a Japanese learner of English to listen to (about 2-4 minutes when read aloud, roughly ${LISTENING_WORD_RANGE.min}-${LISTENING_WORD_RANGE.max} words).
 Topic domain: ${domainDesc}. Difficulty: aim at CEFR level band for learner stage ${lo}-${hi} of 6.
 Write natural spoken-style prose (first or third person) in 3-5 short paragraphs. No headings, no bullet lists, no dialogue markers, no speaker labels.
 ${spokenStyleFor(spokenBand)}
@@ -591,7 +625,10 @@ Do not use any tools — reply directly with text only.`;
       if (text !== undefined) {
         const parsed = extractJson<NewListeningCandidate>(text);
         const base = validateListeningCandidate(parsed, existingIds, deps.listeningDir);
-        cand = base && checkSpokenRegister(base.paragraphs.join("\n\n"), spokenBand).pass ? base : null;
+        // #218: プロンプトの語数指示(LISTENING_WORD_RANGE)を検証しないと語数未達が素通りするため、
+        // 口語レジスター3指標に加えて総語数レンジもhard-failゲートにする（NGなら3ラウンド規律で再生成）
+        const body = base ? base.paragraphs.join("\n\n") : "";
+        cand = base && checkListeningWordCount(body).pass && checkSpokenRegister(body, spokenBand).pass ? base : null;
       }
       if (!cand && attempt < 3) log(`  ${deps.domain}/${deps.band}: 検証NG — 再生成します(${attempt}/3)`);
     }

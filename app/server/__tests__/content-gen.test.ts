@@ -10,6 +10,7 @@ import {
   contentToMarkdown, genSentences, genTopics, genScenarios, genTopicsBand, SCENARIO_BAND_PLAN, TOPIC_BAND_PLAN,
   deprecatedContentCommandMessage, validateGeneratedHints, validateNewSentences, validateTopicCandidate,
   genTopicsForTarget, genScenariosForTarget,
+  NEAR_DUPLICATE_JACCARD_THRESHOLD, normalizedTokenSet, tokenJaccard,
 } from "../content-gen";
 import { loadListening, parseListeningFile } from "../listening";
 import {
@@ -22,6 +23,7 @@ import {
 } from "../content-gen";
 import { loadBundledExplanations } from "../sentences";
 import { pickWorstCategories, type CategoryRate } from "../srs-analytics";
+import { LISTENING_WORD_RANGE } from "../spoken-register-check";
 import { SPOKEN_STYLE_BLOCK, spokenStyleFor } from "../spoken-style";
 
 /** 呼び出し順にレスポンスを返す fake ClaudeRunner（実Claude呼び出し・実content/への書き込みは一切しない） */
@@ -59,9 +61,16 @@ function seedSrs(db: ReturnType<typeof openDb>, no: number, lastGrade: string): 
  * intermediate(14語/0.2)・advanced(16語/0.2) いずれの帯でもPASSするよう、短文+高短縮形率にしてある
  * （genListeningForTargetがcheckSpokenRegisterをhard-failゲートするようになったため、構造検証だけを
  * 通す旧フィクスチャ("First paragraph of X.")は0%短縮形でFAILし、テストが意図せずthrowするようになった）。
+ * さらに #218 で LISTENING_WORD_RANGE(250-450語) がhard-failゲートに加わったため、7〜9語/文×36文＝
+ * 270語前後（レンジ内）になるよう文を繰り返して合成する（短いidでも250語を下回らない本数に較正済み）。
  */
 function passingListeningParagraphs(id: string): string[] {
-  return [`I'm glad to talk about ${id} today.`, `It's a simple topic, so let's get started.`];
+  const sentences = [
+    `I'm glad to talk about ${id} today.`,
+    "It's a simple topic, so let's get started.",
+  ];
+  const paragraph = Array.from({ length: 6 }, (_, i) => sentences[i % 2]).join(" ");
+  return Array.from({ length: 6 }, () => paragraph);
 }
 
 const EXISTING: Sentence[] = [
@@ -120,6 +129,64 @@ describe("content-gen / validateNewSentences", () => {
     ] as Sentence[];
     const cands = [{ domain: "daily", en: "I test this daily.", ja: "", note: "現在形" }];
     expect(validateNewSentences(cands, existing, 1, "現在形")).toBeNull();
+  });
+
+  // #219: 正規化後の完全一致だけでは冠詞・所有格1語違い等の近似重複が素通りするため、
+  // 正規化トークンJaccard(>=NEAR_DUPLICATE_JACCARD_THRESHOLD)の近似重複検定を追加した。
+  // 実データの既知準重複ペア（sentences300.json）を検出できることをそのままの文面で実証する。
+  test("既知の準重複ペア #171≒#332（the/my 1語違い・Jaccard 0.80）は候補全体を不採用", () => {
+    const existing: Sentence[] = [
+      { no: 171, category_no: 18, category: "疑問文・間接疑問", domain: "daily", en: "Would you mind watering the plants while I'm away?", ja: "留守の間、植物に水をやってもらえますか。", note: "" },
+    ];
+    const cands = [{ domain: "daily", en: "Would you mind watering my plants while I'm away?", ja: "留守の間、私の植物に水をやってもらえますか。", note: "依頼表現" }];
+    expect(validateNewSentences(cands, existing, 26, "会話機能: 依頼する")).toBeNull();
+  });
+
+  test("既知の準重複ペア #175≒#260（語句付加のみ・Jaccard 0.818）は候補全体を不採用", () => {
+    const existing: Sentence[] = [
+      { no: 175, category_no: 18, category: "疑問文・間接疑問", domain: "business", en: "I was wondering if you could review my draft.", ja: "下書きを見ていただけないかと思いまして。", note: "" },
+    ];
+    const cands = [{ domain: "business", en: "I was wondering if you could review my draft before Friday.", ja: "金曜までに下書きを見ていただけないかと思いまして。", note: "丁寧な依頼" }];
+    expect(validateNewSentences(cands, existing, 25, "機能: 依頼・許可・提案")).toBeNull();
+  });
+
+  test("候補バッチ内部の準重複（既存とは重複しない2文どうし）も不採用にする", () => {
+    const cands = [
+      { domain: "daily", en: "I was wondering if you could help me move tomorrow.", ja: "明日の引っ越しを手伝ってもらえないかな。", note: "" },
+      { domain: "business", en: "I was wondering if you could help me move today.", ja: "今日の引っ越しを手伝ってもらえないかな。", note: "" },
+    ];
+    expect(validateNewSentences(cands, EXISTING, 1, "現在形")).toBeNull();
+  });
+
+  test("閾値未満(Jaccard<0.8)の類似文は過剰拒否しない（較正: The server went down. vs The server is down. = 0.6）", () => {
+    const cands = [{ domain: "it", en: "The server is down.", ja: "サーバが落ちている", note: "現在形" }];
+    expect(validateNewSentences(cands, EXISTING, 1, "現在形")).not.toBeNull();
+  });
+});
+
+describe("content-gen / tokenJaccard・normalizedTokenSet（近似重複検定の純ロジック・#219）", () => {
+  test("既知ペアの実測Jaccard: #171/#332=0.80・#175/#260≈0.818（どちらも閾値0.8以上）", () => {
+    const j1 = tokenJaccard(
+      normalizedTokenSet("Would you mind watering the plants while I'm away?"),
+      normalizedTokenSet("Would you mind watering my plants while I'm away?"),
+    );
+    const j2 = tokenJaccard(
+      normalizedTokenSet("I was wondering if you could review my draft."),
+      normalizedTokenSet("I was wondering if you could review my draft before Friday."),
+    );
+    expect(j1).toBeCloseTo(0.8, 5);
+    expect(j2).toBeCloseTo(9 / 11, 5);
+    expect(j1).toBeGreaterThanOrEqual(NEAR_DUPLICATE_JACCARD_THRESHOLD);
+    expect(j2).toBeGreaterThanOrEqual(NEAR_DUPLICATE_JACCARD_THRESHOLD);
+  });
+
+  test("フレーム正規化: 大小文字・句読点・アポストロフィの違いはトークン集合に影響しない", () => {
+    expect(tokenJaccard(normalizedTokenSet("I'm away, OK?"), normalizedTokenSet("im AWAY ok"))).toBe(1);
+  });
+
+  test("完全に異なる文は0、両方空は1（完全一致扱い）", () => {
+    expect(tokenJaccard(normalizedTokenSet("Good morning."), normalizedTokenSet("See you later."))).toBe(0);
+    expect(tokenJaccard(normalizedTokenSet(""), normalizedTokenSet(""))).toBe(1);
   });
 });
 
@@ -914,6 +981,40 @@ describe("content-gen / genListeningForTarget（帯×domain×count・--fill-cove
     rmSync(dir, { recursive: true, force: true });
   });
 
+  // #218: 生成プロンプトは「roughly 250-450 words」を指示するが総語数を検証するゲートが無く、
+  // 実生成42本全て(159〜265語)が下限未達のまま素通りした。LISTENING_WORD_RANGEをhard-failゲートに
+  // 追加する（既存同梱42本の長尺化・再生成は#220の後続バッチ）。
+  test("語数がLISTENING_WORD_RANGE下限未満の候補は検証NGとして再生成される", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "gen-lt-words-"));
+    // 構造・口語レジスターはPASSするが語数(8語)が250語未満
+    const tooShort = listeningTargetJson("too-short", {
+      paragraphs: ["I'm glad to be here now.", "It's a nice day."],
+    });
+    const good = listeningTargetJson("long-enough");
+    const logs: string[] = [];
+    await genListeningForTarget({
+      runner: makeRunner([tooShort, good]),
+      listeningDir: dir, domain: "daily", band: "foundation", count: 1, dry: false, log: (s) => logs.push(s),
+    });
+    const items = loadListening(dir);
+    expect(items).toHaveLength(1);
+    expect(items[0].id).toBe("long-enough");
+    expect(logs.some((l) => l.includes("検証NG"))).toBe(true);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("systemPromptの語数指示はLISTENING_WORD_RANGEと単一ソースで連動する", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "gen-lt-words-prompt-"));
+    const seen: Array<{ systemPrompt?: string }> = [];
+    const runner: ClaudeRunner = async (_p, _r, opts) => {
+      seen.push({ systemPrompt: opts?.systemPrompt });
+      return { text: listeningTargetJson("t-prompt"), sessionId: "fake" };
+    };
+    await genListeningForTarget({ runner, listeningDir: dir, domain: "daily", band: "foundation", count: 1, dry: true });
+    expect(seen[0].systemPrompt).toContain(`roughly ${LISTENING_WORD_RANGE.min}-${LISTENING_WORD_RANGE.max} words`);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
   // T3差し戻し(2回目・v0.25): it×beginner が「手順書調」に収束したため追加したマニュアル調回避の指示。
   // v0.26で development(intermediate)帯が新設されたため、そちらにも適用されることを確認する。
   test("itドメインはfoundation/development/fluencyの全帯でマニュアル調回避の指示を含み、daily/businessは不変", async () => {
@@ -1250,12 +1351,14 @@ describe("content-gen / spoken function 例文", () => {
     function goodBatch(prefix: string, n = 6): string {
       // 全文に prefix(カテゴリ名) を含める: カテゴリ間で文面が重複するとnormalizeEnの既存重複チェックに
       // 弾かれてしまうため（validateNewSentencesは既存全文=all累積分と正規化重複しないことを要求する）。
-      // 各文をほぼ同じ長さ(7-9語)・短縮形ちょうど1個にそろえてあるため、n=4/6どちらにスライスしても
+      // 各文をほぼ同じ長さ(7-8語)・短縮形ちょうど1個にそろえてあるため、n=4/6どちらにスライスしても
       // 平均文長・短縮形率の閾値(foundation: 11語/0.2)を安定して満たす。
+      // #219の近似重複検定(Jaccard>=0.8)導入後は、prefixだけ違う同型文がカテゴリ間で0.8に達しないよう
+      // 各テンプレートを8トークン以下に抑えている（1語差なら (n-1)/(n+1)<0.8 ⇔ n<9）。
       const templates = [
         `I can't quite catch that about the ${prefix}.`,
         `So you're saying the ${prefix} is done, right?`,
-        `Sorry, I can't make it to the ${prefix} today.`,
+        `Sorry, I can't join the ${prefix} today.`,
         `Oh, that's great news about the ${prefix}!`,
         `We're glad to hear about the ${prefix} today.`,
         `It's nice of you to explain the ${prefix}.`,
@@ -1449,9 +1552,11 @@ describe("content-gen / spoken function 例文", () => {
       writeFileSync(file, JSON.stringify(EXISTING5, null, 2) + "\n");
 
       function goodBatchFor(band: string, fn: string): string {
+        // #219の近似重複検定対応: 連番iだけ違う同型文がJaccard 0.8に達しないよう7トークンに抑える
+        // （1語差なら (n-1)/(n+1)<0.8 ⇔ n<9）。
         return JSON.stringify({ sentences: Array.from({ length: 6 }, (_, i) => ({
           domain: (["daily", "business", "it"] as const)[i % 3],
-          en: `I can't ${fn} ${band} thing ${i}, sorry about that!`,
+          en: `I can't ${fn} ${band} thing ${i}, sorry!`,
           ja: `日本語${band}${fn}${i}`, note: "",
         })) });
       }

@@ -18,6 +18,7 @@ import {
   topicAssetCacheKey,
   resolvePrepPack,
   resolveModelTalk,
+  hasOfflineModelTalk,
   genTopicAssetSlot,
   genTopicAssets,
 } from "../topic-assets";
@@ -191,6 +192,63 @@ describe("topic-assets / lookupBundledTopicAsset（fs統合・3層の第1層）"
     expect(lookupBundledTopicAsset(assetsDir, topicsDir, "t1", 1)).toBeNull();
     rmSync(topicsDir, { recursive: true, force: true });
     rmSync(assetsDir, { recursive: true, force: true });
+  });
+});
+
+// #192: LLM未導入（health.llmReady=false）のとき、シャドーイング候補を「LLMなしで解決できるtopic」に
+// 限定するための判定。resolveModelTalk と同じ解決順（同梱JSON→DBキャッシュ）を判定だけ行い、
+// 第3層（実行時生成）には決して進まない。
+describe("topic-assets / hasOfflineModelTalk（LLMなしで解決できるかの判定・#192）", () => {
+  function makeDirs(topicContent = "---\nid: t1\n---\nTalk about:\n- x\n") {
+    const topicsDir = mkdtempSync(path.join(tmpdir(), "ta-off-topics-"));
+    const assetsDir = mkdtempSync(path.join(tmpdir(), "ta-off-assets-"));
+    writeFileSync(path.join(topicsDir, "t1.md"), topicContent);
+    return { topicsDir, assetsDir, topicContent, cleanup: () => {
+      rmSync(topicsDir, { recursive: true, force: true });
+      rmSync(assetsDir, { recursive: true, force: true });
+    } };
+  }
+
+  test("同梱JSONに該当stageのmodelTalkがあればtrue", () => {
+    const { topicsDir, assetsDir, topicContent, cleanup } = makeDirs();
+    writeFileSync(path.join(assetsDir, "t1.json"), JSON.stringify({
+      topicId: "t1", sourceHash: computeSourceHash(topicContent), promptVersion: TOPIC_ASSET_PROMPT_VERSION,
+      byStage: { "3": { modelTalk: { text: "hello" } } },
+    }));
+    const cache = makeTopicAssetCacheStore(openDb(":memory:"));
+    expect(hasOfflineModelTalk("t1", 3, { assetsDir, topicsDir, cache })).toBe(true);
+    // 同梱に無いstageはfalse（帯外のstageでは解決できない）
+    expect(hasOfflineModelTalk("t1", 4, { assetsDir, topicsDir, cache })).toBe(false);
+    cleanup();
+  });
+
+  test("同梱が無くてもDBキャッシュにあればtrue", () => {
+    const { topicsDir, assetsDir, topicContent, cleanup } = makeDirs();
+    const cache = makeTopicAssetCacheStore(openDb(":memory:"));
+    // #206以降のキャッシュキーは topicId|sourceHash|promptVersion の複合キー
+    cache.saveModelTalk(topicAssetCacheKey("t1", computeSourceHash(topicContent)), 3, "cached talk");
+    expect(hasOfflineModelTalk("t1", 3, { assetsDir, topicsDir, cache })).toBe(true);
+    expect(hasOfflineModelTalk("t1", 4, { assetsDir, topicsDir, cache })).toBe(false);
+    cleanup();
+  });
+
+  test("同梱がstale（topic内容変更）でキャッシュも無ければfalse", () => {
+    const { topicsDir, assetsDir, topicContent, cleanup } = makeDirs();
+    writeFileSync(path.join(assetsDir, "t1.json"), JSON.stringify({
+      topicId: "t1", sourceHash: computeSourceHash(topicContent), promptVersion: TOPIC_ASSET_PROMPT_VERSION,
+      byStage: { "3": { modelTalk: { text: "hello" } } },
+    }));
+    writeFileSync(path.join(topicsDir, "t1.md"), "changed content");
+    const cache = makeTopicAssetCacheStore(openDb(":memory:"));
+    expect(hasOfflineModelTalk("t1", 3, { assetsDir, topicsDir, cache })).toBe(false);
+    cleanup();
+  });
+
+  test("どの層にも無ければfalse", () => {
+    const { topicsDir, assetsDir, cleanup } = makeDirs();
+    const cache = makeTopicAssetCacheStore(openDb(":memory:"));
+    expect(hasOfflineModelTalk("t1", 3, { assetsDir, topicsDir, cache })).toBe(false);
+    cleanup();
   });
 });
 
