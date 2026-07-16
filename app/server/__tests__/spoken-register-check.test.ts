@@ -13,6 +13,8 @@ import {
   WRITTEN_VOCAB_BAN_LIST,
   THRESHOLDS_BY_BAND,
   PREP_CHUNK_WORD_RANGE,
+  LISTENING_WORD_RANGE,
+  checkListeningWordCount,
 } from "../spoken-register-check";
 import { loadContent } from "../content";
 import { loadListening } from "../listening";
@@ -425,5 +427,30 @@ describe("checkScenarioStarter: 実データ較正（実在するシナリオ起
       .map((starter) => ({ starter, result: checkScenarioStarter(starter) }))
       .filter(({ result }) => !result.pass);
     expect(failures).toEqual([]);
+  });
+});
+
+// #218: 生成プロンプトの語数指示(roughly 250-450 words)を機械検証するゲート。
+// 既存同梱42本(159〜265語)は下限未達のため、CLIでは --enforce-word-range 指定時のみ判定に含める
+// （生成経路 genListeningForTarget では常時hard-fail）。再生成は#220の後続バッチ。
+describe("checkListeningWordCount（多聴の総語数レンジ・#218）", () => {
+  const words = (n: number) => Array.from({ length: n }, (_, i) => `word${i}`).join(" ");
+
+  test("下限(250語)未満はFAILし、理由に実語数とレンジが入る", () => {
+    const result = checkListeningWordCount(words(LISTENING_WORD_RANGE.min - 1));
+    expect(result.pass).toBe(false);
+    expect(result.wordCount).toBe(LISTENING_WORD_RANGE.min - 1);
+    expect(result.reasons.some((r) => r.includes(String(LISTENING_WORD_RANGE.min)))).toBe(true);
+  });
+
+  test("上限(450語)超はFAIL", () => {
+    const result = checkListeningWordCount(words(LISTENING_WORD_RANGE.max + 1));
+    expect(result.pass).toBe(false);
+    expect(result.reasons.some((r) => r.includes(String(LISTENING_WORD_RANGE.max)))).toBe(true);
+  });
+
+  test("レンジ内（両端含む）はPASS", () => {
+    expect(checkListeningWordCount(words(LISTENING_WORD_RANGE.min)).pass).toBe(true);
+    expect(checkListeningWordCount(words(LISTENING_WORD_RANGE.max)).pass).toBe(true);
   });
 });

@@ -166,6 +166,33 @@ export function checkSpokenRegister(text: string, band: SpokenBand): SpokenRegis
 }
 
 /**
+ * 多聴（listening）1本あたりの総語数レンジ（#218）。
+ * 生成プロンプト（content-gen.genListeningForTarget の「roughly 250-450 words」）と単一ソースで連動させ、
+ * checkListeningWordCount で機械検証する。生成経路では常時 hard-fail ゲート。
+ * 既存同梱42本（159〜265語）はこの下限に満たないものが大半のため、CLI（scripts/check-spoken-register.ts）
+ * では --enforce-word-range 指定時のみ合否判定に含める（既存素材の長尺化・再生成は #218/#220 の後続バッチ。
+ * AI生成教材の手修正は禁止 — 再生成完了後に既定で強制する運用へ切り替える）。
+ */
+export const LISTENING_WORD_RANGE = { min: 250, max: 450 } as const;
+
+export type ListeningWordCountResult = { pass: boolean; reasons: string[]; wordCount: number };
+
+/** 多聴本文（frontmatter除去後の英文全体）の総語数がレンジ内かを検証する */
+export function checkListeningWordCount(text: string): ListeningWordCountResult {
+  const wordCount = countWords(text);
+  const reasons: string[] = [];
+  if (wordCount < LISTENING_WORD_RANGE.min) {
+    reasons.push(
+      `語数 ${wordCount} 語が下限 ${LISTENING_WORD_RANGE.min} 語未満です（生成プロンプトの想定ボリューム ${LISTENING_WORD_RANGE.min}-${LISTENING_WORD_RANGE.max} 語に未達）`,
+    );
+  }
+  if (wordCount > LISTENING_WORD_RANGE.max) {
+    reasons.push(`語数 ${wordCount} 語が上限 ${LISTENING_WORD_RANGE.max} 語を超えています`);
+  }
+  return { pass: reasons.length === 0, reasons, wordCount };
+}
+
+/**
  * model talk（連続モノローグ）の口語レジスター検証。
  * 設計doc §5: 「listening / model talk（連続モノローグ）: spoken-register 3指標を hard fail（帯別閾値）」
  * — ロジックは checkSpokenRegister と完全に同一（同じ3指標・同じ帯別閾値）。model talk 生成パイプライン

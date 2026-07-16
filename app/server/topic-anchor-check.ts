@@ -150,3 +150,79 @@ export function checkTopicAnchor(candidate: TopicAnchorCandidate): TopicAnchorCh
 
   return { pass: reasons.length === 0, reasons };
 }
+
+/**
+ * #182: アンカー（experienceAnchor/memoryCue/commonObjectsOrActions）未整備のまま4/3/2ローテーションに
+ * 入っている既存お題（2026-07時点の26件）。generate-content の生成ゲート（checkTopicAnchor）導入前に
+ * 追加された教材で、grandfather 扱いとして auditTopicAnchors の violation から除外する。
+ * 新規に追加するお題はこの一覧に載せないこと — アンカー無しで追加すると CLI ゲート
+ * （scripts/check-topic-anchors.ts）が violation として非ゼロ終了する。
+ * この26件は #182 の再生成バッチ（既存の生成・検証手順による再生成 — 手修正禁止）でアンカー完備へ
+ * 置き換え、完了したものからこの一覧を縮めて最終的に空にする。
+ */
+export const LEGACY_UNANCHORED_TOPIC_IDS: readonly string[] = [
+  "abac-okta",
+  "ai-agent-governance",
+  "ai-data-governance",
+  "blog-workflow",
+  "corporate-it",
+  "desk-tools",
+  "explaining-delay",
+  "file-backup-habit",
+  "food-restaurants",
+  "health-routine",
+  "hobbies-recent",
+  "incident-response",
+  "meeting-facilitation",
+  "my-career",
+  "recent-article",
+  "recruiting",
+  "schedule-negotiation",
+  "small-talk-work",
+  "team-chat-work",
+  "team-intro",
+  "tech-selection",
+  "this-week-work",
+  "travel-hometown",
+  "weekend-plans",
+  "work-email-habits",
+  "zero-trust",
+];
+
+export type TopicAnchorAuditTopic = {
+  id: string;
+  title: string;
+  experienceAnchor?: string;
+  memoryCue?: string;
+  commonObjectsOrActions?: string[];
+};
+
+export type TopicAnchorAudit = {
+  /** checkTopicAnchor をPASSした（アンカー完備・検証済み）お題のid */
+  verified: string[];
+  /** アンカー未整備だが legacy 一覧で grandfather されているお題のid（#182の再生成対象） */
+  legacyUnanchored: string[];
+  /** legacy 一覧に無いのに検証FAILしたお題（新規追加のアンカー欠落・破損 — ゲートの非ゼロ終了対象） */
+  violations: Array<{ id: string; reasons: string[] }>;
+};
+
+/**
+ * 4/3/2候補（content/topics 全件）の「既知の内容」アンカー検証（#182・scripts/check-topic-anchors.ts の本体）。
+ * menu.ts は全お題を通常・クイック双方の4/3/2候補にするため、検証対象はディレクトリ全件と一致する。
+ */
+export function auditTopicAnchors(topics: ReadonlyArray<TopicAnchorAuditTopic>): TopicAnchorAudit {
+  const legacy = new Set(LEGACY_UNANCHORED_TOPIC_IDS);
+  const audit: TopicAnchorAudit = { verified: [], legacyUnanchored: [], violations: [] };
+  for (const topic of topics) {
+    const result = checkTopicAnchor({
+      title: topic.title,
+      experienceAnchor: topic.experienceAnchor,
+      memoryCue: topic.memoryCue,
+      commonObjectsOrActions: topic.commonObjectsOrActions,
+    });
+    if (result.pass) audit.verified.push(topic.id);
+    else if (legacy.has(topic.id)) audit.legacyUnanchored.push(topic.id);
+    else audit.violations.push({ id: topic.id, reasons: result.reasons });
+  }
+  return audit;
+}

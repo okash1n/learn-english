@@ -5,13 +5,13 @@ import { synthesize, DEFAULT_TTS_BASE_URL } from "./tts";
 import { converseTurn, applyLlmRoleSettings, runnerFor, CLAUDE_EXECUTABLE_PATH } from "./converse";
 import { checkHealth } from "./health";
 import { buildQuickMenu, buildTodayMenu, invalidateTodayMenuCache } from "./menu";
-import { findScenario, findTopic, loadContent } from "./content";
+import { findScenario, findTopic, loadContent, type ContentItem } from "./content";
 import { generateAeFeedback, generateFixExplanation, generateModelTalk, generatePhraseHints, generatePrepPack, generateReflection, generateSentenceExplanation, generateTalkExplanation, generateUtteranceTranslation, roleplayPrompt } from "./coach";
 import { fttOutputSignals, listPracticeDays, readSessionEvents } from "./session-log";
 import { readSettings, writeSettings } from "./settings";
 import { makeFetchHandler, type RouteDeps } from "./routes";
 import { makeLibraryStore, makeTalkExplainCache, makeTranslationCache, openDb } from "./db";
-import { makeTopicAssetCacheStore, resolveModelTalk, resolvePrepPack } from "./topic-assets";
+import { hasOfflineModelTalk, makeTopicAssetCacheStore, resolveModelTalk, resolvePrepPack } from "./topic-assets";
 import { loadSentences, makeSentenceStore } from "./sentences";
 import { makeChunkStore } from "./chunks";
 import { makeProgressStore } from "./progress-store";
@@ -170,6 +170,20 @@ const assembleMonthData = makeAssembleMonthData({
   placementLatest: () => placementStore.latest(),
 });
 
+/**
+ * #192: LLM未導入（health.llmReady=false）のときだけ、シャドーイング素材の候補を
+ * 「同梱topic-assets または DBキャッシュで現stageのモデルトークをLLMなしで解決できるtopic」に限定する
+ * フィルタを返す。llmReady=true なら undefined（従来どおり全topicが候補）。
+ * llmNotice（クライアント）の「シャドーイングは同梱教材のお題が自動で選ばれる」という案内と対になる実挙動。
+ */
+function shadowingTopicFilterForNow(level: number): ((topic: ContentItem) => boolean) | undefined {
+  const { llmReady } = checkHealth({ llmSettings: llmSettingsStore.get(), env: runtimeHealthEnv() });
+  if (llmReady) return undefined;
+  const stage = stageOf(level);
+  return (topic) =>
+    hasOfflineModelTalk(topic.id, stage, { assetsDir: TOPIC_ASSETS_DIR, topicsDir: TOPICS_DIR, cache: topicAssetCacheStore });
+}
+
 const realDeps: RouteDeps = {
   transcribe: transcribeAudio,
   synthesize: (text, opts = {}) => {
@@ -189,7 +203,10 @@ const realDeps: RouteDeps = {
   recordingsDir: RECORDINGS_DIR,
   staticDir: CLIENT_DIST_DIR,
   pocLogFile: POC_STT_LOG_FILE,
-  buildMenu: (minutes) => buildTodayMenu(minutes, { level: progressStore.getLevel() }),
+  buildMenu: (minutes) => {
+    const level = progressStore.getLevel();
+    return buildTodayMenu(minutes, { level, shadowingTopicFilter: shadowingTopicFilterForNow(level) });
+  },
   aeFeedback: (args) => generateAeFeedback({ ...args, stage: stageOf(progressStore.getLevel()) }, runnerFor("coaching")),
   modelTalk: async (topicId) => {
     const topic = findTopic(topicId);
@@ -221,7 +238,12 @@ const realDeps: RouteDeps = {
       () => generatePrepPack({ topicTitle: topic.title, hints: topic.hints, chunkCount: p.chunkCount, hintLang: p.hintLang, stage }, runnerFor("generation")),
     );
   },
-  buildQuick: (kind, domain) => buildQuickMenu(kind, { level: progressStore.getLevel(), domain }),
+  buildQuick: (kind, domain) => {
+    const level = progressStore.getLevel();
+    // shadowing 以外のクイックドリルはフィルタを使わないため、health判定ごと省略する
+    const shadowingTopicFilter = kind === "shadowing" ? shadowingTopicFilterForNow(level) : undefined;
+    return buildQuickMenu(kind, { level, domain, shadowingTopicFilter });
+  },
   practiceDays: () => listPracticeDays(),
   getSettings: () => readSettings(),
   saveSettings: (s) => writeSettings(s),

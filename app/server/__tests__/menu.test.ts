@@ -292,6 +292,29 @@ describe("buildTodayMenu", () => {
     }
   });
 
+  // #192: 60分メニューのシャドーイングブロック（b4）にも quick と同じ注入フィルタを適用する
+  test("shadowingTopicFilter: b4のシャドーイング素材がフィルタ通過topicに限定される", () => {
+    const { topicsDir, scenariosDir, usageFile, menuCacheDir } = makeContentDirs();
+    const deps: MenuDeps = {
+      topicsDir, scenariosDir, usageFile, menuCacheDir, today: JULY5,
+      shadowingTopicFilter: (t) => t.id === "t3",
+    };
+    const m = buildTodayMenu(60, deps);
+    const shadowing = m.blocks.find((b) => b.kind === "shadowing")!;
+    expect((shadowing.params.topic as { id: string }).id).toBe("t3");
+  });
+
+  test("shadowingTopicFilter: 候補が空なら従来のプレビュー選定へフォールバックする", () => {
+    const { topicsDir, scenariosDir, usageFile, menuCacheDir } = makeContentDirs();
+    const deps: MenuDeps = {
+      topicsDir, scenariosDir, usageFile, menuCacheDir, today: JULY5,
+      shadowingTopicFilter: () => false,
+    };
+    const m = buildTodayMenu(60, deps);
+    const shadowing = m.blocks.find((b) => b.kind === "shadowing")!;
+    expect((shadowing.params.topic as { id: string }).id).toBe("t2");
+  });
+
   test("各ブロックが titleKey を持ち、topic 系は topicTitle を返す（title は従来の日本語のまま）", () => {
     const dirs = makeContentDirs();
     const menu = buildTodayMenu(60, { ...dirs, today: JULY5 });
@@ -367,6 +390,40 @@ describe("buildQuickMenu", () => {
 
   test("QUICK_KINDS は4種", () => {
     expect(QUICK_KINDS).toEqual(["warmup", "ftt-mini", "roleplay", "shadowing"]);
+  });
+
+  // #192: LLM未導入時、シャドーイング素材を「同梱/キャッシュ済みモデルトークをLLMなしで解決できるtopic」
+  // に限定するための注入フィルタ。候補が空になる場合は従来の全候補へフォールバックする（安全弁）。
+  test("shadowing: shadowingTopicFilterがtrueを返すtopicだけが候補になる", () => {
+    const { topicsDir, scenariosDir, usageFile, menuCacheDir } = makeContentDirs();
+    const deps: MenuDeps = {
+      topicsDir, scenariosDir, usageFile, menuCacheDir, today: JULY5,
+      shadowingTopicFilter: (t) => t.id === "t3",
+    };
+    const m = buildQuickMenu("shadowing", deps);
+    expect((m.blocks[0].params.topic as { id: string }).id).toBe("t3");
+    const state = JSON.parse(readFileSync(usageFile, "utf8")) as RotationState;
+    expect(state.usage.t3).toEqual(["2026-07-05"]);
+  });
+
+  test("shadowing: shadowingTopicFilterで候補が空なら従来の全candidateへフォールバックする", () => {
+    const { topicsDir, scenariosDir, usageFile, menuCacheDir } = makeContentDirs();
+    const deps: MenuDeps = {
+      topicsDir, scenariosDir, usageFile, menuCacheDir, today: JULY5,
+      shadowingTopicFilter: () => false,
+    };
+    const m = buildQuickMenu("shadowing", deps);
+    expect((m.blocks[0].params.topic as { id: string }).id).toBe("t1");
+  });
+
+  test("warmup / ftt-mini: shadowingTopicFilterは影響しない（シャドーイング専用のフィルタ）", () => {
+    const { topicsDir, scenariosDir, usageFile, menuCacheDir } = makeContentDirs();
+    const deps: MenuDeps = {
+      topicsDir, scenariosDir, usageFile, menuCacheDir, today: JULY5,
+      shadowingTopicFilter: (t) => t.id === "t3",
+    };
+    expect((buildQuickMenu("warmup", deps).blocks[0].params.topic as { id: string }).id).toBe("t1");
+    expect((buildQuickMenu("ftt-mini", deps).blocks[0].params.topic as { id: string }).id).toBe("t2");
   });
 
   test("roleplay: domain 指定でそのドメインのシナリオだけが選ばれ、カーソルは動かない", () => {

@@ -40,6 +40,9 @@ verify_core() {
 
   log "spoken register"
   (cd "$REPO_DIR" && bun scripts/check-spoken-register.ts)
+
+  log "topic anchors"
+  (cd "$REPO_DIR" && bun scripts/check-topic-anchors.ts)
 }
 
 remember_dir() {

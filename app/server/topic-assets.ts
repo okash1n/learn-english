@@ -223,6 +223,18 @@ export async function resolvePrepPack(
   return generated;
 }
 
+/**
+ * LLM実行なしで model talk を解決できるか（3層のうち同梱JSON層 or DBキャッシュ層に該当 topic×stage 分が
+ * あるか）を判定する。resolveModelTalk と同じ解決順の「判定だけ」を行い、第3層（実行時生成）には進まない。
+ * #192: LLM未導入（health.llmReady=false）のとき、メニューのシャドーイング候補を「案内どおり実際に使える
+ * topic」へ限定するために使う（未同梱topicが選ばれて技術エラーの行き止まりになるのを防ぐ）。
+ */
+export function hasOfflineModelTalk(topicId: string, stage: number, deps: ResolveTopicAssetDeps): boolean {
+  const bundled = lookupBundledTopicAsset(deps.assetsDir, deps.topicsDir, topicId, stage);
+  if (bundled?.modelTalk) return true;
+  return deps.cache.getModelTalk(topicId, stage) !== null;
+}
+
 /** 3層フォールバック（model talk版）: 同梱 → DBキャッシュ → generate（成功時はDBへwrite-through）。 */
 export async function resolveModelTalk(
   topicId: string, stage: number, deps: ResolveTopicAssetDeps, generate: () => Promise<TopicAssetModelTalk>,

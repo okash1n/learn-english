@@ -113,7 +113,11 @@ export function ShadowingScreen(props: {
       {state === "audio" && <p className="text-muted">{t.generatingAudio}</p>}
       {state === "error" && (
         <Banner kind="error" action={<Button onClick={prepare}>{t.retry}</Button>}>
-          {errorMsg}
+          <span className="block">{errorMsg}</span>
+          {/* #192: 同梱アセットの無いお題はLLM実行時生成が必要なため、行き止まりにせず設定への復旧導線を出す */}
+          <span className="block text-sm text-muted">
+            {t.llmSetupHint} <a href="#/settings">{t.openLlmSettings}</a>
+          </span>
         </Banner>
       )}
       {(state === "ready" || state === "playing") && (
