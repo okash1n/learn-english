@@ -161,6 +161,17 @@ describe("assessment / generateMonthlyReport", () => {
     const fake: ClaudeRunner = async () => ({ text: "   \n ", sessionId: "s" });
     expect(await generateMonthlyReport({} as never, fake)).toBeNull();
   });
+
+  test("signal を runner の opts.signal へ伝播する（#189）", async () => {
+    const captured: Array<AbortSignal | undefined> = [];
+    const fake: ClaudeRunner = async (_prompt, _resumeId, opts) => {
+      captured.push(opts?.signal);
+      return { text: "レポート", sessionId: "s" };
+    };
+    const ac = new AbortController();
+    await generateMonthlyReport({} as never, fake, ac.signal);
+    expect(captured[0]).toBe(ac.signal);
+  });
 });
 
 describe("assessment / makeAssessmentStore", () => {
