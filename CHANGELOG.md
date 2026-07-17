@@ -4,6 +4,21 @@
 
 ## [Unreleased]
 
+## [0.31.0] - 2026-07-17
+
+### Added
+
+- 学習ガイド画面を追加した。サイドバー「自主練」の一番上とホームの「はじめての方へ」から、1日の型・メニューの役割マップ（聞く→覚える→話す）・レベル帯別のおすすめ・順番の研究根拠を確認できる（すべて提案・情報表示のみ）
+- ホームのクイックドリルに暗記例文390への導線カードを追加し、復習予定の枚数を情報として表示するようにした
+
+### Changed
+
+- ホームの「迷ったら、これから（任意）」は、復習期限の暗記例文・マイフレーズがある日は「暗記例文 — 復習予定 N枚（3〜5分）」を提案し、0枚の日は従来どおり音読ウォームアップを提案するようになった
+
+### Fixed
+
+- サイドバーの上でスクロールしたとき、本文まで一緒にスクロールしてしまう問題を修正した
+
 ## [0.30.1] - 2026-07-17
 
 ### Fixed
@@ -596,7 +611,8 @@
 - 学習データ（録音・トランスクリプト・進捗・DB・キャッシュ）は `data/` のローカルファイルで、リポジトリにコミットされない
 - 音声データはマシン外に出ない（外部送信はテキストのみ: Claude への発話テキスト、OpenAI TTS への応答テキスト）
 
-[Unreleased]: https://github.com/btajp/solo-eikaiwa/compare/v0.30.1...HEAD
+[Unreleased]: https://github.com/btajp/solo-eikaiwa/compare/v0.31.0...HEAD
+[0.31.0]: https://github.com/btajp/solo-eikaiwa/compare/v0.30.1...v0.31.0
 [0.30.1]: https://github.com/btajp/solo-eikaiwa/compare/v0.30.0...v0.30.1
 [0.30.0]: https://github.com/btajp/solo-eikaiwa/compare/v0.29.3...v0.30.0
 [0.29.3]: https://github.com/btajp/solo-eikaiwa/compare/v0.29.2...v0.29.3
